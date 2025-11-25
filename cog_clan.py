@@ -40,6 +40,54 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         # seznam admin panelů: guild_id -> [(channel_id, message_id), ...]
         self.admin_panels: Dict[int, List[Tuple[int, int]]] = {}
 
+    def _normalize_ticket_base(self, base: str) -> str:
+        safe_base = base.strip() or "ticket"
+        safe_base = safe_base.lower().replace(" ", "-")
+        return safe_base
+
+    def build_ticket_name(self, base: str, status: str = "open") -> str:
+        emoji_map = {
+            "accepted": "🟢",
+            "rejected": "🔴",
+        }
+        emoji = emoji_map.get(status, "🟠")
+        normalized = self._normalize_ticket_base(base)
+        name = f"{emoji}clan-{normalized}"
+        return name[:90]
+
+    def _get_ticket_base_from_app(
+        self, app: Dict[str, Any], guild: discord.Guild
+    ) -> str:
+        if app.get("roblox_nick"):
+            return str(app["roblox_nick"])
+
+        member = guild.get_member(app["user_id"])
+        if member is not None:
+            return member.display_name
+
+        return "ticket"
+
+    async def rename_ticket_channel(
+        self,
+        channel: discord.TextChannel,
+        base: str,
+        status: str,
+    ):
+        new_name = self.build_ticket_name(base, status)
+        if channel.name == new_name:
+            return
+
+        reason_map = {
+            "accepted": "Přihláška přijata – přejmenování ticketu",
+            "rejected": "Přihláška zamítnuta – přejmenování ticketu",
+        }
+        reason = reason_map.get(status, "Aktualizace ticketu klanu")
+
+        try:
+            await channel.edit(name=new_name, reason=reason)
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+
     # ---------- SLASH COMMANDS – PŘIHLÁŠKY ----------
 
     @app_commands.command(
@@ -336,9 +384,7 @@ class ClanApplicationModal(discord.ui.Modal, title="Přihláška do klanu"):
                 read_message_history=True,
             ),
         }
-        safe_name = nick or user.name
-        safe_name = safe_name.lower().replace(" ", "-")
-        ch_name = f"clan-{safe_name}"[:90]
+        ch_name = self.cog.build_ticket_name(nick or user.name, "open")
 
         ticket_channel = await guild.create_text_channel(
             name=ch_name,
@@ -473,7 +519,11 @@ class ClanAdminView(discord.ui.View):
 
         set_clan_application_status(app["id"], "accepted", datetime.utcnow())
 
+        channel = interaction.channel
         member = guild.get_member(app["user_id"])
+        if isinstance(channel, discord.TextChannel):
+            base = self.cog._get_ticket_base_from_app(app, guild)
+            await self.cog.rename_ticket_channel(channel, base, "accepted")
         if member is not None and CLAN_MEMBER_ROLE_ID:
             role = guild.get_role(CLAN_MEMBER_ROLE_ID)
             if role is not None:
@@ -531,7 +581,11 @@ class ClanAdminView(discord.ui.View):
 
         set_clan_application_status(app["id"], "rejected", datetime.utcnow())
 
+        channel = interaction.channel
         member = guild.get_member(app["user_id"])
+        if isinstance(channel, discord.TextChannel):
+            base = self.cog._get_ticket_base_from_app(app, guild)
+            await self.cog.rename_ticket_channel(channel, base, "rejected")
 
         await interaction.response.send_message(
             "❌ Přihláška byla **zamítnuta**.",
