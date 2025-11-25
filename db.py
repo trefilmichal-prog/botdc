@@ -1,0 +1,686 @@
+import sqlite3
+from datetime import datetime, timedelta
+from typing import Optional, List, Tuple, Any, Dict
+
+from config import DB_PATH, INACTIVE_THRESHOLD_HOURS, CLAN_TICKET_CLEANUP_MINUTES
+
+
+def get_connection():
+    return sqlite3.connect(DB_PATH)
+
+
+def init_db():
+    conn = get_connection()
+    c = conn.cursor()
+
+    # Dřevo
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS resources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE
+        )
+        """
+    )
+
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS resource_targets (
+            resource_id INTEGER PRIMARY KEY,
+            required_amount INTEGER NOT NULL
+        )
+        """
+    )
+
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS resource_deliveries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            discord_id INTEGER NOT NULL,
+            resource_id INTEGER NOT NULL,
+            amount INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+
+    # Obecné nastavení
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+        """
+    )
+
+    # Timery
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS timers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            duration_minutes INTEGER NOT NULL
+        )
+        """
+    )
+
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS active_timers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            timer_name TEXT NOT NULL,
+            duration_minutes INTEGER NOT NULL,
+            end_at TEXT NOT NULL,
+            UNIQUE(user_id, timer_name)
+        )
+        """
+    )
+
+    # Statistiky uživatelů (XP/coins/level)
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_stats (
+            discord_id INTEGER PRIMARY KEY,
+            coins INTEGER NOT NULL DEFAULT 0,
+            exp INTEGER NOT NULL DEFAULT 0,
+            level INTEGER NOT NULL DEFAULT 1,
+            last_xp_at TEXT
+        )
+        """
+    )
+
+    # Shop položky
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS shop_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            image_url TEXT,
+            price_coins INTEGER NOT NULL,
+            stock INTEGER NOT NULL,
+            seller_id INTEGER NOT NULL,
+            channel_id INTEGER,
+            message_id INTEGER,
+            is_active INTEGER NOT NULL DEFAULT 1
+        )
+        """
+    )
+
+    # CLAN – přihlášky do klanu
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS clan_applications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            channel_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            roblox_nick TEXT,
+            hours_per_day TEXT,
+            rebirths TEXT,
+            status TEXT NOT NULL,       -- 'open', 'accepted', 'rejected'
+            created_at TEXT NOT NULL,   -- %Y-%m-%d %H:%M:%S
+            decided_at TEXT,            -- %Y-%m-%d %H:%M:%S
+            deleted INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+
+    conn.commit()
+    conn.close()
+
+
+# ---------- SETTINGS ----------
+
+def set_setting(key: str, value: str):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO settings (key, value)
+        VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        """,
+        (key, value),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_setting(key: str) -> Optional[str]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT value FROM settings WHERE key = ?", (key,))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+# ---------- DŘEVO ----------
+
+def get_or_create_resource(name: str) -> int:
+    norm_name = name.strip()
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO resources (name) VALUES (?) ON CONFLICT(name) DO NOTHING",
+        (norm_name,),
+    )
+    conn.commit()
+    c.execute("SELECT id FROM resources WHERE name = ?", (norm_name,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        raise RuntimeError("Nepodařilo se vytvořit resource.")
+    return int(row[0])
+
+
+def set_resource_need(resource_name: str, required_amount: int):
+    rid = get_or_create_resource(resource_name)
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO resource_targets (resource_id, required_amount)
+        VALUES (?, ?)
+        ON CONFLICT(resource_id) DO UPDATE SET required_amount = excluded.required_amount
+        """,
+        (rid, required_amount),
+    )
+    conn.commit()
+    conn.close()
+
+
+def reset_resource_need(resource_name: Optional[str] = None):
+    conn = get_connection()
+    c = conn.cursor()
+    if resource_name is None:
+        c.execute("DELETE FROM resource_targets")
+        c.execute("DELETE FROM resource_deliveries")
+    else:
+        rid = get_or_create_resource(resource_name)
+        c.execute("DELETE FROM resource_targets WHERE resource_id = ?", (rid,))
+        c.execute("DELETE FROM resource_deliveries WHERE resource_id = ?", (rid,))
+    conn.commit()
+    conn.close()
+
+
+def add_delivery(discord_id: int, resource_name: str, amount: int):
+    rid = get_or_create_resource(resource_name)
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO resource_deliveries (discord_id, resource_id, amount, created_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        (discord_id, rid, amount, now_str),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_resources_status() -> List[Tuple[str, int, int]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT
+            r.name,
+            t.required_amount,
+            COALESCE(SUM(d.amount), 0) AS delivered
+        FROM resource_targets t
+        JOIN resources r ON r.id = t.resource_id
+        LEFT JOIN resource_deliveries d ON d.resource_id = t.resource_id
+        GROUP BY t.resource_id, r.name, t.required_amount
+        ORDER BY r.name
+        """
+    )
+    rows = c.fetchall()
+    conn.close()
+    return [(str(r[0]), int(r[1]), int(r[2])) for r in rows]
+
+
+def get_inactive_users(threshold_hours: int = INACTIVE_THRESHOLD_HOURS) -> List[int]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT discord_id, MAX(created_at) AS last_ts
+        FROM resource_deliveries
+        GROUP BY discord_id
+        """
+    )
+    rows = c.fetchall()
+    conn.close()
+
+    now = datetime.now()
+    result: List[int] = []
+    for discord_id, last_ts in rows:
+        try:
+            last_dt = datetime.strptime(last_ts, "%Y-%m-%d %H:%M")
+        except (TypeError, ValueError):
+            continue
+        if now - last_dt >= timedelta(hours=threshold_hours):
+            result.append(int(discord_id))
+    return result
+
+
+# ---------- TIMERY ----------
+
+def create_or_update_timer(name: str, minutes: int) -> int:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO timers (name, duration_minutes)
+        VALUES (?, ?)
+        ON CONFLICT(name) DO UPDATE SET duration_minutes = excluded.duration_minutes
+        """,
+        (name, minutes),
+    )
+    conn.commit()
+    c.execute("SELECT id FROM timers WHERE name = ?", (name,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        raise RuntimeError("Nepodařilo se vytvořit / načíst timer.")
+    return int(row[0])
+
+
+def get_all_timers() -> List[Tuple[int, str, int]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT id, name, duration_minutes FROM timers ORDER BY name")
+    rows = c.fetchall()
+    conn.close()
+    return [(int(r[0]), str(r[1]), int(r[2])) for r in rows]
+
+
+def delete_timer(name: str) -> bool:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM timers WHERE name = ?", (name,))
+    deleted = c.rowcount
+    conn.commit()
+    conn.close()
+    return deleted > 0
+
+
+def upsert_active_timer(user_id: int, timer_name: str, minutes: int, end_at: datetime):
+    conn = get_connection()
+    c = conn.cursor()
+    end_str = end_at.strftime("%Y-%m-%d %H:%M:%S")
+    c.execute(
+        """
+        INSERT INTO active_timers (user_id, timer_name, duration_minutes, end_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id, timer_name)
+        DO UPDATE SET duration_minutes = excluded.duration_minutes,
+                      end_at = excluded.end_at
+        """,
+        (user_id, timer_name, minutes, end_str),
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_active_timer(user_id: int, timer_name: str):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "DELETE FROM active_timers WHERE user_id = ? AND timer_name = ?",
+        (user_id, timer_name),
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_active_timers_for_name(timer_name: str):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM active_timers WHERE timer_name = ?", (timer_name,))
+    conn.commit()
+    conn.close()
+
+
+def get_all_active_timers() -> List[Tuple[int, str, int, str]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT user_id, timer_name, duration_minutes, end_at FROM active_timers")
+    rows = c.fetchall()
+    conn.close()
+    return [(int(r[0]), str(r[1]), int(r[2]), str(r[3])) for r in rows]
+
+
+# ---------- USER STATS (XP/COINS/LEVEL) ----------
+
+def get_or_create_user_stats(discord_id: int) -> Tuple[int, int, int, Optional[str]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "SELECT coins, exp, level, last_xp_at FROM user_stats WHERE discord_id = ?",
+        (discord_id,),
+    )
+    row = c.fetchone()
+    if row is None:
+        c.execute(
+            """
+            INSERT INTO user_stats (discord_id, coins, exp, level, last_xp_at)
+            VALUES (?, 0, 0, 1, NULL)
+            """,
+            (discord_id,),
+        )
+        conn.commit()
+        conn.close()
+        return 0, 0, 1, None
+    conn.close()
+    return int(row[0]), int(row[1]), int(row[2]), row[3]
+
+
+def update_user_stats(
+    discord_id: int,
+    coins: Optional[int] = None,
+    exp: Optional[int] = None,
+    level: Optional[int] = None,
+    last_xp_at: Optional[Optional[str]] = None,
+):
+    conn = get_connection()
+    c = conn.cursor()
+    parts: List[str] = []
+    params: List[Any] = []
+
+    if coins is not None:
+        parts.append("coins = ?")
+        params.append(coins)
+    if exp is not None:
+        parts.append("exp = ?")
+        params.append(exp)
+    if level is not None:
+        parts.append("level = ?")
+        params.append(level)
+    if last_xp_at is not None:
+        parts.append("last_xp_at = ?")
+        params.append(last_xp_at)
+
+    if not parts:
+        conn.close()
+        return
+
+    sql = f"UPDATE user_stats SET {', '.join(parts)} WHERE discord_id = ?"
+    params.append(discord_id)
+    c.execute(sql, tuple(params))
+    conn.commit()
+    conn.close()
+
+
+# ---------- SHOP ----------
+
+def create_shop_item(
+    title: str,
+    image_url: Optional[str],
+    price_coins: int,
+    stock: int,
+    seller_id: int,
+) -> int:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO shop_items (title, image_url, price_coins, stock, seller_id, is_active)
+        VALUES (?, ?, ?, ?, ?, 1)
+        """,
+        (title, image_url, price_coins, stock, seller_id),
+    )
+    conn.commit()
+    item_id = c.lastrowid
+    conn.close()
+    return int(item_id)
+
+
+def set_shop_item_message(item_id: int, channel_id: int, message_id: int):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        UPDATE shop_items
+        SET channel_id = ?, message_id = ?
+        WHERE id = ?
+        """,
+        (channel_id, message_id, item_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_shop_item(item_id: int) -> Optional[Dict[str, Any]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT id, title, image_url, price_coins, stock, seller_id, channel_id, message_id, is_active
+        FROM shop_items
+        WHERE id = ?
+        """,
+        (item_id,),
+    )
+    row = c.fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return {
+        "id": int(row[0]),
+        "title": row[1],
+        "image_url": row[2],
+        "price_coins": int(row[3]),
+        "stock": int(row[4]),
+        "seller_id": int(row[5]),
+        "channel_id": int(row[6]) if row[6] is not None else None,
+        "message_id": int(row[7]) if row[7] is not None else None,
+        "is_active": int(row[8]),
+    }
+
+
+def decrement_shop_item_stock(item_id: int) -> Tuple[bool, int]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT stock, is_active FROM shop_items WHERE id = ?", (item_id,))
+    row = c.fetchone()
+    if row is None:
+        conn.close()
+        return False, 0
+
+    stock = int(row[0])
+    is_active = int(row[1])
+    if is_active == 0 or stock <= 0:
+        conn.close()
+        return False, max(stock, 0)
+
+    new_stock = stock - 1
+    new_active = 1 if new_stock > 0 else 0
+    c.execute(
+        "UPDATE shop_items SET stock = ?, is_active = ? WHERE id = ?",
+        (new_stock, new_active, item_id),
+    )
+    conn.commit()
+    conn.close()
+    return True, new_stock
+
+
+def get_active_shop_item_ids() -> List[int]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT id
+        FROM shop_items
+        WHERE is_active = 1 AND channel_id IS NOT NULL AND message_id IS NOT NULL
+        """
+    )
+    rows = c.fetchall()
+    conn.close()
+    return [int(r[0]) for r in rows]
+
+
+# ---------- CLAN APPLICATIONS ----------
+
+def _row_to_clan_application(row) -> Dict[str, Any]:
+    return {
+        "id": int(row[0]),
+        "guild_id": int(row[1]),
+        "channel_id": int(row[2]),
+        "user_id": int(row[3]),
+        "roblox_nick": row[4],
+        # text, žádné int() – může být '24hodin', '2–3', 'cca 1500', ...
+        "hours_per_day": row[5],
+        "rebirths": row[6],
+        "status": row[7],
+        "created_at": row[8],
+        "decided_at": row[9],
+        "deleted": int(row[10]),
+    }
+
+
+def create_clan_application(guild_id: int, channel_id: int, user_id: int) -> int:
+    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO clan_applications (
+            guild_id, channel_id, user_id,
+            roblox_nick, hours_per_day, rebirths,
+            status, created_at, decided_at, deleted
+        )
+        VALUES (?, ?, ?, NULL, NULL, NULL, 'open', ?, NULL, 0)
+        """,
+        (guild_id, channel_id, user_id, now_str),
+    )
+    conn.commit()
+    app_id = c.lastrowid
+    conn.close()
+    return int(app_id)
+
+
+def get_open_application_by_user(guild_id: int, user_id: int) -> Optional[Dict[str, Any]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT id, guild_id, channel_id, user_id,
+               roblox_nick, hours_per_day, rebirths,
+               status, created_at, decided_at, deleted
+        FROM clan_applications
+        WHERE guild_id = ? AND user_id = ? AND status = 'open' AND deleted = 0
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (guild_id, user_id),
+    )
+    row = c.fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return _row_to_clan_application(row)
+
+
+def get_open_application_by_channel(channel_id: int) -> Optional[Dict[str, Any]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT id, guild_id, channel_id, user_id,
+               roblox_nick, hours_per_day, rebirths,
+               status, created_at, decided_at, deleted
+        FROM clan_applications
+        WHERE channel_id = ? AND status = 'open' AND deleted = 0
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (channel_id,),
+    )
+    row = c.fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return _row_to_clan_application(row)
+
+
+def update_clan_application_form(
+    app_id: int,
+    roblox_nick: str,
+    hours_per_day: str,
+    rebirths: str,
+):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        UPDATE clan_applications
+        SET roblox_nick = ?, hours_per_day = ?, rebirths = ?
+        WHERE id = ?
+        """,
+        (roblox_nick, hours_per_day, rebirths, app_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def set_clan_application_status(app_id: int, status: str, decided_at: Optional[datetime] = None):
+    if decided_at is None:
+        decided_at = datetime.utcnow()
+    decided_str = decided_at.strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        UPDATE clan_applications
+        SET status = ?, decided_at = ?
+        WHERE id = ?
+        """,
+        (status, decided_str, app_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_clan_applications_for_cleanup(
+    age_minutes: int = CLAN_TICKET_CLEANUP_MINUTES,
+) -> List[Dict[str, Any]]:
+    """
+    Vrátí přihlášky, které jsou accepted/rejected, nejsou smazané (deleted=0)
+    a decided_at je starší než age_minutes.
+    """
+    cutoff = datetime.utcnow() - timedelta(minutes=age_minutes)
+    cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT id, guild_id, channel_id, user_id,
+               roblox_nick, hours_per_day, rebirths,
+               status, created_at, decided_at, deleted
+        FROM clan_applications
+        WHERE deleted = 0
+          AND status IN ('accepted', 'rejected')
+          AND decided_at IS NOT NULL
+          AND decided_at <= ?
+        """,
+        (cutoff_str,),
+    )
+    rows = c.fetchall()
+    conn.close()
+    return [_row_to_clan_application(r) for r in rows]
+
+
+def mark_clan_application_deleted(app_id: int):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "UPDATE clan_applications SET deleted = 1 WHERE id = ?",
+        (app_id,),
+    )
+    conn.commit()
+    conn.close()
