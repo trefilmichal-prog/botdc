@@ -31,6 +31,9 @@ XP_PER_LEVEL = 100
 # CLAN – role pro přijaté členy
 CLAN_MEMBER_ROLE_ID = 1440268327892025438
 
+# CLAN – role pro ping nových uchazečů
+CLAN_APPLICATION_PING_ROLE_ID = 1440268371152339065
+
 # CLAN – kategorie pro ticket kanály (přihlášky do klanu)
 CLAN_TICKET_CATEGORY_ID = 1440977431577235456
 
