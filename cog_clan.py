@@ -9,6 +9,7 @@ from discord import app_commands
 
 from config import (
     CLAN_MEMBER_ROLE_ID,
+    CLAN_APPLICATION_PING_ROLE_ID,
     CLAN_TICKET_CATEGORY_ID,
 )
 from db import (
@@ -391,8 +392,12 @@ class ClanApplicationModal(discord.ui.Modal, title="Přihláška do klanu"):
             color=0x2980B9,
         )
 
+        content_parts = [user.mention]
+        if CLAN_APPLICATION_PING_ROLE_ID:
+            content_parts.insert(0, f"<@&{CLAN_APPLICATION_PING_ROLE_ID}>")
+
         await ticket_channel.send(
-            content=user.mention,
+            content=" ".join(content_parts),
             embeds=[intro_embed, app_embed],
             view=self.cog.admin_view,
         )
