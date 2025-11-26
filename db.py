@@ -169,6 +169,20 @@ def get_setting(key: str) -> Optional[str]:
     return row[0] if row else None
 
 
+def set_clan_stats_channel(channel_id: int):
+    set_setting("clan_stats_channel_id", str(channel_id))
+
+
+def get_clan_stats_channel() -> Optional[int]:
+    value = get_setting("clan_stats_channel_id")
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
 # ---------- CLAN PANELY ----------
 
 def add_clan_panel(guild_id: int, channel_id: int, message_id: int):
