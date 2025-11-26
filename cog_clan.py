@@ -104,14 +104,12 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
             )
             return
 
-        intro_embed = discord.Embed(
-            title="Přihlášky do klanu",
+        benefits_embed = discord.Embed(
+            title="Výhody Clanu",
             description=(
-                "Chceš se přidat do našeho klanu?\n\n"
-                "1) Klikni na tlačítko **Podat přihlášku**.\n"
-                "2) Otevře se ti formulář k vyplnění.\n"
-                "3) Po odeslání formuláře ti bot vytvoří soukromý ticket kanál.\n"
-                "4) Do ticketu nahraješ požadované screeny a admini tvoji žádost posoudí."
+                "🫂 Skvělá CZ/SK komunita\n"
+                "🎊 Soutěže\n"
+                "🍀 Clan boosty (Link v nadpisu)"
             ),
             color=0x3498DB,
         )
@@ -142,8 +140,19 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
             color=0xF1C40F,
         )
 
+        requirements_embed = discord.Embed(
+            title="Podmínky přijetí",
+            description=(
+                "💫 500SX rebirthů +\n"
+                "💫 Hrát 24/7\n"
+                "💫 30% index\n"
+                "💫 5d playtime"
+            ),
+            color=0x2ECC71,
+        )
+
         await channel.send(
-            embeds=[intro_embed, boosts_embed],
+            embeds=[benefits_embed, boosts_embed, requirements_embed],
             view=self.apply_panel_view,
         )
 
