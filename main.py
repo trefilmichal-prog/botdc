@@ -24,6 +24,7 @@ class MyBot(commands.Bot):
         await self.load_extension("cog_shop")
         await self.load_extension("cog_clan")  # <-- nový modul pro přihlášky do klanu
         await self.load_extension("cog_basic")
+        await self.load_extension("cog_leaderboard")
         await self.load_extension("cog_warn")
 
         # sync slash commandů
