@@ -23,6 +23,7 @@ class MyBot(commands.Bot):
         await self.load_extension("cog_giveaway")
         await self.load_extension("cog_shop")
         await self.load_extension("cog_clan")  # <-- nový modul pro přihlášky do klanu
+        await self.load_extension("cog_basic")
 
         # sync slash commandů
         await self.tree.sync()
