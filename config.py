@@ -6,8 +6,8 @@ if not TOKEN:
     raise RuntimeError("Chybí environment proměnná DISCORD_TOKEN s tokenem bota.")
 
 # Odkazy na obrázky pro clan embed
-CLAN_BOOSTS_IMAGE_URL = os.getenv("CLAN_BOOSTS_IMAGE_URL", "")
-CLAN_BANNER_IMAGE_URL = os.getenv("CLAN_BANNER_IMAGE_URL", "")
+CLAN_BOOSTS_IMAGE_URL = "https://ezrz.eu/dcbot/stats.jpg"
+CLAN_BANNER_IMAGE_URL = "https://ezrz.eu/dcbot/baner.jpg"
 
 # Cesta k SQLite databázi
 DB_PATH = "wood_needs.db"
