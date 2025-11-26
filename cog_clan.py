@@ -11,6 +11,8 @@ from config import (
     CLAN_MEMBER_ROLE_ID,
     CLAN_APPLICATION_PING_ROLE_ID,
     CLAN_TICKET_CATEGORY_ID,
+    CLAN_BOOSTS_IMAGE_URL,
+    CLAN_BANNER_IMAGE_URL,
 )
 from db import (
     create_clan_application,
@@ -104,57 +106,38 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
             )
             return
 
-        benefits_embed = discord.Embed(
-            title="Výhody Clanu",
-            description=(
-                "🫂 Skvělá CZ/SK komunita\n"
-                "🎊 Soutěže\n"
-                "🍀 Clan boosty (Link v nadpisu)"
-            ),
+        embed_description = (
+            "🫂 Skvělá CZ/SK komunita\n"
+            "🎊 Soutěže\n"
+            "🍀 Clan boosty (klikni na nadpis pro screen)"
+        )
+
+        main_embed = discord.Embed(
+            title="Výhody klanu",
+            description=embed_description,
             color=0x3498DB,
         )
 
-        boosts_text = (
-            "🎁 Bonusy u nás v klanu\n"
-            "💥 +5% Season XP\n"
-            "🐣 +20% Hatch Speed\n"
-            "☣️ +0.1% Toxic Pets Luck\n"
-            "🗝️ +4% Secrets Luck\n"
-            "💎 +89% Gems\n"
-            "🐾 +1 Pets Equipped\n"
-            "✨ +5% Aura Luck\n"
-            "🔮 +10% Ring Fragments Luck\n"
-            "🖱️ +94% Clicks\n"
-            "🪐 +5% Space Coins Multiplier\n"
-            "🌟 +1% Golden Pets Luck\n"
-            "🪵 +1 More Wood\n"
-            "🌳 +0.21% Golden Tree Chance\n"
-            "🥚 +10% Extra Egg\n"
-            "📘 +15% Mastery XP\n"
-            "🍀 +104% Luck"
+        if CLAN_BOOSTS_IMAGE_URL:
+            main_embed.url = CLAN_BOOSTS_IMAGE_URL
+
+        requirements_text = (
+            "💫 500SX rebirthů +\n"
+            "💫 Hrát 24/7\n"
+            "💫 30% index\n"
+            "💫 5d playtime"
         )
 
-        boosts_embed = discord.Embed(
-            title="Clan Boosts",
-            description=boosts_text,
-            color=0xF1C40F,
+        main_embed.add_field(
+            name="Podmínky přijetí",
+            value=requirements_text,
+            inline=False,
         )
 
-        requirements_embed = discord.Embed(
-            title="Podmínky přijetí",
-            description=(
-                "💫 500SX rebirthů +\n"
-                "💫 Hrát 24/7\n"
-                "💫 30% index\n"
-                "💫 5d playtime"
-            ),
-            color=0x2ECC71,
-        )
+        if CLAN_BANNER_IMAGE_URL:
+            main_embed.set_image(url=CLAN_BANNER_IMAGE_URL)
 
-        await channel.send(
-            embeds=[benefits_embed, boosts_embed, requirements_embed],
-            view=self.apply_panel_view,
-        )
+        await channel.send(embed=main_embed, view=self.apply_panel_view)
 
         await interaction.response.send_message(
             "Panel pro přihlášky do klanu byl vytvořen v tomto kanálu.",
