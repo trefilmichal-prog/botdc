@@ -155,7 +155,7 @@ class BuyButton(discord.ui.Button):
             return
 
         buyer_id = user.id
-        coins, exp, level, _last = get_or_create_user_stats(buyer_id)
+        coins, exp, level, _last, _messages = get_or_create_user_stats(buyer_id)
 
         price = item["price_coins"]
         if coins < price:

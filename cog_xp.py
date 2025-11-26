@@ -25,7 +25,7 @@ class XpCog(commands.Cog, name="XpCog"):
             return
 
         discord_id = message.author.id
-        coins, exp, level, last_xp_at = get_or_create_user_stats(discord_id)
+        coins, exp, level, last_xp_at, message_count = get_or_create_user_stats(discord_id)
 
         now = datetime.utcnow()
         if last_xp_at:
@@ -47,6 +47,7 @@ class XpCog(commands.Cog, name="XpCog"):
             exp=new_exp,
             level=new_level,
             last_xp_at=now.strftime("%Y-%m-%d %H:%M:%S"),
+            message_count=message_count + 1,
         )
 
     @app_commands.command(name="profile", description="Ukáže coiny, exp a level hráče.")
@@ -57,7 +58,7 @@ class XpCog(commands.Cog, name="XpCog"):
         user: discord.Member | None = None,
     ):
         target = user or interaction.user
-        coins, exp, level, _ = get_or_create_user_stats(target.id)
+        coins, exp, level, _, message_count = get_or_create_user_stats(target.id)
 
         embed = discord.Embed(
             title=f"Profil – {target.display_name}",
@@ -65,7 +66,8 @@ class XpCog(commands.Cog, name="XpCog"):
         )
         embed.add_field(name="Level", value=str(level), inline=True)
         embed.add_field(name="Exp", value=str(exp), inline=True)
-        embed.add_field(name="Coisy", value=str(coins), inline=True)
+        embed.add_field(name="Coiny", value=str(coins), inline=True)
+        embed.add_field(name="Zprávy", value=str(message_count), inline=True)
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
