@@ -7,7 +7,7 @@ if not TOKEN:
 
 # Odkazy na obrázky pro clan embed
 CLAN_BOOSTS_IMAGE_URL = "https://ezrz.eu/dcbot/stats.jpg"
-CLAN_BANNER_IMAGE_URL = "https://ezrz.eu/dcbot/baner.jpg"
+CLAN_BANNER_IMAGE_URL = "https://ezrz.eu/dcbot/baner2.jpg"
 
 # Cesta k SQLite databázi
 DB_PATH = "wood_needs.db"
