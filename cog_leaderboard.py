@@ -1,14 +1,18 @@
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from config import CLAN_MEMBER_ROLE_ID
-from db import get_top_users_by_stat
+from db import add_clan_panel, get_all_clan_panels, get_top_users_by_stat, remove_clan_panel
 
 
 class LeaderboardCog(commands.Cog, name="Leaderboard"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.clan_panel_refresh_loop.start()
+
+    def cog_unload(self):
+        self.clan_panel_refresh_loop.cancel()
 
     @app_commands.command(
         name="leaderboard", description="Ukáže žebříček podle coinů nebo počtu zpráv."
@@ -59,6 +63,17 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
             )
             return
 
+        embed = self.build_clan_panel_embed(role)
+
+        message = await channel.send(embed=embed)
+        add_clan_panel(channel.guild.id, channel.id, message.id)
+
+        await interaction.response.send_message(
+            f"Zpráva s přehledem členů byla odeslána do {channel.mention}.",
+            ephemeral=True,
+        )
+
+    def build_clan_panel_embed(self, role: discord.Role) -> discord.Embed:
         members = sorted(role.members, key=lambda m: m.display_name.lower())
         if members:
             member_lines = [member.mention for member in members]
@@ -66,17 +81,74 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
         else:
             description = "Zatím nikdo nemá tuto roli."
 
+        color = role.color if role.color.value else 0x2ECC71
         embed = discord.Embed(
             title="Členové klanu",
             description=description,
-            color=role.color if role.color.value else 0x2ECC71,
+            color=color,
         )
+        embed.set_footer(text="Panel se aktualizuje automaticky každých 5 minut.")
+        return embed
 
-        await channel.send(embed=embed)
-        await interaction.response.send_message(
-            f"Zpráva s přehledem členů byla odeslána do {channel.mention}.",
-            ephemeral=True,
-        )
+    async def refresh_clan_panels(self):
+        panels = get_all_clan_panels()
+        if not panels:
+            return
+
+        embed_cache: dict[int, discord.Embed] = {}
+
+        for guild_id, channel_id, message_id in panels:
+            guild = self.bot.get_guild(guild_id)
+            if guild is None:
+                continue
+
+            role = guild.get_role(CLAN_MEMBER_ROLE_ID) if CLAN_MEMBER_ROLE_ID else None
+            if role is None:
+                embed = discord.Embed(
+                    title="Členové klanu",
+                    description=(
+                        "Roli pro klan jsem na serveru nenašel. "
+                        "Zkontroluj hodnotu CLAN_MEMBER_ROLE_ID."
+                    ),
+                    color=0xE74C3C,
+                )
+            else:
+                if guild_id not in embed_cache:
+                    embed_cache[guild_id] = self.build_clan_panel_embed(role)
+                embed = embed_cache[guild_id]
+
+            channel = guild.get_channel(channel_id)
+            if not isinstance(channel, discord.TextChannel):
+                remove_clan_panel(message_id)
+                continue
+
+            try:
+                msg = await channel.fetch_message(message_id)
+            except discord.NotFound:
+                remove_clan_panel(message_id)
+                continue
+            except discord.HTTPException:
+                continue
+
+            try:
+                await msg.edit(embed=embed)
+            except discord.HTTPException:
+                continue
+
+    @tasks.loop(minutes=5)
+    async def clan_panel_refresh_loop(self):
+        try:
+            await self.refresh_clan_panels()
+        except Exception as exc:  # pragma: no cover - defensive logging
+            print(f"[clan_panel_refresh_loop] Chyba při obnově panelů: {exc}")
+
+    @clan_panel_refresh_loop.before_loop
+    async def before_clan_panel_refresh_loop(self):
+        await self.bot.wait_until_ready()
+        try:
+            await self.refresh_clan_panels()
+        except Exception as exc:  # pragma: no cover - defensive logging
+            print(f"[clan_panel_refresh_loop] Chyba při počáteční obnově panelů: {exc}")
 
 
 async def setup(bot: commands.Bot):
