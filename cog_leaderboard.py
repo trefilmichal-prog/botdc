@@ -3,16 +3,24 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from config import CLAN_MEMBER_ROLE_ID
-from db import add_clan_panel, get_all_clan_panels, get_top_users_by_stat, remove_clan_panel
+from db import (
+    add_clan_panel,
+    add_leaderboard_panel,
+    get_all_clan_panels,
+    get_all_leaderboard_panels,
+    get_top_users_by_stat,
+    remove_clan_panel,
+    remove_leaderboard_panel,
+)
 
 
 class LeaderboardCog(commands.Cog, name="Leaderboard"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.clan_panel_refresh_loop.start()
+        self.panel_refresh_loop.start()
 
     def cog_unload(self):
-        self.clan_panel_refresh_loop.cancel()
+        self.panel_refresh_loop.cancel()
 
     @app_commands.command(
         name="leaderboard", description="Ukáže žebříček podle coinů nebo počtu zpráv."
@@ -29,7 +37,7 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
         top_users = get_top_users_by_stat(metric.value, limit=10)
         if not top_users:
             await interaction.response.send_message(
-                "Nikdo zatím nemá žádná data pro tento žebříček.", ephemeral=True
+                "Nikdo zatím nemá žádná data pro tento žebříček."
             )
             return
 
@@ -44,7 +52,25 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
             lines.append(f"**{idx}.** {mention} – {value}")
 
         embed.description = "\n".join(lines)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message(embed=embed)
+
+    def build_leaderboard_embed(self) -> discord.Embed:
+        embed = discord.Embed(title="Žebříček", color=0x3498DB)
+        for label, stat in (("Coiny", "coins"), ("Zprávy", "message_count")):
+            top_users = get_top_users_by_stat(stat, limit=10)
+            if top_users:
+                lines = [
+                    f"**{idx}.** <@{user_id}> – {value}"
+                    for idx, (user_id, value) in enumerate(top_users, start=1)
+                ]
+                value = "\n".join(lines)
+            else:
+                value = "Žádná data pro tento žebříček."
+
+            embed.add_field(name=f"Top {label}", value=value, inline=False)
+
+        embed.set_footer(text="Panel se aktualizuje automaticky každých 5 minut.")
+        return embed
 
     @app_commands.command(
         name="setup_clan_room",
@@ -71,6 +97,24 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
         await interaction.response.send_message(
             f"Zpráva s přehledem členů byla odeslána do {channel.mention}.",
             ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="setup_leaderboard",
+        description="Odešle do vybraného kanálu žebříček coinů a zpráv.",
+    )
+    @app_commands.describe(channel="Kanál, kam se má žebříček poslat.")
+    @app_commands.default_permissions(manage_channels=True)
+    async def setup_leaderboard_room(
+        self, interaction: discord.Interaction, channel: discord.TextChannel
+    ):
+        embed = self.build_leaderboard_embed()
+        message = await channel.send(embed=embed)
+        if interaction.guild:
+            add_leaderboard_panel(interaction.guild.id, channel.id, message.id)
+
+        await interaction.response.send_message(
+            f"Žebříček byl odeslán do {channel.mention}.", ephemeral=True
         )
 
     def build_clan_panel_embed(self, role: discord.Role) -> discord.Embed:
@@ -135,20 +179,53 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
             except discord.HTTPException:
                 continue
 
+    async def refresh_leaderboard_panels(self):
+        panels = get_all_leaderboard_panels()
+        if not panels:
+            return
+
+        embed = self.build_leaderboard_embed()
+
+        for guild_id, channel_id, message_id in panels:
+            guild = self.bot.get_guild(guild_id)
+            if guild is None:
+                remove_leaderboard_panel(message_id)
+                continue
+
+            channel = guild.get_channel(channel_id)
+            if not isinstance(channel, discord.TextChannel):
+                remove_leaderboard_panel(message_id)
+                continue
+
+            try:
+                msg = await channel.fetch_message(message_id)
+            except discord.NotFound:
+                remove_leaderboard_panel(message_id)
+                continue
+            except discord.HTTPException:
+                continue
+
+            try:
+                await msg.edit(embed=embed)
+            except discord.HTTPException:
+                continue
+
     @tasks.loop(minutes=5)
-    async def clan_panel_refresh_loop(self):
+    async def panel_refresh_loop(self):
         try:
             await self.refresh_clan_panels()
+            await self.refresh_leaderboard_panels()
         except Exception as exc:  # pragma: no cover - defensive logging
-            print(f"[clan_panel_refresh_loop] Chyba při obnově panelů: {exc}")
+            print(f"[panel_refresh_loop] Chyba při obnově panelů: {exc}")
 
-    @clan_panel_refresh_loop.before_loop
-    async def before_clan_panel_refresh_loop(self):
+    @panel_refresh_loop.before_loop
+    async def before_panel_refresh_loop(self):
         await self.bot.wait_until_ready()
         try:
             await self.refresh_clan_panels()
+            await self.refresh_leaderboard_panels()
         except Exception as exc:  # pragma: no cover - defensive logging
-            print(f"[clan_panel_refresh_loop] Chyba při počáteční obnově panelů: {exc}")
+            print(f"[panel_refresh_loop] Chyba při počáteční obnově panelů: {exc}")
 
 
 async def setup(bot: commands.Bot):
