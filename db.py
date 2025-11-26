@@ -78,7 +78,7 @@ def init_db():
         """
     )
 
-    # Statistiky uživatelů (XP/coins/level)
+    # Statistiky uživatelů (XP/coins/level/messages)
     c.execute(
         """
         CREATE TABLE IF NOT EXISTS user_stats (
@@ -90,6 +90,8 @@ def init_db():
         )
         """
     )
+
+    ensure_user_stats_columns()
 
     # Shop položky
     c.execute(
@@ -355,29 +357,42 @@ def get_all_active_timers() -> List[Tuple[int, str, int, str]]:
     return [(int(r[0]), str(r[1]), int(r[2]), str(r[3])) for r in rows]
 
 
-# ---------- USER STATS (XP/COINS/LEVEL) ----------
+# ---------- USER STATS (XP/COINS/LEVEL/MESSAGES) ----------
 
-def get_or_create_user_stats(discord_id: int) -> Tuple[int, int, int, Optional[str]]:
+
+def ensure_user_stats_columns():
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("PRAGMA table_info(user_stats)")
+    columns = {row[1] for row in c.fetchall()}
+    if "message_count" not in columns:
+        c.execute(
+            "ALTER TABLE user_stats ADD COLUMN message_count INTEGER NOT NULL DEFAULT 0"
+        )
+        conn.commit()
+    conn.close()
+
+def get_or_create_user_stats(discord_id: int) -> Tuple[int, int, int, Optional[str], int]:
     conn = get_connection()
     c = conn.cursor()
     c.execute(
-        "SELECT coins, exp, level, last_xp_at FROM user_stats WHERE discord_id = ?",
+        "SELECT coins, exp, level, last_xp_at, message_count FROM user_stats WHERE discord_id = ?",
         (discord_id,),
     )
     row = c.fetchone()
     if row is None:
         c.execute(
             """
-            INSERT INTO user_stats (discord_id, coins, exp, level, last_xp_at)
-            VALUES (?, 0, 0, 1, NULL)
+            INSERT INTO user_stats (discord_id, coins, exp, level, last_xp_at, message_count)
+            VALUES (?, 0, 0, 1, NULL, 0)
             """,
             (discord_id,),
         )
         conn.commit()
         conn.close()
-        return 0, 0, 1, None
+        return 0, 0, 1, None, 0
     conn.close()
-    return int(row[0]), int(row[1]), int(row[2]), row[3]
+    return int(row[0]), int(row[1]), int(row[2]), row[3], int(row[4])
 
 
 def update_user_stats(
@@ -386,6 +401,7 @@ def update_user_stats(
     exp: Optional[int] = None,
     level: Optional[int] = None,
     last_xp_at: Optional[Optional[str]] = None,
+    message_count: Optional[int] = None,
 ):
     conn = get_connection()
     c = conn.cursor()
@@ -404,6 +420,9 @@ def update_user_stats(
     if last_xp_at is not None:
         parts.append("last_xp_at = ?")
         params.append(last_xp_at)
+    if message_count is not None:
+        parts.append("message_count = ?")
+        params.append(message_count)
 
     if not parts:
         conn.close()
@@ -414,6 +433,22 @@ def update_user_stats(
     c.execute(sql, tuple(params))
     conn.commit()
     conn.close()
+
+
+def get_top_users_by_stat(stat: str, limit: int = 10) -> List[Tuple[int, int]]:
+    allowed = {"coins", "message_count"}
+    if stat not in allowed:
+        raise ValueError(f"Nepodporovaný sloupec: {stat}")
+
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        f"SELECT discord_id, {stat} FROM user_stats ORDER BY {stat} DESC LIMIT ?",
+        (limit,),
+    )
+    rows = c.fetchall()
+    conn.close()
+    return [(int(r[0]), int(r[1])) for r in rows]
 
 
 # ---------- SHOP ----------
