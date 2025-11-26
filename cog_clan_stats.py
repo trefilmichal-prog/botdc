@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 import discord
 from discord import app_commands
 from discord.ext import commands
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageFile, ImageOps, UnidentifiedImageError
 import pytesseract
 
 from db import get_clan_stats_channel, set_clan_stats_channel
@@ -50,12 +50,15 @@ class ClanStatsOcrCog(commands.Cog, name="ClanStatsOcr"):
 
         attachment = self._pick_image_attachment(message.attachments)
         if attachment is None:
+            await message.channel.send(
+                "Nepodařilo se najít obrázek v příloze. Zkus prosím poslat PNG nebo JPG screenshot.",
+            )
             return
 
         ocr_result = await self._perform_ocr(attachment)
         if ocr_result is None:
             await message.channel.send(
-                "Nepodařilo se načíst obrázek. Zkus prosím znovu se stejným screenu.",
+                "Nepodařilo se načíst obrázek. Ujisti se, že posíláš běžný PNG nebo JPG screenshot a zkus to prosím znovu.",
             )
             return
 
@@ -102,11 +105,18 @@ class ClanStatsOcrCog(commands.Cog, name="ClanStatsOcr"):
     async def _perform_ocr(
         self, attachment: discord.Attachment
     ) -> Optional[tuple[Dict[str, str], str]]:
+        ImageFile.LOAD_TRUNCATED_IMAGES = True
+
         try:
             data = await attachment.read()
-            image = Image.open(BytesIO(data))
-            raw_text = pytesseract.image_to_string(image)
+            image = ImageOps.exif_transpose(Image.open(BytesIO(data)))
         except (discord.HTTPException, UnidentifiedImageError, OSError):
+            return None
+
+        try:
+            prepared = ImageOps.grayscale(image.convert("RGB"))
+            raw_text = pytesseract.image_to_string(prepared, config="--psm 6", lang="eng")
+        except (pytesseract.TesseractError, OSError):
             return None
 
         stats = self._extract_stats(raw_text)
