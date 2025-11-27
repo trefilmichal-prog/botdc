@@ -14,6 +14,13 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    def _strip_mentions(self, content: str, mentions: list[discord.abc.User]) -> str:
+        for mention in mentions:
+            patterns = (f"<@{mention.id}>", f"<@!{mention.id}>")
+            for pattern in patterns:
+                content = content.replace(pattern, "")
+        return content.strip()
+
     def _post_json(self, payload: dict[str, object]) -> str:
         request = urllib.request.Request(
             OLLAMA_URL,
@@ -46,6 +53,48 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
         if not response_text:
             return None
         return response_text.strip()
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        if message.author.bot:
+            return
+
+        if not self.bot.user or self.bot.user not in message.mentions:
+            return
+
+        dotaz = self._strip_mentions(message.content, message.mentions)
+        if not dotaz:
+            await message.reply(
+                "Ahoj! Příště mi rovnou napiš otázku, ať ti můžu věštit budoucnost. 😊",
+                mention_author=False,
+            )
+            return
+
+        async with message.channel.typing():
+            prompt = (
+                "Jsi veselý český věštec pro hráče Roblox hry Rebirth Champions Ultimate."
+                " Odpovídej vždy česky, ve 2–3 větách, s lehkým humorem a konkrétním tipem na další postup."
+                " Vyhýbej se vulgaritám a udrž tón přátelský pro komunitu Discordu."
+                f" Otázka hráče: {dotaz}"
+            )
+
+            response_text = await self._ask_ollama(prompt)
+
+        if not response_text:
+            await message.reply(
+                "Nemohu se momentálně spojit s Ollamou. Zkus to prosím za chvíli.",
+                mention_author=False,
+            )
+            return
+
+        embed = discord.Embed(
+            title="🔮 Roblox věštba",
+            description=response_text,
+            color=discord.Color.blurple(),
+        )
+        embed.set_footer(text=f"Model: {OLLAMA_MODEL}")
+
+        await message.reply(embed=embed, mention_author=False)
 
     @app_commands.command(
         name="rebirth_future",
