@@ -5,6 +5,10 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 if not TOKEN:
     raise RuntimeError("Chybí environment proměnná DISCORD_TOKEN s tokenem bota.")
 
+# Ollama konfigurace
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+
 # Odkazy na obrázky pro clan embed
 CLAN_BOOSTS_IMAGE_URL = "https://ezrz.eu/dcbot/stats.jpg"
 CLAN_BANNER_IMAGE_URL = "https://ezrz.eu/dcbot/baner2.jpg"
