@@ -9,7 +9,7 @@ import discord
 from discord.ext import commands, tasks
 from discord import app_commands
 
-from config import REMINDER_INTERVAL_HOURS, STAFF_ROLE_ID
+from config import REMINDER_INTERVAL_HOURS, STAFF_ROLE_ID, TICKET_VIEWER_ROLE_ID
 from db import (
     set_setting,
     get_setting,
@@ -412,6 +412,15 @@ class TicketButtonView(discord.ui.View):
                     send_messages=True,
                     read_message_history=True,
                     manage_messages=True,
+                )
+
+        if TICKET_VIEWER_ROLE_ID:
+            ticket_viewer_role = guild.get_role(TICKET_VIEWER_ROLE_ID)
+            if ticket_viewer_role:
+                overwrites[ticket_viewer_role] = discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    read_message_history=True,
                 )
 
         safe_name = interaction.user.name.lower().replace(" ", "-")

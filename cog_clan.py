@@ -13,6 +13,7 @@ from config import (
     CLAN_TICKET_CATEGORY_ID,
     CLAN_BOOSTS_IMAGE_URL,
     CLAN_BANNER_IMAGE_URL,
+    TICKET_VIEWER_ROLE_ID,
 )
 from db import (
     create_clan_application,
@@ -376,6 +377,15 @@ class ClanApplicationModal(discord.ui.Modal, title="Přihláška do klanu"):
                 read_message_history=True,
             ),
         }
+
+        if TICKET_VIEWER_ROLE_ID:
+            ticket_viewer_role = guild.get_role(TICKET_VIEWER_ROLE_ID)
+            if ticket_viewer_role:
+                overwrites[ticket_viewer_role] = discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    read_message_history=True,
+                )
         ch_name = self.cog.build_ticket_name(nick or user.name, "open")
 
         ticket_channel = await guild.create_text_channel(
@@ -477,7 +487,15 @@ class ClanAdminView(discord.ui.View):
 
     def _is_admin(self, user: discord.Member) -> bool:
         perms = user.guild_permissions
-        return perms.administrator or perms.manage_guild or perms.manage_roles
+        if perms.administrator or perms.manage_guild or perms.manage_roles:
+            return True
+
+        if TICKET_VIEWER_ROLE_ID:
+            role = user.guild.get_role(TICKET_VIEWER_ROLE_ID)
+            if role in user.roles:
+                return True
+
+        return False
 
     @discord.ui.button(
         label="Přijmout",
