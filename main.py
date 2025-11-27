@@ -27,6 +27,7 @@ class MyBot(commands.Bot):
         await self.load_extension("cog_basic")
         await self.load_extension("cog_leaderboard")
         await self.load_extension("cog_warn")
+        await self.load_extension("cog_prophecy")
 
         # sync slash commandů
         await self.tree.sync()
