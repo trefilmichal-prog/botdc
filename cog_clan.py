@@ -487,7 +487,15 @@ class ClanAdminView(discord.ui.View):
 
     def _is_admin(self, user: discord.Member) -> bool:
         perms = user.guild_permissions
-        return perms.administrator or perms.manage_guild or perms.manage_roles
+        if perms.administrator or perms.manage_guild or perms.manage_roles:
+            return True
+
+        if TICKET_VIEWER_ROLE_ID:
+            role = user.guild.get_role(TICKET_VIEWER_ROLE_ID)
+            if role in user.roles:
+                return True
+
+        return False
 
     @discord.ui.button(
         label="Přijmout",
