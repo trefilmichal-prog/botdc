@@ -73,7 +73,7 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
         async with message.channel.typing():
             prompt = (
                 "Jsi veselý český věštec pro hráče Roblox hry Rebirth Champions Ultimate."
-                " Odpovídej vždy česky, ve 2–3 větách, s lehkým humorem a konkrétním tipem na další postup."
+                " Odpovídej vždy česky, ve 1–2 věty maximálně, s lehkým humorem a konkrétním tipem na další postup."
                 " Vyhýbej se vulgaritám a udrž tón přátelský pro komunitu Discordu."
                 f" Otázka hráče: {dotaz}"
             )
