@@ -56,9 +56,9 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
         await interaction.response.defer()
 
         prompt = (
-            "Jsi veselý věštec pro hráče Roblox hry Rebirth Champions Ultimate."
-            " Odpověz 2-3 větami, přidej lehký humor a konkrétní tip na další postup."
-            " Vyhýbej se vulgaritám."
+            "Jsi veselý český věštec pro hráče Roblox hry Rebirth Champions Ultimate."
+            " Odpovídej vždy česky, ve 2–3 větách, s lehkým humorem a konkrétním tipem na další postup."
+            " Vyhýbej se vulgaritám a udrž tón přátelský pro komunitu Discordu."
         )
         if dotaz:
             prompt += f" Otázka hráče: {dotaz}"
