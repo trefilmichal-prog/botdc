@@ -775,6 +775,85 @@ class ClanAdminView(discord.ui.View):
         await self.cog.refresh_admin_panels(guild)
 
     @discord.ui.button(
+        label="Dovolená",
+        style=discord.ButtonStyle.secondary,
+        custom_id="clan_toggle_vacation",
+    )
+    async def vacation_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        guild = interaction.guild
+        user = interaction.user
+        if guild is None or not isinstance(user, discord.Member):
+            await interaction.response.send_message(
+                "Tento ticket lze použít pouze na serveru.",
+                ephemeral=True,
+            )
+            return
+
+        if not self._is_admin(user):
+            await interaction.response.send_message(
+                "Tuto akci může provést pouze admin.",
+                ephemeral=True,
+            )
+            return
+
+        channel = interaction.channel
+        if not isinstance(channel, discord.TextChannel):
+            await interaction.response.send_message(
+                "Tlačítko lze použít pouze v ticket kanálu.",
+                ephemeral=True,
+            )
+            return
+
+        accepted_category = guild.get_channel(CLAN_ACCEPTED_TICKET_CATEGORY_ID)
+        vacation_category = guild.get_channel(CLAN_VACATION_TICKET_CATEGORY_ID)
+
+        if not isinstance(accepted_category, discord.CategoryChannel):
+            await interaction.response.send_message(
+                "Kategorie pro přijaté členy není správně nastavena.",
+                ephemeral=True,
+            )
+            return
+
+        if not isinstance(vacation_category, discord.CategoryChannel):
+            await interaction.response.send_message(
+                "Kategorie pro dovolenou není správně nastavena.",
+                ephemeral=True,
+            )
+            return
+
+        moving_to_vacation = channel.category_id != vacation_category.id
+        target_category_id = (
+            CLAN_VACATION_TICKET_CATEGORY_ID
+            if moving_to_vacation
+            else CLAN_ACCEPTED_TICKET_CATEGORY_ID
+        )
+        reason = (
+            "Přesun clan ticketu do kategorie dovolené"
+            if moving_to_vacation
+            else "Přesun clan ticketu zpět z dovolené"
+        )
+
+        success = await self.cog.move_ticket_to_category(
+            channel, target_category_id, reason
+        )
+        if not success:
+            await interaction.response.send_message(
+                "Nepodařilo se přesunout ticket do zvolené kategorie.",
+                ephemeral=True,
+            )
+            return
+
+        message = (
+            f"Ticket {channel.mention} byl přesunut do kategorie dovolené."
+            if moving_to_vacation
+            else f"Ticket {channel.mention} byl přesunut zpět mezi členy klanu."
+        )
+
+        await interaction.response.send_message(message, ephemeral=False)
+
+    @discord.ui.button(
         label="Zamítnout",
         style=discord.ButtonStyle.danger,
         custom_id="clan_reject",
