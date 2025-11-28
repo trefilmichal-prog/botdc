@@ -1,8 +1,18 @@
+import logging
+
 import discord
 from discord.ext import commands
 
 from config import TOKEN
 from db import init_db
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("botdc")
 
 
 class MyBot(commands.Bot):
@@ -28,12 +38,13 @@ class MyBot(commands.Bot):
         await self.load_extension("cog_leaderboard")
         await self.load_extension("cog_warn")
         await self.load_extension("cog_prophecy")
+        await self.load_extension("cog_logging")
 
         # sync slash commandů
         await self.tree.sync()
 
     async def on_ready(self):
-        print(f"Přihlášen jako {self.user} (ID: {self.user.id})")
+        logger.info("Přihlášen jako %s (ID: %s)", self.user, self.user.id)
 
 
 if __name__ == "__main__":
