@@ -255,6 +255,79 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
             ephemeral=True,
         )
 
+    @app_commands.command(
+        name="pair_clan_ticket",
+        description=(
+            "Spáruje ticket z jiného bota s členem klanu podle roblox nicku v názvu."
+        ),
+    )
+    @app_commands.checks.has_permissions(manage_channels=True)
+    async def pair_clan_ticket_cmd(self, interaction: discord.Interaction):
+        """
+        Vyhledá člena klanu s rolí CLAN_MEMBER_ROLE_ID podle roblox nicku v názvu
+        aktuálního ticket kanálu a vytvoří pro něj záznam přihlášky.
+        """
+
+        guild = interaction.guild
+        channel = interaction.channel
+
+        if guild is None or not isinstance(channel, discord.TextChannel):
+            await interaction.response.send_message(
+                "Tento příkaz lze použít pouze v textovém kanálu na serveru.",
+                ephemeral=True,
+            )
+            return
+
+        existing = get_open_application_by_channel(channel.id)
+        if existing is not None:
+            await interaction.response.send_message(
+                "Tento ticket už je spárovaný s přihláškou.", ephemeral=True
+            )
+            return
+
+        member_role = guild.get_role(CLAN_MEMBER_ROLE_ID) if CLAN_MEMBER_ROLE_ID else None
+        if member_role is None:
+            await interaction.response.send_message(
+                "Role pro členy klanu nebyla nalezena.", ephemeral=True
+            )
+            return
+
+        channel_name = channel.name.lower()
+        candidates: list[discord.Member] = []
+
+        for member in member_role.members:
+            normalized_nick = self._normalize_ticket_base(member.display_name)
+            if normalized_nick and normalized_nick in channel_name:
+                candidates.append(member)
+
+        if not candidates:
+            await interaction.response.send_message(
+                "V názvu ticketu jsem nenašel žádného člena klanu s roblox nickem.",
+                ephemeral=True,
+            )
+            return
+
+        if len(candidates) > 1:
+            names = ", ".join(m.display_name for m in candidates[:10])
+            await interaction.response.send_message(
+                "Nalezeno více možných členů: "
+                f"{names}. Zúž název ticketu nebo uprav přezdívku.",
+                ephemeral=True,
+            )
+            return
+
+        target = candidates[0]
+        app_id = create_clan_application(guild.id, channel.id, target.id)
+
+        # Uložíme známý roblox nick, další pole ponecháme prázdná.
+        update_clan_application_form(app_id, target.display_name, "", "")
+
+        await interaction.response.send_message(
+            f"Ticket byl spárován s hráčem {target.mention} "
+            f"(roblox nick: {target.display_name}).",
+            ephemeral=False,
+        )
+
     def register_admin_panel(self, message: discord.Message):
         """Uloží ID message s admin panelem pro pozdější refresh."""
         if message.guild is None:
