@@ -12,6 +12,7 @@ from config import (
     CLAN_APPLICATION_PING_ROLE_ID,
     CLAN_TICKET_CATEGORY_ID,
     CLAN_ACCEPTED_TICKET_CATEGORY_ID,
+    CLAN_VACATION_TICKET_CATEGORY_ID,
     CLAN_BOOSTS_IMAGE_URL,
     CLAN_BANNER_IMAGE_URL,
     TICKET_VIEWER_ROLE_ID,
@@ -360,15 +361,15 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
 
         self.admin_panels[guild.id] = new_list
 
-    async def move_ticket_to_accepted_category(
-        self, channel: discord.TextChannel
+    async def move_ticket_to_category(
+        self, channel: discord.TextChannel, category_id: int, reason: str
     ) -> bool:
-        """Přesune ticket do kategorie pro přijaté členy."""
+        """Přesune ticket do zadané kategorie."""
 
         if channel.guild is None:
             return False
 
-        category = channel.guild.get_channel(CLAN_ACCEPTED_TICKET_CATEGORY_ID)
+        category = channel.guild.get_channel(category_id)
         if not isinstance(category, discord.CategoryChannel):
             return False
 
@@ -376,13 +377,34 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
             return True
 
         try:
-            await channel.edit(
-                category=category,
-                reason="Přesun clan ticketu do kategorie přijatých členů",
-            )
+            await channel.edit(category=category, reason=reason)
             return True
         except (discord.Forbidden, discord.HTTPException):
             return False
+
+    async def move_ticket_to_accepted_category(
+        self, channel: discord.TextChannel
+    ) -> bool:
+        """Přesune ticket do kategorie pro přijaté členy."""
+
+        return await self.move_ticket_to_category(
+            channel,
+            CLAN_ACCEPTED_TICKET_CATEGORY_ID,
+            "Přesun clan ticketu do kategorie přijatých členů",
+        )
+
+    def find_member_ticket_channel(
+        self, guild: discord.Guild, member: discord.Member
+    ) -> Optional[discord.TextChannel]:
+        """Najde ticket kanál spojený s členem klanu (pokud existuje)."""
+
+        apps = get_clan_applications_by_user(guild.id, member.id)
+        for app in apps:
+            channel = guild.get_channel(app["channel_id"])
+            if isinstance(channel, discord.TextChannel):
+                return channel
+
+        return None
 
     def build_clan_admin_panel(
         self, guild: discord.Guild
@@ -955,6 +977,85 @@ class ClanAdminPanelView(discord.ui.View):
             f"Warn pro {member.mention} dokončen. {dm_info}",
             ephemeral=True,
         )
+
+    @discord.ui.button(
+        label="Dovolená",
+        style=discord.ButtonStyle.secondary,
+        custom_id="clan_admin_toggle_vacation",
+    )
+    async def vacation_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        err = self._check_admin(interaction)
+        if err is not None:
+            await interaction.response.send_message(err, ephemeral=True)
+            return
+
+        guild = interaction.guild
+        assert isinstance(guild, discord.Guild)
+
+        member = self._get_selected_member(guild)
+        if member is None:
+            await interaction.response.send_message(
+                "Nejdřív v seznamu vyber hráče.",
+                ephemeral=True,
+            )
+            return
+
+        ticket_channel = self.cog.find_member_ticket_channel(guild, member)
+        if ticket_channel is None:
+            await interaction.response.send_message(
+                "U vybraného hráče nebyl nalezen žádný clan ticket.",
+                ephemeral=True,
+            )
+            return
+
+        accepted_category = guild.get_channel(CLAN_ACCEPTED_TICKET_CATEGORY_ID)
+        vacation_category = guild.get_channel(CLAN_VACATION_TICKET_CATEGORY_ID)
+
+        if not isinstance(accepted_category, discord.CategoryChannel):
+            await interaction.response.send_message(
+                "Kategorie pro přijaté členy není správně nastavena.",
+                ephemeral=True,
+            )
+            return
+
+        if not isinstance(vacation_category, discord.CategoryChannel):
+            await interaction.response.send_message(
+                "Kategorie pro dovolenou není správně nastavena.",
+                ephemeral=True,
+            )
+            return
+
+        moving_to_vacation = ticket_channel.category_id != vacation_category.id
+        target_category_id = (
+            CLAN_VACATION_TICKET_CATEGORY_ID
+            if moving_to_vacation
+            else CLAN_ACCEPTED_TICKET_CATEGORY_ID
+        )
+        reason = (
+            "Přesun clan ticketu do kategorie dovolené"
+            if moving_to_vacation
+            else "Přesun clan ticketu zpět z dovolené"
+        )
+
+        success = await self.cog.move_ticket_to_category(
+            ticket_channel, target_category_id, reason
+        )
+        if not success:
+            await interaction.response.send_message(
+                "Nepodařilo se přesunout ticket do zvolené kategorie.",
+                ephemeral=True,
+            )
+            return
+
+        message = (
+            f"Ticket {ticket_channel.mention} byl přesunut do kategorie dovolené."
+            if moving_to_vacation
+            else f"Ticket {ticket_channel.mention} byl přesunut zpět mezi členy klanu."
+        )
+
+        await interaction.response.send_message(message, ephemeral=True)
 
     @discord.ui.button(
         label="Kick (odebrat clan roli)",
