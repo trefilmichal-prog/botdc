@@ -47,6 +47,8 @@ CLAN_APPLICATION_PING_ROLE_ID = 1440268371152339065
 
 # CLAN – kategorie pro ticket kanály (přihlášky do klanu)
 CLAN_TICKET_CATEGORY_ID = 1440977431577235456
+# CLAN – kategorie pro tickety přijatých členů
+CLAN_ACCEPTED_TICKET_CATEGORY_ID = 1443684694968373421
 
 # CLAN – po kolika minutách se mají rozhodnuté přihlášky mazat (kanály)
 CLAN_TICKET_CLEANUP_MINUTES = 60
