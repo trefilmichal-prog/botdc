@@ -18,6 +18,18 @@ from db import (
     set_setting,
 )
 
+SHOP_MANAGER_ROLE_ID = 1_440_268_327_892_025_438
+
+
+def _can_manage_shop(interaction: discord.Interaction) -> bool:
+    user = interaction.user
+    if isinstance(user, discord.Member):
+        if user.guild_permissions.administrator:
+            return True
+        return any(role.id == SHOP_MANAGER_ROLE_ID for role in user.roles)
+
+    return False
+
 
 class ShopCog(commands.Cog, name="ShopCog"):
     def __init__(self, bot: commands.Bot):
@@ -57,7 +69,7 @@ class ShopCog(commands.Cog, name="ShopCog"):
         name="addshopitem",
         description="Přidá položku do shopu (screen, cena, počet kusů).",
     )
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.check(_can_manage_shop)
     @app_commands.describe(
         title="Název položky",
         price_coins="Cena v coinech",
