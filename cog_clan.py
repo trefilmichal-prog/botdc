@@ -917,6 +917,7 @@ class ClanAdminPanelView(discord.ui.View):
         super().__init__(timeout=None)
         self.cog = cog
         self.selected_member_id: Optional[int] = None
+        self.member_select: Optional[discord.ui.Select] = None
 
         if not options:
             options = [
@@ -935,6 +936,7 @@ class ClanAdminPanelView(discord.ui.View):
             custom_id="clan_admin_select_member",
         )
         select.callback = self.on_select  # type: ignore
+        self.member_select = select
         self.add_item(select)
 
     async def on_select(self, interaction: discord.Interaction):
@@ -957,15 +959,14 @@ class ClanAdminPanelView(discord.ui.View):
             )
             return
 
-        select: discord.ui.Select = self.children[0]  # type: ignore
-        if not select.values:
+        if self.member_select is None or not self.member_select.values:
             await interaction.response.send_message(
                 "Nebyl vybrán žádný hráč.",
                 ephemeral=True,
             )
             return
 
-        value = select.values[0]
+        value = self.member_select.values[0]
         if value == "none":
             self.selected_member_id = None
             await interaction.response.send_message(
