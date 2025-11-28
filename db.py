@@ -727,6 +727,61 @@ def get_open_application_by_user(guild_id: int, user_id: int) -> Optional[Dict[s
     return _row_to_clan_application(row)
 
 
+def get_latest_clan_application_by_user(
+    guild_id: int, user_id: int
+) -> Optional[Dict[str, Any]]:
+    """
+    Vrátí nejnovější (nevypnutou) přihlášku uživatele bez ohledu na stav.
+    Používá se při přemapování ticketů pro stávající členy.
+    """
+
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT id, guild_id, channel_id, user_id,
+               roblox_nick, hours_per_day, rebirths,
+               status, created_at, decided_at, deleted
+        FROM clan_applications
+        WHERE guild_id = ? AND user_id = ? AND deleted = 0
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (guild_id, user_id),
+    )
+    row = c.fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return _row_to_clan_application(row)
+
+
+def get_clan_applications_by_user(
+    guild_id: int, user_id: int, include_deleted: bool = False
+) -> list[Dict[str, Any]]:
+    """Vrátí všechny přihlášky uživatele seřazené od nejnovější."""
+
+    conn = get_connection()
+    c = conn.cursor()
+    query = """
+        SELECT id, guild_id, channel_id, user_id,
+               roblox_nick, hours_per_day, rebirths,
+               status, created_at, decided_at, deleted
+        FROM clan_applications
+        WHERE guild_id = ? AND user_id = ?
+    """
+    params: list[Any] = [guild_id, user_id]
+    if not include_deleted:
+        query += " AND deleted = 0"
+
+    query += " ORDER BY created_at DESC"
+
+    c.execute(query, params)
+    rows = c.fetchall()
+    conn.close()
+    return [_row_to_clan_application(row) for row in rows]
+
+
 def get_open_application_by_channel(channel_id: int) -> Optional[Dict[str, Any]]:
     conn = get_connection()
     c = conn.cursor()

@@ -11,6 +11,7 @@ from config import (
     CLAN_MEMBER_ROLE_ID,
     CLAN_APPLICATION_PING_ROLE_ID,
     CLAN_TICKET_CATEGORY_ID,
+    CLAN_ACCEPTED_TICKET_CATEGORY_ID,
     CLAN_BOOSTS_IMAGE_URL,
     CLAN_BANNER_IMAGE_URL,
     TICKET_VIEWER_ROLE_ID,
@@ -18,6 +19,8 @@ from config import (
 from db import (
     create_clan_application,
     get_open_application_by_user,
+    get_latest_clan_application_by_user,
+    get_clan_applications_by_user,
     get_open_application_by_channel,
     update_clan_application_form,
     set_clan_application_status,
@@ -55,7 +58,8 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         }
         emoji = emoji_map.get(status, "🟠")
         normalized = self._normalize_ticket_base(base)
-        name = f"{emoji}clan-{normalized}"
+        prefix = "clan" if status == "accepted" else "přihlášky"
+        name = f"{emoji}{prefix}-{normalized}"
         return name[:90]
 
     def _get_ticket_base_from_app(
@@ -170,6 +174,87 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         msg = await interaction.original_response()
         self.register_admin_panel(msg)
 
+    @app_commands.command(
+        name="update_clan_ticket",
+        description="Přesune clan tickety členů do správné kategorie.",
+    )
+    @app_commands.checks.has_permissions(manage_channels=True)
+    async def update_clan_ticket_cmd(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message(
+                "Příkaz lze použít pouze na serveru.",
+                ephemeral=True,
+            )
+            return
+
+        target_category = guild.get_channel(CLAN_ACCEPTED_TICKET_CATEGORY_ID)
+        if not isinstance(target_category, discord.CategoryChannel):
+            await interaction.response.send_message(
+                "Nastavená kategorie pro přijaté tickety neexistuje.",
+                ephemeral=True,
+            )
+            return
+
+        member_role = guild.get_role(CLAN_MEMBER_ROLE_ID) if CLAN_MEMBER_ROLE_ID else None
+        if member_role is None:
+            await interaction.response.send_message(
+                "Role pro členy klanu nebyla nalezena.",
+                ephemeral=True,
+            )
+            return
+
+        moved = 0
+        missing = 0
+        already_ok = 0
+        failed = 0
+
+        for member in member_role.members:
+            apps = get_clan_applications_by_user(guild.id, member.id)
+            channel: Optional[discord.TextChannel] = None
+            selected_app: Optional[Dict[str, Any]] = None
+
+            for candidate in apps:
+                candidate_channel = guild.get_channel(candidate["channel_id"])
+                if isinstance(candidate_channel, discord.TextChannel):
+                    channel = candidate_channel
+                    selected_app = candidate
+                    break
+
+            if channel is None:
+                missing += 1
+                continue
+
+            if selected_app is not None:
+                base = self._get_ticket_base_from_app(selected_app, guild)
+                await self.rename_ticket_channel(channel, base, "accepted")
+
+            if channel.category_id == target_category.id:
+                already_ok += 1
+                continue
+
+            try:
+                await channel.edit(
+                    category=target_category,
+                    reason="Přemapování clan ticketů na novou kategorii",
+                )
+                moved += 1
+            except (discord.Forbidden, discord.HTTPException):
+                failed += 1
+
+        await interaction.response.send_message(
+            (
+                "Hotovo. Přesunuto: {moved}, chybějící ticket: {missing}, "
+                "chyby při přesunu: {failed}, již ve správné kategorii: {already_ok}."
+            ).format(
+                moved=moved,
+                missing=missing,
+                failed=failed,
+                already_ok=already_ok,
+            ),
+            ephemeral=True,
+        )
+
     def register_admin_panel(self, message: discord.Message):
         """Uloží ID message s admin panelem pro pozdější refresh."""
         if message.guild is None:
@@ -201,6 +286,30 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
             new_list.append((channel_id, message_id))
 
         self.admin_panels[guild.id] = new_list
+
+    async def move_ticket_to_accepted_category(
+        self, channel: discord.TextChannel
+    ) -> bool:
+        """Přesune ticket do kategorie pro přijaté členy."""
+
+        if channel.guild is None:
+            return False
+
+        category = channel.guild.get_channel(CLAN_ACCEPTED_TICKET_CATEGORY_ID)
+        if not isinstance(category, discord.CategoryChannel):
+            return False
+
+        if channel.category_id == category.id:
+            return True
+
+        try:
+            await channel.edit(
+                category=category,
+                reason="Přesun clan ticketu do kategorie přijatých členů",
+            )
+            return True
+        except (discord.Forbidden, discord.HTTPException):
+            return False
 
     def build_clan_admin_panel(
         self, guild: discord.Guild
@@ -290,6 +399,16 @@ class ClanApplyPanelView(discord.ui.View):
                     ephemeral=True,
                 )
             return
+
+        latest_app = get_latest_clan_application_by_user(guild.id, user.id)
+        if latest_app is not None and latest_app.get("deleted") == 0:
+            existing_channel = guild.get_channel(latest_app["channel_id"])
+            if isinstance(existing_channel, discord.TextChannel):
+                await interaction.response.send_message(
+                    f"Už máš vytvořený ticket v kanále {existing_channel.mention}.",
+                    ephemeral=True,
+                )
+                return
 
         # pouze otevřeme formulář, ticket se vytvoří až po submit
         modal = ClanApplicationModal(self.cog)
@@ -534,6 +653,7 @@ class ClanAdminView(discord.ui.View):
         if isinstance(channel, discord.TextChannel):
             base = self.cog._get_ticket_base_from_app(app, guild)
             await self.cog.rename_ticket_channel(channel, base, "accepted")
+            await self.cog.move_ticket_to_accepted_category(channel)
         if member is not None and CLAN_MEMBER_ROLE_ID:
             role = guild.get_role(CLAN_MEMBER_ROLE_ID)
             if role is not None:
