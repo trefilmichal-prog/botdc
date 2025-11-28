@@ -20,6 +20,7 @@ from db import (
     create_clan_application,
     get_open_application_by_user,
     get_latest_clan_application_by_user,
+    get_clan_applications_by_user,
     get_open_application_by_channel,
     update_clan_application_form,
     set_clan_application_status,
@@ -203,17 +204,22 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
             return
 
         moved = 0
-        skipped = 0
+        missing = 0
         already_ok = 0
+        failed = 0
 
         for member in member_role.members:
-            app = get_latest_clan_application_by_user(guild.id, member.id)
-            if app is None:
-                continue
+            apps = get_clan_applications_by_user(guild.id, member.id)
+            channel: Optional[discord.TextChannel] = None
 
-            channel = guild.get_channel(app["channel_id"])
-            if not isinstance(channel, discord.TextChannel):
-                skipped += 1
+            for candidate in apps:
+                candidate_channel = guild.get_channel(candidate["channel_id"])
+                if isinstance(candidate_channel, discord.TextChannel):
+                    channel = candidate_channel
+                    break
+
+            if channel is None:
+                missing += 1
                 continue
 
             if channel.category_id == target_category.id:
@@ -227,13 +233,18 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
                 )
                 moved += 1
             except (discord.Forbidden, discord.HTTPException):
-                skipped += 1
+                failed += 1
 
         await interaction.response.send_message(
             (
-                "Hotovo. Přesunuto: {moved}, přeskočeno kvůli chybě nebo chybějícímu kanálu: {skipped}, "
-                "již ve správné kategorii: {already_ok}."
-            ).format(moved=moved, skipped=skipped, already_ok=already_ok),
+                "Hotovo. Přesunuto: {moved}, chybějící ticket: {missing}, "
+                "chyby při přesunu: {failed}, již ve správné kategorii: {already_ok}."
+            ).format(
+                moved=moved,
+                missing=missing,
+                failed=failed,
+                already_ok=already_ok,
+            ),
             ephemeral=True,
         )
 
