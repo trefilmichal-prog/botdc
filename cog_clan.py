@@ -25,6 +25,7 @@ from db import (
     get_open_application_by_channel,
     update_clan_application_form,
     set_clan_application_status,
+    mark_clan_application_deleted,
 )
 
 
@@ -62,6 +63,37 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         prefix = "clan" if status == "accepted" else "přihlášky"
         name = f"{emoji}{prefix}-{normalized}"
         return name[:90]
+
+    async def remove_clan_ticket_for_member(
+        self, guild: discord.Guild, member: discord.Member, reason: str
+    ) -> str | None:
+        latest_app = get_latest_clan_application_by_user(guild.id, member.id)
+        if latest_app is None or latest_app.get("deleted"):
+            return None
+
+        channel = guild.get_channel(latest_app["channel_id"])
+        channel_label = (
+            channel.mention if isinstance(channel, discord.TextChannel) else "ticket"
+        )
+
+        mark_clan_application_deleted(latest_app["id"])
+
+        if isinstance(channel, discord.TextChannel):
+            try:
+                await channel.delete(
+                    reason=(
+                        f"Kick uživatele {member} – odstranění ticketu (důvod: {reason})"
+                    )
+                )
+                return f"Ticket {channel_label} byl smazán."
+            except discord.Forbidden:
+                return (
+                    f"Ticket {channel_label} se nepodařilo smazat kvůli oprávněním."
+                )
+            except discord.HTTPException:
+                return f"Při mazání ticketu {channel_label} došlo k chybě."
+
+        return "Původní ticket se nenašel, označuji ho jako smazaný."
 
     def _get_ticket_base_from_app(
         self, app: Dict[str, Any], guild: discord.Guild
@@ -917,6 +949,7 @@ class ClanAdminPanelView(discord.ui.View):
         super().__init__(timeout=None)
         self.cog = cog
         self.selected_member_id: Optional[int] = None
+        self.member_select: Optional[discord.ui.Select] = None
 
         if not options:
             options = [
@@ -935,6 +968,7 @@ class ClanAdminPanelView(discord.ui.View):
             custom_id="clan_admin_select_member",
         )
         select.callback = self.on_select  # type: ignore
+        self.member_select = select
         self.add_item(select)
 
     async def on_select(self, interaction: discord.Interaction):
@@ -957,15 +991,14 @@ class ClanAdminPanelView(discord.ui.View):
             )
             return
 
-        select: discord.ui.Select = self.children[0]  # type: ignore
-        if not select.values:
+        if self.member_select is None or not self.member_select.values:
             await interaction.response.send_message(
                 "Nebyl vybrán žádný hráč.",
                 ephemeral=True,
             )
             return
 
-        value = select.values[0]
+        value = self.member_select.values[0]
         if value == "none":
             self.selected_member_id = None
             await interaction.response.send_message(
@@ -1009,6 +1042,25 @@ class ClanAdminPanelView(discord.ui.View):
         ):
             return "Tento panel může používat pouze admin (nebo člen s Manage Roles)."
         return None
+
+    @staticmethod
+    def _can_moderate(actor: discord.Member, target: discord.Member) -> bool:
+        if target == actor:
+            return False
+        if actor.guild is None:
+            return False
+        if actor.guild.owner_id == actor.id:
+            return True
+        return target.top_role < actor.top_role
+
+    @staticmethod
+    def _bot_can_moderate(guild: discord.Guild, target: discord.Member) -> bool:
+        me = guild.me
+        if me is None:
+            return False
+        if guild.owner_id == me.id:
+            return True
+        return target.top_role < me.top_role
 
     def _get_selected_member(
         self, guild: discord.Guild
@@ -1162,38 +1214,36 @@ class ClanAdminPanelView(discord.ui.View):
             )
             return
 
-        role = guild.get_role(CLAN_MEMBER_ROLE_ID) if CLAN_MEMBER_ROLE_ID else None
-        if role is None or role not in member.roles:
+        actor = interaction.user
+        assert isinstance(actor, discord.Member)
+
+        if not self._can_moderate(actor, member):
             await interaction.response.send_message(
-                "U vybraného hráče už clan role není (nebo role neexistuje).",
+                "Nemůžeš vyhodit uživatele s vyšší nebo stejnou rolí.",
                 ephemeral=True,
             )
             return
 
-        try:
-            await member.remove_roles(role, reason="Vyhozen z klanu přes admin panel")
-        except discord.Forbidden:
+        if not self._bot_can_moderate(guild, member):
             await interaction.response.send_message(
-                "Nemám oprávnění odebrat tuto roli. "
-                "Zkontroluj `Manage Roles` a pořadí rolí (role bota musí být nad rolí klanu).",
+                "Nemohu vyhodit uživatele kvůli hierarchii rolí.",
                 ephemeral=True,
             )
             return
 
-        try:
-            await member.send(
-                f"Byl jsi **odstraněn z klanu** na serveru **{guild.name}**.\n"
-                f"Pokud si myslíš, že jde o omyl, kontaktuj prosím administrátora."
-            )
-            dm_info = "Hráči byla odeslána soukromá zpráva o vyhození."
-        except discord.Forbidden:
-            dm_info = "Nepodařilo se odeslat DM hráči (má vypnuté soukromé zprávy)."
+        reason = "Kick přes clan panel"
+        await member.kick(reason=reason)
 
-        await interaction.response.send_message(
-            f"Hráči {member.mention} byla odebrána clan role. {dm_info}",
-            ephemeral=True,
+        ticket_info = await self.cog.remove_clan_ticket_for_member(
+            guild, member, reason
         )
+        response = (
+            f"\N{WAVING HAND SIGN} {member.mention} byl/a vyhozen/a. Důvod: {reason}."
+        )
+        if ticket_info:
+            response = f"{response}\n{ticket_info}"
 
+        await interaction.response.send_message(response, ephemeral=True)
         # refresh všech admin panelů (odebrání člena)
         await self.cog.refresh_admin_panels(guild)
 
