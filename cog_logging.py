@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 
 import discord
@@ -14,7 +15,7 @@ class LoggingCog(commands.Cog):
         self.logger.setLevel(logging.INFO)
 
         self.log_queue: asyncio.Queue[str] = asyncio.Queue()
-        self.log_task = self.bot.loop.create_task(self._process_log_queue())
+        self.log_task: asyncio.Task[None] | None = None
 
         self._handler = _ChannelLogHandler(self)
         self._handler.setFormatter(
@@ -28,6 +29,11 @@ class LoggingCog(commands.Cog):
         root_logger = logging.getLogger()
         if self._handler not in root_logger.handlers:
             root_logger.addHandler(self._handler)
+
+    async def cog_load(self):
+        # Start log processing once the cog is fully loaded and a loop is running.
+        loop = asyncio.get_running_loop()
+        self.log_task = loop.create_task(self._process_log_queue())
 
     async def _get_log_channel(self) -> discord.TextChannel | None:
         channel = self.bot.get_channel(LOG_CHANNEL_ID)
@@ -130,9 +136,13 @@ class LoggingCog(commands.Cog):
 
     async def _process_log_queue(self):
         try:
+            await self.bot.wait_until_ready()
             while True:
                 log_entry = await self.log_queue.get()
-                await self._send_log_embed(log_entry)
+                try:
+                    await self._send_log_embed(log_entry)
+                except Exception:
+                    self.logger.exception("Nepodařilo se odeslat log do kanálu")
         except asyncio.CancelledError:
             pass
 
@@ -149,11 +159,14 @@ class LoggingCog(commands.Cog):
         )
         await channel.send(embed=embed)
 
-    def cog_unload(self):
+    async def cog_unload(self):
         root_logger = logging.getLogger()
         if self._handler in root_logger.handlers:
             root_logger.removeHandler(self._handler)
-        self.log_task.cancel()
+        if self.log_task is not None:
+            self.log_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.log_task
 
 
 def setup(bot: commands.Bot):
@@ -173,7 +186,7 @@ class _ChannelLogHandler(logging.Handler):
             return
 
         loop = self.cog.bot.loop
-        if loop.is_closed():
+        if loop is None or loop.is_closed():
             return
 
         loop.call_soon_threadsafe(self.cog.log_queue.put_nowait, message)
