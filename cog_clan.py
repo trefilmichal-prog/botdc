@@ -58,7 +58,8 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         }
         emoji = emoji_map.get(status, "🟠")
         normalized = self._normalize_ticket_base(base)
-        name = f"{emoji}clan-{normalized}"
+        prefix = "clan" if status == "accepted" else "přihlášky"
+        name = f"{emoji}{prefix}-{normalized}"
         return name[:90]
 
     def _get_ticket_base_from_app(
@@ -211,16 +212,22 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         for member in member_role.members:
             apps = get_clan_applications_by_user(guild.id, member.id)
             channel: Optional[discord.TextChannel] = None
+            selected_app: Optional[Dict[str, Any]] = None
 
             for candidate in apps:
                 candidate_channel = guild.get_channel(candidate["channel_id"])
                 if isinstance(candidate_channel, discord.TextChannel):
                     channel = candidate_channel
+                    selected_app = candidate
                     break
 
             if channel is None:
                 missing += 1
                 continue
+
+            if selected_app is not None:
+                base = self._get_ticket_base_from_app(selected_app, guild)
+                await self.rename_ticket_channel(channel, base, "accepted")
 
             if channel.category_id == target_category.id:
                 already_ok += 1
