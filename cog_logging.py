@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+import inspect
 
 import discord
 from discord.ext import commands
@@ -169,8 +170,11 @@ class LoggingCog(commands.Cog):
                 await self.log_task
 
 
-def setup(bot: commands.Bot):
-    bot.add_cog(LoggingCog(bot))
+async def setup(bot: commands.Bot):
+    # add_cog is async in newer discord.py versions; await it when needed
+    result = bot.add_cog(LoggingCog(bot))
+    if inspect.isawaitable(result):
+        await result
 
 
 class _ChannelLogHandler(logging.Handler):
