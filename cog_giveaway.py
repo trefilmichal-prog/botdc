@@ -156,11 +156,43 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
         embed = embed.copy()
         embed.color = 0xFFA500
 
-        participants_list = list(participants)
         guild = message.guild
         guild_name = guild.name if guild else "serveru"
         host_id = state.get("host_id")
         host_mention = f"<@{host_id}>" if host_id else "organizátorem giveaway"
+
+        eligible_participants: List[int] = []
+        for uid in participants:
+            member = guild.get_member(uid) if guild else None
+            user = member if member is not None else self.bot.get_user(uid)
+
+            if user is None:
+                continue
+
+            if state.get("block_admins") and isinstance(user, discord.Member):
+                if user.guild_permissions.administrator:
+                    continue
+
+            eligible_participants.append(uid)
+
+        if not eligible_participants:
+            embed.title = "🎁 Giveaway ukončena"
+            embed.description = (
+                "Nebyl nalezen žádný platný účastník pro losování. Giveaway končí bez výherce."
+            )
+            embed.color = 0x808080
+            embed.set_footer(text="Žádní platní účastníci")
+
+            for child in view.children:
+                child.disabled = True
+
+            await message.edit(embed=embed, view=view)
+
+            delete_giveaway_state(message.id)
+            self.active_giveaways.pop(message.id, None)
+            return
+
+        participants_list = list(eligible_participants)
 
         # vizuální „rolování“
         for _ in range(5):
@@ -306,6 +338,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
         image="Screenshot / obrázek (volitelné u coin/pet, doporučené u screen)",
         screen_winners="Počet výherců pro screen giveaway (min 1, max 10)",
         duration_minutes="Za kolik minut se má giveaway automaticky ukončit (prázdné = default z configu)",
+        block_admins="Zabrání administrátorům přihlásit se do giveaway",
     )
     async def start_giveaway_cmd(
         self,
@@ -317,6 +350,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
         image: Optional[discord.Attachment] = None,
         screen_winners: Optional[app_commands.Range[int, 1, 10]] = None,
         duration_minutes: Optional[app_commands.Range[int, 1, 1440]] = None,
+        block_admins: bool = False,
     ):
         channel_id_str = get_setting("giveaway_channel_id")
         if not channel_id_str:
@@ -378,6 +412,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 "image_url": image_url,
                 "duration": duration,
                 "end_at": end_at,
+                "block_admins": block_admins,
             }
 
         # ---------------------- PET -----------------------
@@ -412,6 +447,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 "image_url": image_url,
                 "duration": duration,
                 "end_at": end_at,
+                "block_admins": block_admins,
             }
 
         # ---------------------- SCREEN --------------------
@@ -439,6 +475,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 "winners_count": winners_count,
                 "duration": duration,
                 "end_at": end_at,
+                "block_admins": block_admins,
             }
 
         if image_url:
@@ -498,6 +535,13 @@ class GiveawayView(discord.ui.View):
 
         user_id = interaction.user.id
         participants: set[int] = state.setdefault("participants", set())
+
+        if state.get("block_admins") and interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message(
+                "Administrátoři se nemohou přihlásit do této giveaway.",
+                ephemeral=True,
+            )
+            return
 
         if user_id in participants:
             await interaction.response.send_message(
