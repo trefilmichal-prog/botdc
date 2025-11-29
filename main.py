@@ -33,6 +33,7 @@ class MyBot(commands.Bot):
         await self.load_extension("cog_giveaway")
         await self.load_extension("cog_shop")
         await self.load_extension("cog_clan")  # <-- nový modul pro přihlášky do klanu
+        await self.load_extension("cog_clan2")  # druhý modul přihlášek
         await self.load_extension("cog_clan_stats")
         await self.load_extension("cog_basic")
         await self.load_extension("cog_leaderboard")
