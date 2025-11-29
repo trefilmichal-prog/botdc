@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List, Tuple, TYPE_CHECKING
 
 import discord
 from discord.ext import commands
@@ -18,6 +18,9 @@ from config import (
     TICKET_VIEWER_ROLE_ID,
 )
 from i18n import DEFAULT_LOCALE, get_interaction_locale, normalize_locale, t
+
+if TYPE_CHECKING:  # pragma: no cover - only for type hints
+    from cog_clan2 import Clan2ApplicationsCog, Clan2ApplicationModal
 from db import (
     create_clan_application,
     get_open_application_by_user,
@@ -500,17 +503,19 @@ class ClanApplyPanelView(discord.ui.View):
     def _apply_locale(self):
         for child in self.children:
             if isinstance(child, discord.ui.Button) and child.custom_id == "clan_apply_button":
-                child.label = t("clan_apply_button_label", self.locale)
+                child.label = "HROT"
 
-    @discord.ui.button(
-        label="Podat přihlášku",
-        style=discord.ButtonStyle.primary,
-        custom_id="clan_apply_button",
-    )
-    async def apply_button(
+            if isinstance(child, discord.ui.Button) and child.custom_id == "clan2_apply_button":
+                child.label = "HR2T"
+
+    def _get_clan2_cog(self) -> "Clan2ApplicationsCog | None":
+        return self.cog.bot.get_cog("Clan2ApplicationsCog")
+
+    async def _open_application_modal(
         self,
         interaction: discord.Interaction,
-        button: discord.ui.Button,
+        modal_factory,
+        target_cog: "ClanApplicationsCog | Clan2ApplicationsCog",
     ):
         locale = get_interaction_locale(interaction)
         user = interaction.user
@@ -522,7 +527,6 @@ class ClanApplyPanelView(discord.ui.View):
             )
             return
 
-        # Kontrola, zda už nemá otevřený ticket (přihlášku)
         existing = get_open_application_by_user(guild.id, user.id)
         if existing is not None:
             ch_id = existing["channel_id"]
@@ -553,9 +557,51 @@ class ClanApplyPanelView(discord.ui.View):
                 )
                 return
 
-        # pouze otevřeme formulář, ticket se vytvoří až po submit
-        modal = ClanApplicationModal(self.cog, locale)
+        modal = modal_factory(target_cog, locale)
         await interaction.response.send_modal(modal)
+
+    @discord.ui.button(
+        label="HROT",
+        style=discord.ButtonStyle.primary,
+        custom_id="clan_apply_button",
+    )
+    async def apply_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ):
+        # pouze otevřeme formulář, ticket se vytvoří až po submit
+        await self._open_application_modal(
+            interaction,
+            lambda cog, loc: ClanApplicationModal(cog, loc),
+            self.cog,
+        )
+
+    @discord.ui.button(
+        label="HR2T",
+        style=discord.ButtonStyle.primary,
+        custom_id="clan2_apply_button",
+    )
+    async def apply_clan2_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ):
+        clan2_cog = self._get_clan2_cog()
+        if clan2_cog is None:
+            await interaction.response.send_message(
+                "Clan2 panel není dostupný.",
+                ephemeral=True,
+            )
+            return
+
+        from cog_clan2 import Clan2ApplicationModal
+
+        await self._open_application_modal(
+            interaction,
+            lambda cog, loc: Clan2ApplicationModal(cog, loc),
+            clan2_cog,
+        )
 
 
 # ---------- MODAL: Přihláška – vytvoření ticketu až po submit ----------

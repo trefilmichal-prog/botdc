@@ -13,8 +13,6 @@ from config import (
     CLAN_TICKET_CATEGORY_ID,
     CLAN2_ACCEPTED_TICKET_CATEGORY_ID,
     CLAN_VACATION_TICKET_CATEGORY_ID,
-    CLAN_BOOSTS_IMAGE_URL,
-    CLAN_BANNER_IMAGE_URL,
     TICKET_VIEWER_ROLE_ID,
 )
 from i18n import DEFAULT_LOCALE, get_interaction_locale, normalize_locale, t
@@ -39,11 +37,9 @@ class Clan2ApplicationsCog(commands.Cog, name="Clan2ApplicationsCog"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-        # persistentní view – panel pro přihlášky a admin view v ticketech
-        self.apply_panel_view = Clan2ApplyPanelView(self, DEFAULT_LOCALE)
+        # persistentní view – admin view v ticketech
         self.admin_view = Clan2AdminView(self, DEFAULT_LOCALE)
 
-        self.bot.add_view(self.apply_panel_view)
         self.bot.add_view(self.admin_view)
 
         # seznam admin panelů: guild_id -> [(channel_id, message_id), ...]
@@ -130,57 +126,6 @@ class Clan2ApplicationsCog(commands.Cog, name="Clan2ApplicationsCog"):
             await channel.edit(name=new_name, reason=reason)
         except (discord.Forbidden, discord.HTTPException):
             pass
-
-    # ---------- SLASH COMMANDS – PŘIHLÁŠKY ----------
-
-    @app_commands.command(
-        name="setup_clan2_panel",
-        description="Vytvoří panel pro přihlášky do klanu v tomto kanálu (admin).",
-    )
-    @app_commands.checks.has_permissions(administrator=True)
-    async def setup_clan2_panel_cmd(self, interaction: discord.Interaction):
-        locale = get_interaction_locale(interaction)
-        channel = interaction.channel
-        if not isinstance(channel, discord.TextChannel):
-            await interaction.response.send_message(
-                t("guild_text_only", locale),
-                ephemeral=True,
-            )
-            return
-
-        embed_description = (
-            t("clan_benefits_list", locale)
-        )
-
-        main_embed = discord.Embed(
-            title=t("clan_benefits_title", locale),
-            description=embed_description,
-            color=0x3498DB,
-        )
-
-        if CLAN_BOOSTS_IMAGE_URL:
-            main_embed.url = CLAN_BOOSTS_IMAGE_URL
-
-        requirements_text = t("clan_requirements_list", locale)
-
-        main_embed.add_field(
-            name=t("clan_requirements_title", locale),
-            value=requirements_text,
-            inline=False,
-        )
-
-        if CLAN_BANNER_IMAGE_URL:
-            main_embed.set_image(url=CLAN_BANNER_IMAGE_URL)
-
-        localized_view = Clan2ApplyPanelView(self, locale)
-        self.bot.add_view(localized_view)
-
-        await channel.send(embed=main_embed, view=localized_view)
-
-        await interaction.response.send_message(
-            t("clan_panel_created", locale),
-            ephemeral=True,
-        )
 
     # ---------- SLASH COMMAND – ADMIN PANEL CLANU ----------
 
@@ -500,10 +445,10 @@ class Clan2ApplyPanelView(discord.ui.View):
     def _apply_locale(self):
         for child in self.children:
             if isinstance(child, discord.ui.Button) and child.custom_id == "clan2_apply_button":
-                child.label = t("clan_apply_button_label", self.locale)
+                child.label = "HR2T"
 
     @discord.ui.button(
-        label="Podat přihlášku",
+        label="HR2T",
         style=discord.ButtonStyle.primary,
         custom_id="clan2_apply_button",
     )
