@@ -485,7 +485,11 @@ class Clan2ApplyPanelView(discord.ui.View):
             return
 
         latest_app = get_latest_clan_application_by_user(guild.id, user.id)
-        if latest_app is not None and latest_app.get("deleted") == 0:
+        if (
+            latest_app is not None
+            and latest_app.get("deleted") == 0
+            and latest_app.get("status") != "rejected"
+        ):
             existing_channel = guild.get_channel(latest_app["channel_id"])
             if isinstance(existing_channel, discord.TextChannel):
                 await interaction.response.send_message(
@@ -555,6 +559,17 @@ class Clan2ApplicationModal(discord.ui.Modal):
             )
             return
 
+        existing_channel = None
+        latest_app = get_latest_clan_application_by_user(guild.id, user.id)
+        if (
+            latest_app is not None
+            and latest_app.get("deleted") == 0
+            and latest_app.get("status") == "rejected"
+        ):
+            channel_candidate = guild.get_channel(latest_app["channel_id"])
+            if isinstance(channel_candidate, discord.TextChannel):
+                existing_channel = channel_candidate
+
         # kontrola, jestli mezitím nevznikla přihláška
         existing = get_open_application_by_user(guild.id, user.id)
         if existing is not None:
@@ -596,12 +611,23 @@ class Clan2ApplicationModal(discord.ui.Modal):
                 )
         ch_name = self.cog.build_ticket_name(nick or user.name, "open")
 
-        ticket_channel = await guild.create_text_channel(
-            name=ch_name,
-            category=category,
-            overwrites=overwrites,
-            reason=t("clan_ticket_audit", DEFAULT_LOCALE, user=user, user_id=user.id),
-        )
+        reason_text = t("clan_ticket_audit", DEFAULT_LOCALE, user=user, user_id=user.id)
+
+        if existing_channel is None:
+            ticket_channel = await guild.create_text_channel(
+                name=ch_name,
+                category=category,
+                overwrites=overwrites,
+                reason=reason_text,
+            )
+        else:
+            ticket_channel = existing_channel
+            await ticket_channel.edit(
+                name=ch_name,
+                category=category,
+                overwrites=overwrites,
+                reason=reason_text,
+            )
 
         # záznam v DB + doplnění údajů
         app_id = create_clan_application(
