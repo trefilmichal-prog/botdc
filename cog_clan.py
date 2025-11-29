@@ -17,7 +17,7 @@ from config import (
     CLAN_BANNER_IMAGE_URL,
     TICKET_VIEWER_ROLE_ID,
 )
-from i18n import DEFAULT_LOCALE, get_interaction_locale, t
+from i18n import DEFAULT_LOCALE, get_interaction_locale, normalize_locale, t
 from db import (
     create_clan_application,
     get_open_application_by_user,
@@ -328,6 +328,7 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
 
         channel_name = channel.name.lower()
         candidates: list[discord.Member] = []
+        locale = get_interaction_locale(interaction)
 
         for member in member_role.members:
             normalized_nick = self._normalize_ticket_base(member.display_name)
@@ -351,7 +352,9 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
             return
 
         target = candidates[0]
-        app_id = create_clan_application(guild.id, channel.id, target.id)
+        app_id = create_clan_application(
+            guild.id, channel.id, target.id, locale=str(locale.value)
+        )
 
         # Uložíme známý roblox nick, další pole ponecháme prázdná.
         update_clan_application_form(app_id, target.display_name, "", "")
@@ -660,6 +663,7 @@ class ClanApplicationModal(discord.ui.Modal):
             guild_id=guild.id,
             channel_id=ticket_channel.id,
             user_id=user.id,
+            locale=str(locale.value),
         )
         update_clan_application_form(app_id, nick, hours_text, rebirths_text)
 
@@ -811,6 +815,8 @@ class ClanAdminView(discord.ui.View):
         if app is None:
             return
 
+        app_locale = normalize_locale(app.get("locale", DEFAULT_LOCALE))
+
         set_clan_application_status(app["id"], "accepted", datetime.utcnow())
 
         channel = interaction.channel
@@ -835,7 +841,7 @@ class ClanAdminView(discord.ui.View):
         if member is not None:
             try:
                 await member.send(
-                    t("clan_application_accept_dm", locale, guild=guild.name)
+                    t("clan_application_accept_dm", app_locale, guild=guild.name)
                 )
             except discord.Forbidden:
                 pass
@@ -953,6 +959,8 @@ class ClanAdminView(discord.ui.View):
         if app is None:
             return
 
+        app_locale = normalize_locale(app.get("locale", DEFAULT_LOCALE))
+
         set_clan_application_status(app["id"], "rejected", datetime.utcnow())
 
         channel = interaction.channel
@@ -969,7 +977,7 @@ class ClanAdminView(discord.ui.View):
         if member is not None:
             try:
                 await member.send(
-                    t("clan_application_reject_dm", locale, guild=guild.name)
+                    t("clan_application_reject_dm", app_locale, guild=guild.name)
                 )
             except discord.Forbidden:
                 pass

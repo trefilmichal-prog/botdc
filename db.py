@@ -176,6 +176,7 @@ def init_db():
             roblox_nick TEXT,
             hours_per_day TEXT,
             rebirths TEXT,
+            locale TEXT NOT NULL DEFAULT 'en',
             status TEXT NOT NULL,       -- 'open', 'accepted', 'rejected'
             created_at TEXT NOT NULL,   -- %Y-%m-%d %H:%M:%S
             decided_at TEXT,            -- %Y-%m-%d %H:%M:%S
@@ -183,6 +184,13 @@ def init_db():
         )
         """
     )
+
+    c.execute("PRAGMA table_info(clan_applications)")
+    columns = [row[1] for row in c.fetchall()]
+    if "locale" not in columns:
+        c.execute(
+            "ALTER TABLE clan_applications ADD COLUMN locale TEXT NOT NULL DEFAULT 'en'"
+        )
 
     conn.commit()
     conn.close()
@@ -895,14 +903,17 @@ def _row_to_clan_application(row) -> Dict[str, Any]:
         # text, žádné int() – může být '24hodin', '2–3', 'cca 1500', ...
         "hours_per_day": row[5],
         "rebirths": row[6],
-        "status": row[7],
-        "created_at": row[8],
-        "decided_at": row[9],
-        "deleted": int(row[10]),
+        "locale": row[7],
+        "status": row[8],
+        "created_at": row[9],
+        "decided_at": row[10],
+        "deleted": int(row[11]),
     }
 
 
-def create_clan_application(guild_id: int, channel_id: int, user_id: int) -> int:
+def create_clan_application(
+    guild_id: int, channel_id: int, user_id: int, locale: str
+) -> int:
     now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     conn = get_connection()
     c = conn.cursor()
@@ -911,11 +922,11 @@ def create_clan_application(guild_id: int, channel_id: int, user_id: int) -> int
         INSERT INTO clan_applications (
             guild_id, channel_id, user_id,
             roblox_nick, hours_per_day, rebirths,
-            status, created_at, decided_at, deleted
+            locale, status, created_at, decided_at, deleted
         )
-        VALUES (?, ?, ?, NULL, NULL, NULL, 'open', ?, NULL, 0)
+        VALUES (?, ?, ?, NULL, NULL, NULL, ?, 'open', ?, NULL, 0)
         """,
-        (guild_id, channel_id, user_id, now_str),
+        (guild_id, channel_id, user_id, locale, now_str),
     )
     conn.commit()
     app_id = c.lastrowid
@@ -929,7 +940,7 @@ def get_open_application_by_user(guild_id: int, user_id: int) -> Optional[Dict[s
     c.execute(
         """
         SELECT id, guild_id, channel_id, user_id,
-               roblox_nick, hours_per_day, rebirths,
+               roblox_nick, hours_per_day, rebirths, locale,
                status, created_at, decided_at, deleted
         FROM clan_applications
         WHERE guild_id = ? AND user_id = ? AND status = 'open' AND deleted = 0
@@ -958,7 +969,7 @@ def get_latest_clan_application_by_user(
     c.execute(
         """
         SELECT id, guild_id, channel_id, user_id,
-               roblox_nick, hours_per_day, rebirths,
+               roblox_nick, hours_per_day, rebirths, locale,
                status, created_at, decided_at, deleted
         FROM clan_applications
         WHERE guild_id = ? AND user_id = ? AND deleted = 0
@@ -983,7 +994,7 @@ def get_clan_applications_by_user(
     c = conn.cursor()
     query = """
         SELECT id, guild_id, channel_id, user_id,
-               roblox_nick, hours_per_day, rebirths,
+               roblox_nick, hours_per_day, rebirths, locale,
                status, created_at, decided_at, deleted
         FROM clan_applications
         WHERE guild_id = ? AND user_id = ?
@@ -1006,7 +1017,7 @@ def get_open_application_by_channel(channel_id: int) -> Optional[Dict[str, Any]]
     c.execute(
         """
         SELECT id, guild_id, channel_id, user_id,
-               roblox_nick, hours_per_day, rebirths,
+               roblox_nick, hours_per_day, rebirths, locale,
                status, created_at, decided_at, deleted
         FROM clan_applications
         WHERE channel_id = ? AND status = 'open' AND deleted = 0
@@ -1074,7 +1085,7 @@ def get_clan_applications_for_cleanup(
     c.execute(
         """
         SELECT id, guild_id, channel_id, user_id,
-               roblox_nick, hours_per_day, rebirths,
+               roblox_nick, hours_per_day, rebirths, locale,
                status, created_at, decided_at, deleted
         FROM clan_applications
         WHERE deleted = 0
