@@ -14,6 +14,16 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    @app_commands.command(name="help", description="Zobrazí užitečné informace o Rebirth Champions.")
+    async def help(self, interaction: discord.Interaction):
+        locale = get_interaction_locale(interaction)
+        embed = discord.Embed(
+            title=t("help_title", locale),
+            description=t("help_guide", locale),
+            color=discord.Color.blurple(),
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
     @staticmethod
     def _can_moderate(actor: discord.Member, target: discord.Member) -> bool:
         if target == actor:
