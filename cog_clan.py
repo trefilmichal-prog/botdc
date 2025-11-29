@@ -40,8 +40,8 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         self.bot = bot
 
         # persistentní view – panel pro přihlášky a admin view v ticketech
-        self.apply_panel_view = ClanApplyPanelView(self)
-        self.admin_view = ClanAdminView(self)
+        self.apply_panel_view = ClanApplyPanelView(self, DEFAULT_LOCALE)
+        self.admin_view = ClanAdminView(self, DEFAULT_LOCALE)
 
         self.bot.add_view(self.apply_panel_view)
         self.bot.add_view(self.admin_view)
@@ -172,7 +172,10 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         if CLAN_BANNER_IMAGE_URL:
             main_embed.set_image(url=CLAN_BANNER_IMAGE_URL)
 
-        await channel.send(embed=main_embed, view=self.apply_panel_view)
+        localized_view = ClanApplyPanelView(self, locale)
+        self.bot.add_view(localized_view)
+
+        await channel.send(embed=main_embed, view=localized_view)
 
         await interaction.response.send_message(
             t("clan_panel_created", locale),
@@ -485,9 +488,16 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
 # ---------- VIEW: Panel s tlačítkem "Podat přihlášku" ----------
 
 class ClanApplyPanelView(discord.ui.View):
-    def __init__(self, cog: ClanApplicationsCog):
+    def __init__(self, cog: ClanApplicationsCog, locale: discord.Locale):
         super().__init__(timeout=None)
         self.cog = cog
+        self.locale = locale
+        self._apply_locale()
+
+    def _apply_locale(self):
+        for child in self.children:
+            if isinstance(child, discord.ui.Button) and child.custom_id == "clan_apply_button":
+                child.label = t("clan_apply_button_label", self.locale)
 
     @discord.ui.button(
         label="Podat přihlášku",
@@ -699,10 +709,13 @@ class ClanApplicationModal(discord.ui.Modal):
         if CLAN_APPLICATION_PING_ROLE_ID:
             content_parts.insert(0, f"<@&{CLAN_APPLICATION_PING_ROLE_ID}>")
 
+        admin_view = ClanAdminView(self.cog, locale)
+        self.cog.bot.add_view(admin_view)
+
         await ticket_channel.send(
             content=" ".join(content_parts),
             embeds=[intro_embed, app_embed],
-            view=self.cog.admin_view,
+            view=admin_view,
         )
 
         await interaction.response.send_message(
@@ -714,9 +727,24 @@ class ClanApplicationModal(discord.ui.Modal):
 # ---------- VIEW: Admin rozhodnutí (Přijmout / Zamítnout) ----------
 
 class ClanAdminView(discord.ui.View):
-    def __init__(self, cog: ClanApplicationsCog):
+    def __init__(self, cog: ClanApplicationsCog, locale: discord.Locale):
         super().__init__(timeout=None)
         self.cog = cog
+        self.locale = locale
+        self._apply_locale()
+
+    def _apply_locale(self):
+        label_map = {
+            "clan_accept": "clan_accept_button_label",
+            "clan_toggle_vacation": "clan_vacation_button_label",
+            "clan_reject": "clan_reject_button_label",
+        }
+
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                key = label_map.get(child.custom_id)
+                if key:
+                    child.label = t(key, self.locale)
 
     async def _get_open_app_for_channel(
         self,
@@ -981,6 +1009,20 @@ class ClanAdminPanelView(discord.ui.View):
         select.callback = self.on_select  # type: ignore
         self.member_select = select
         self.add_item(select)
+        self._apply_locale()
+
+    def _apply_locale(self):
+        label_map = {
+            "clan_admin_warn": "clan_admin_warn_button_label",
+            "clan_admin_toggle_vacation": "clan_vacation_button_label",
+            "clan_admin_kick": "clan_admin_kick_button_label",
+        }
+
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                key = label_map.get(child.custom_id)
+                if key:
+                    child.label = t(key, self.locale)
 
     async def on_select(self, interaction: discord.Interaction):
         guild = interaction.guild

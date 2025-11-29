@@ -221,6 +221,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "cs": "Původní ticket se nenašel, označuji ho jako smazaný.",
         "en": "Original ticket not found; marking it as deleted.",
     },
+    "clan_apply_button_label": {
+        "cs": "Podat přihlášku",
+        "en": "Apply to clan",
+    },
     "clan_benefits_title": {"cs": "Výhody klanu", "en": "Clan benefits"},
     "clan_benefits_list": {
         "cs": "🫂 Skvělá CZ/SK komunita\n🎊 Soutěže\n🍀 Clan boosty (klikni na nadpis pro screen)",
@@ -298,6 +302,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "cs": "Clan přihláška od {user} ({user_id})",
         "en": "Clan application from {user} ({user_id})",
     },
+    "clan_accept_button_label": {"cs": "Přijmout", "en": "Accept"},
+    "clan_reject_button_label": {"cs": "Zamítnout", "en": "Reject"},
+    "clan_vacation_button_label": {"cs": "Dovolená", "en": "Vacation"},
     "clan_application_embed_title": {
         "cs": "Přihláška – {nick}",
         "en": "Application – {nick}",
@@ -340,6 +347,11 @@ STRINGS: dict[str, dict[str, str]] = {
             "Your application was saved and a ticket was created: {channel}.\n"
             "Please upload the requested screenshots in the ticket."
         ),
+    },
+    "clan_admin_warn_button_label": {"cs": "Varovat", "en": "Warn"},
+    "clan_admin_kick_button_label": {
+        "cs": "Kick (odebrat clan roli)",
+        "en": "Kick (remove clan role)",
     },
     "clan_application_not_found": {
         "cs": "V tomto kanálu už není žádná otevřená přihláška.",
