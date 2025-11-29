@@ -1,6 +1,26 @@
 import discord
 
-DEFAULT_LOCALE = discord.Locale.cs
+
+def _get_czech_locale() -> discord.Locale:
+    """Return the closest available Czech locale supported by the library.
+
+    Older discord.py versions expose the locale as ``Locale.czech`` instead of
+    ``Locale.cs`` (or may omit the alias entirely), which previously caused an
+    ``AttributeError`` on import. This helper looks for either attribute and
+    falls back to ``Locale.try_value("cs")`` before ultimately defaulting to
+    English.
+    """
+
+    for name in ("cs", "czech"):
+        locale = getattr(discord.Locale, name, None)
+        if locale:
+            return locale
+
+    fallback = discord.Locale.try_value("cs")
+    return fallback or discord.Locale.en_US
+
+
+DEFAULT_LOCALE = _get_czech_locale()
 
 
 def normalize_locale(raw_locale: str | discord.Locale | None) -> discord.Locale:
@@ -13,8 +33,8 @@ def normalize_locale(raw_locale: str | discord.Locale | None) -> discord.Locale:
 
     if value.startswith("en"):
         return discord.Locale.en_US
-    if value.startswith("cs"):
-        return discord.Locale.cs
+    if value.startswith("cs") or value == "czech":
+        return DEFAULT_LOCALE
     return DEFAULT_LOCALE
 
 
