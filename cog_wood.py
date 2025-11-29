@@ -10,6 +10,7 @@ from discord.ext import commands, tasks
 from discord import app_commands
 
 from config import REMINDER_INTERVAL_HOURS, STAFF_ROLE_ID, TICKET_VIEWER_ROLE_ID
+from i18n import DEFAULT_LOCALE, get_interaction_locale, get_message_locale, normalize_locale, t
 from db import (
     set_setting,
     get_setting,
@@ -38,17 +39,23 @@ class WoodResource(str, Enum):
     SAKURA_WOOD = "sakura wood"
 
 
-def build_needed_materials_embed(rows: List[Tuple[str, int, int]]) -> discord.Embed:
+def build_needed_materials_embed(rows: List[Tuple[str, int, int]], locale: discord.Locale) -> discord.Embed:
     embed = discord.Embed(
-        title="Potřebné materiály",
-        description="Některé materiály stále chybí, budeme rádi za tvoji pomoc.",
+        title=t("wood_reminder_title", locale),
+        description=t("wood_reminder_description", locale),
         color=0xFF8800,
     )
     for name, required, delivered in rows:
         remaining = max(required - delivered, 0)
         embed.add_field(
             name=name,
-            value=f"Potřeba: **{required}**\nOdevzdáno: **{delivered}**\nZbývá: **{remaining}**",
+            value=t(
+                "wood_reminder_field",
+                locale,
+                required=required,
+                delivered=delivered,
+                remaining=remaining,
+            ),
             inline=False,
         )
     return embed
@@ -61,7 +68,7 @@ class WoodCog(commands.Cog, name="WoodCog"):
         self.pending_tickets: Dict[int, Dict[str, Any]] = {}
 
         # persistent view pro button "Vytvořit ticket"
-        self.bot.add_view(TicketButtonView(self))
+        self.bot.add_view(TicketButtonView(self, DEFAULT_LOCALE))
 
         # připomínky materiálů
         self.materials_reminder_loop.start()
@@ -85,25 +92,25 @@ class WoodCog(commands.Cog, name="WoodCog"):
         except (discord.NotFound, discord.Forbidden):
             return
 
+        guild = channel.guild if isinstance(channel, discord.TextChannel) else None
+        locale = normalize_locale(getattr(guild, "preferred_locale", None)) if guild else DEFAULT_LOCALE
+
         header = discord.Embed(
-            title="Suroviny – těžba dřeva (Ultimate Rebirth Champions)",
-            description=(
-                "Přehled, kolik čeho je potřeba a kolik už bylo odevzdáno.\n"
-                "K nahlášení použij tlačítko níže."
-            ),
+            title=t("wood_panel_title", locale),
+            description=t("wood_panel_description", locale),
             color=0x00AAFF,
         )
 
         resources_embed = discord.Embed(
-            title="Přehled dřev",
+            title=t("wood_panel_resources_title", locale),
             color=0x00AAFF,
         )
 
         rows = get_resources_status()
         if not rows:
             resources_embed.add_field(
-                name="Žádná data",
-                value="Zatím není nastaveno, kolik čeho je potřeba. Použij `/set_need`.",
+                name=t("wood_panel_no_data_title", locale),
+                value=t("wood_panel_no_data_body", locale),
                 inline=False,
             )
         else:
@@ -112,11 +119,17 @@ class WoodCog(commands.Cog, name="WoodCog"):
                 emoji = "✅" if delivered >= required else "⏳"
                 resources_embed.add_field(
                     name=f"{emoji} {name}",
-                    value=f"Odevzdáno: **{delivered}/{required}** (zbývá {remaining})",
+                    value=t(
+                        "wood_panel_resource_field",
+                        locale,
+                        delivered=delivered,
+                        required=required,
+                        remaining=remaining,
+                    ),
                     inline=False,
                 )
 
-        await msg.edit(embeds=[header, resources_embed], view=TicketButtonView(self))
+        await msg.edit(embeds=[header, resources_embed], view=TicketButtonView(self, locale))
 
     # ---------- EVENTS ----------
 
@@ -130,9 +143,12 @@ class WoodCog(commands.Cog, name="WoodCog"):
             return
 
         info = self.pending_tickets[ch_id]
+        locale = info.get("locale") if isinstance(info, dict) else None
+        if locale is None:
+            locale = get_message_locale(message)
         if message.author.id != info["user_id"]:
             await message.channel.send(
-                "Toto je ticket jiného hráče. Jen vlastník ticketu sem může zadat číslo.",
+                t("wood_ticket_foreign", locale),
                 delete_after=10,
             )
             return
@@ -144,7 +160,7 @@ class WoodCog(commands.Cog, name="WoodCog"):
                 raise ValueError
         except ValueError:
             await message.channel.send(
-                "Napiš prosím jen **kladné celé číslo** (např. `64`).",
+                t("wood_ticket_invalid_amount", locale),
                 delete_after=10,
             )
             return
@@ -153,8 +169,15 @@ class WoodCog(commands.Cog, name="WoodCog"):
         add_delivery(message.author.id, resource_name, amount)
 
         await message.channel.send(
-            f"Zaznamenáno: {message.author.mention} – **{amount} × {resource_name}**.\n"
-            f"Ticket kanál se nyní odstraní."
+            t(
+                "wood_ticket_logged",
+                locale,
+                user=message.author.mention,
+                amount=amount,
+                resource=resource_name,
+            )
+            + "\n"
+            + t("wood_ticket_channel_delete", locale)
         )
 
         self.pending_tickets.pop(ch_id, None)
@@ -186,7 +209,8 @@ class WoodCog(commands.Cog, name="WoodCog"):
             if not inactive_ids:
                 return
 
-            embed = build_needed_materials_embed(needed)
+            embed_locale = DEFAULT_LOCALE
+            embed = build_needed_materials_embed(needed, embed_locale)
 
             for uid in inactive_ids:
                 user = self.bot.get_user(uid)
@@ -200,7 +224,7 @@ class WoodCog(commands.Cog, name="WoodCog"):
                     continue
                 try:
                     await user.send(
-                        "Ahoj, delší dobu jsi nic neodevzdal a **stále nám chybí suroviny**.",
+                        t("wood_reminder_intro", embed_locale),
                         embed=embed,
                     )
                 except discord.Forbidden:
@@ -216,36 +240,34 @@ class WoodCog(commands.Cog, name="WoodCog"):
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def setup_panel_cmd(self, interaction: discord.Interaction):
+        locale = get_interaction_locale(interaction)
         channel = interaction.channel
         if not isinstance(channel, discord.TextChannel):
             await interaction.response.send_message(
-                "Tento příkaz lze použít jen v textovém kanálu.",
+                t("guild_text_only", locale),
                 ephemeral=True,
             )
             return
 
         header = discord.Embed(
-            title="Suroviny – těžba dřeva (Ultimate Rebirth Champions)",
-            description=(
-                "Zde bude přehled, kolik je potřeba kterého dřeva a kolik už je odevzdáno.\n"
-                "K nahlášení použij tlačítko níže."
-            ),
+            title=t("wood_panel_title", locale),
+            description=t("wood_panel_empty_description", locale),
             color=0x00AAFF,
         )
         resources_embed = discord.Embed(
-            title="Přehled dřev",
-            description="Zatím žádná potřeba není nastavená. Použij `/set_need`.",
+            title=t("wood_panel_resources_title", locale),
+            description=t("wood_panel_no_need", locale),
             color=0x00AAFF,
         )
 
-        view = TicketButtonView(self)
+        view = TicketButtonView(self, locale)
         msg = await channel.send(embeds=[header, resources_embed], view=view)
 
         set_setting("panel_channel_id", str(channel.id))
         set_setting("panel_message_id", str(msg.id))
 
         await interaction.response.send_message(
-            "Panel vytvořen v tomto kanálu.",
+            t("wood_panel_created", locale),
             ephemeral=True,
         )
 
@@ -264,9 +286,10 @@ class WoodCog(commands.Cog, name="WoodCog"):
         resource: WoodResource,
         required: app_commands.Range[int, 1, 10_000_000],
     ):
+        locale = get_interaction_locale(interaction)
         set_resource_need(resource.value, required)
         await interaction.response.send_message(
-            f"Nastavena potřeba pro **{resource.value}**: **{required}** kusů.",
+            t("wood_need_set", locale, resource=resource.value, required=required),
             ephemeral=True,
         )
         await self.update_panel()
@@ -284,12 +307,13 @@ class WoodCog(commands.Cog, name="WoodCog"):
         interaction: discord.Interaction,
         resource: WoodResource | None = None,
     ):
+        locale = get_interaction_locale(interaction)
         if resource is None:
             reset_resource_need(None)
-            msg = "Resetovány všechny potřeby a všechna odevzdaná množství."
+            msg = t("wood_need_reset_all", locale)
         else:
             reset_resource_need(resource.value)
-            msg = f"Resetována potřeba pro **{resource.value}**."
+            msg = t("wood_need_reset_single", locale, resource=resource.value)
         await interaction.response.send_message(msg, ephemeral=True)
         await self.update_panel()
 
@@ -298,16 +322,17 @@ class WoodCog(commands.Cog, name="WoodCog"):
         description="Ukáže přehled nastavených potřeb a odevzdaného množství.",
     )
     async def resources_cmd(self, interaction: discord.Interaction):
+        locale = get_interaction_locale(interaction)
         rows = get_resources_status()
         if not rows:
             await interaction.response.send_message(
-                "Zatím není nastaveno, kolik čeho je potřeba.",
+                t("wood_resources_empty", locale),
                 ephemeral=True,
             )
             return
 
         embed = discord.Embed(
-            title="Aktuální stav surovin",
+            title=t("wood_resources_title", locale),
             color=0x00AAFF,
         )
         for name, required, delivered in rows:
@@ -315,18 +340,29 @@ class WoodCog(commands.Cog, name="WoodCog"):
             emoji = "✅" if delivered >= required else "⏳"
             embed.add_field(
                 name=f"{emoji} {name}",
-                value=f"Odevzdáno: **{delivered}/{required}** (zbývá {remaining})",
+                value=t(
+                    "wood_resources_field",
+                    locale,
+                    delivered=delivered,
+                    required=required,
+                    remaining=remaining,
+                ),
                 inline=False,
             )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 class WoodSelectView(discord.ui.View):
-    def __init__(self, cog: WoodCog, ticket_owner_id: int, channel_id: int):
+    def __init__(self, cog: WoodCog, ticket_owner_id: int, channel_id: int, locale: discord.Locale):
         super().__init__(timeout=None)
         self.cog = cog
         self.ticket_owner_id = ticket_owner_id
         self.channel_id = channel_id
+        self.locale = locale
+
+        for child in self.children:
+            if isinstance(child, discord.ui.Select):
+                child.placeholder = t("wood_ticket_select_placeholder", locale)
 
     @discord.ui.select(
         placeholder="Vyber typ dřeva",
@@ -343,9 +379,10 @@ class WoodSelectView(discord.ui.View):
         interaction: discord.Interaction,
         select: discord.ui.Select,
     ):
+        locale = get_interaction_locale(interaction)
         if interaction.user.id != self.ticket_owner_id:
             await interaction.response.send_message(
-                "Toto je ticket jiného hráče.",
+                t("wood_ticket_foreign", locale),
                 ephemeral=True,
             )
             return
@@ -354,6 +391,7 @@ class WoodSelectView(discord.ui.View):
         self.cog.pending_tickets[self.channel_id] = {
             "user_id": self.ticket_owner_id,
             "resource": resource_value,
+            "locale": locale,
         }
 
         for child in self.children:
@@ -361,18 +399,25 @@ class WoodSelectView(discord.ui.View):
 
         await interaction.response.edit_message(
             content=(
-                f"Vybral jsi: **{resource_value}**.\n"
-                f"Napiš do tohoto ticketu **jen číslo** (množství), např. `64`.\n"
-                f"Po zadání se ticket uloží a kanál smaže."
+                t("wood_ticket_selected", locale, resource=resource_value)
+                + "\n"
+                + t("wood_ticket_enter_amount", locale)
+                + "\n"
+                + t("wood_ticket_will_delete", locale)
             ),
             view=self,
         )
 
 
 class TicketButtonView(discord.ui.View):
-    def __init__(self, cog: WoodCog):
+    def __init__(self, cog: WoodCog, locale: discord.Locale):
         super().__init__(timeout=None)
         self.cog = cog
+        self.locale = locale
+
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                child.label = t("wood_ticket_button_label", locale)
 
     @discord.ui.button(
         label="Vytvořit ticket na odevzdání dřeva",
@@ -384,10 +429,11 @@ class TicketButtonView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ):
+        locale = get_interaction_locale(interaction)
         guild = interaction.guild
         if guild is None:
             await interaction.response.send_message(
-                "Tento příkaz lze použít jen na serveru.",
+                t("guild_only", locale),
                 ephemeral=True,
             )
             return
@@ -429,26 +475,22 @@ class TicketButtonView(discord.ui.View):
             name=ch_name,
             overwrites=overwrites,
             category=category,
-            reason=f"Ticket na dřevo od {interaction.user} ({interaction.user.id})",
+            reason=t("wood_ticket_audit", DEFAULT_LOCALE, user=interaction.user, user_id=interaction.user.id),
         )
 
-        view = WoodSelectView(self.cog, interaction.user.id, ticket_channel.id)
+        view = WoodSelectView(self.cog, interaction.user.id, ticket_channel.id, locale)
         await ticket_channel.send(
             content=interaction.user.mention,
             embed=discord.Embed(
-                title="Ticket – odevzdání dřeva",
-                description=(
-                    "1) V dropdown menu níže vyber typ dřeva.\n"
-                    "2) Pak napiš **jen číslo** (množství).\n"
-                    "3) Po zadání čísla se ticket uloží a kanál smaže."
-                ),
+                title=t("wood_ticket_title", locale),
+                description=t("wood_ticket_instructions", locale),
                 color=0x00AA00,
             ),
             view=view,
         )
 
         await interaction.response.send_message(
-            f"Ticket byl vytvořen: {ticket_channel.mention}",
+            t("wood_ticket_created", locale, channel=ticket_channel.mention),
             ephemeral=True,
         )
 

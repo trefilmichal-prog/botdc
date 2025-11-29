@@ -226,6 +226,132 @@ STRINGS: dict[str, dict[str, str]] = {
     "profile_exp": {"cs": "Exp", "en": "Exp"},
     "profile_coins": {"cs": "Coiny", "en": "Coins"},
     "profile_messages": {"cs": "Zprávy", "en": "Messages"},
+    "guild_text_only": {
+        "cs": "Tento příkaz lze použít jen v textovém kanálu.",
+        "en": "This command can only be used in a text channel.",
+    },
+    "wood_panel_title": {
+        "cs": "Suroviny – těžba dřeva (Ultimate Rebirth Champions)",
+        "en": "Materials – wood mining (Ultimate Rebirth Champions)",
+    },
+    "wood_panel_description": {
+        "cs": "Přehled, kolik čeho je potřeba a kolik už bylo odevzdáno.\nK nahlášení použij tlačítko níže.",
+        "en": "Overview of required materials and what has been delivered.\nUse the button below to report your delivery.",
+    },
+    "wood_panel_resources_title": {"cs": "Přehled dřev", "en": "Wood overview"},
+    "wood_panel_no_data_title": {"cs": "Žádná data", "en": "No data"},
+    "wood_panel_no_data_body": {
+        "cs": "Zatím není nastaveno, kolik čeho je potřeba. Použij `/set_need`.",
+        "en": "No requirements are set yet. Use `/set_need` to configure them.",
+    },
+    "wood_panel_resource_field": {
+        "cs": "Odevzdáno: **{delivered}/{required}** (zbývá {remaining})",
+        "en": "Delivered: **{delivered}/{required}** (remaining {remaining})",
+    },
+    "wood_panel_empty_description": {
+        "cs": "Zde bude přehled, kolik je potřeba kterého dřeva a kolik už je odevzdáno.\nK nahlášení použij tlačítko níže.",
+        "en": "This will show how much of each wood type is needed and delivered.\nUse the button below to report your delivery.",
+    },
+    "wood_panel_no_need": {
+        "cs": "Zatím žádná potřeba není nastavená. Použij `/set_need`.",
+        "en": "No requirements are set yet. Use `/set_need`.",
+    },
+    "wood_panel_created": {
+        "cs": "Panel vytvořen v tomto kanálu.",
+        "en": "The panel has been created in this channel.",
+    },
+    "wood_need_set": {
+        "cs": "Nastavena potřeba pro **{resource}**: **{required}** kusů.",
+        "en": "Requirement set for **{resource}**: **{required}** pieces.",
+    },
+    "wood_need_reset_all": {
+        "cs": "Resetovány všechny potřeby a všechna odevzdaná množství.",
+        "en": "All requirements and delivered amounts have been reset.",
+    },
+    "wood_need_reset_single": {
+        "cs": "Resetována potřeba pro **{resource}**.",
+        "en": "Requirement reset for **{resource}**.",
+    },
+    "wood_resources_empty": {
+        "cs": "Zatím není nastaveno, kolik čeho je potřeba.",
+        "en": "No requirements have been configured yet.",
+    },
+    "wood_resources_title": {
+        "cs": "Aktuální stav surovin",
+        "en": "Current material status",
+    },
+    "wood_resources_field": {
+        "cs": "Odevzdáno: **{delivered}/{required}** (zbývá {remaining})",
+        "en": "Delivered: **{delivered}/{required}** (remaining {remaining})",
+    },
+    "wood_ticket_foreign": {
+        "cs": "Toto je ticket jiného hráče. Jen vlastník ticketu sem může zadat číslo.",
+        "en": "This ticket belongs to another player. Only the owner can submit a number here.",
+    },
+    "wood_ticket_invalid_amount": {
+        "cs": "Napiš prosím jen **kladné celé číslo** (např. `64`).",
+        "en": "Please enter a **positive whole number** (e.g., `64`).",
+    },
+    "wood_ticket_logged": {
+        "cs": "Zaznamenáno: {user} – **{amount} × {resource}**.",
+        "en": "Logged: {user} – **{amount} × {resource}**.",
+    },
+    "wood_ticket_channel_delete": {
+        "cs": "Ticket kanál se nyní odstraní.",
+        "en": "The ticket channel will now be deleted.",
+    },
+    "wood_reminder_title": {
+        "cs": "Potřebné materiály",
+        "en": "Required materials",
+    },
+    "wood_reminder_description": {
+        "cs": "Některé materiály stále chybí, budeme rádi za tvoji pomoc.",
+        "en": "Some materials are still missing; we would appreciate your help.",
+    },
+    "wood_reminder_field": {
+        "cs": "Potřeba: **{required}**\nOdevzdáno: **{delivered}**\nZbývá: **{remaining}**",
+        "en": "Needed: **{required}**\nDelivered: **{delivered}**\nRemaining: **{remaining}**",
+    },
+    "wood_reminder_intro": {
+        "cs": "Ahoj, delší dobu jsi nic neodevzdal a **stále nám chybí suroviny**.",
+        "en": "Hi, you haven't delivered anything for a while and **we still need materials**.",
+    },
+    "wood_ticket_selected": {
+        "cs": "Vybral jsi: **{resource}**.",
+        "en": "You selected: **{resource}**.",
+    },
+    "wood_ticket_enter_amount": {
+        "cs": "Napiš do tohoto ticketu **jen číslo** (množství), např. `64`.",
+        "en": "Enter **only a number** (amount) in this ticket, e.g., `64`.",
+    },
+    "wood_ticket_will_delete": {
+        "cs": "Po zadání se ticket uloží a kanál smaže.",
+        "en": "After you submit the number, the ticket will be saved and the channel deleted.",
+    },
+    "wood_ticket_select_placeholder": {
+        "cs": "Vyber typ dřeva",
+        "en": "Choose the wood type",
+    },
+    "wood_ticket_button_label": {
+        "cs": "Vytvořit ticket na odevzdání dřeva",
+        "en": "Create a wood delivery ticket",
+    },
+    "wood_ticket_audit": {
+        "cs": "Ticket na dřevo od {user} ({user_id})",
+        "en": "Wood ticket from {user} ({user_id})",
+    },
+    "wood_ticket_title": {
+        "cs": "Ticket – odevzdání dřeva",
+        "en": "Ticket – wood delivery",
+    },
+    "wood_ticket_instructions": {
+        "cs": "1) V dropdown menu níže vyber typ dřeva.\n2) Pak napiš **jen číslo** (množství).\n3) Po zadání čísla se ticket uloží a kanál smaže.",
+        "en": "1) Choose the wood type in the dropdown below.\n2) Then enter **only a number** (amount).\n3) After submitting the number, the ticket will be saved and the channel deleted.",
+    },
+    "wood_ticket_created": {
+        "cs": "Ticket byl vytvořen: {channel}",
+        "en": "Ticket created: {channel}",
+    },
 }
 
 
