@@ -224,6 +224,9 @@ class BuyButton(discord.ui.Button):
         buyer_display_name: str
         if isinstance(user, discord.Member):
             buyer_display_name = user.display_name
+        elif interaction.guild is not None:
+            member = interaction.guild.get_member(user.id)
+            buyer_display_name = member.display_name if member is not None else user.global_name or user.name
         else:
             buyer_display_name = user.global_name or user.name
 
