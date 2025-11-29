@@ -8,6 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import OLLAMA_MODEL, OLLAMA_URL
+from i18n import get_interaction_locale, get_message_locale, t
 
 
 class ProphecyCog(commands.Cog, name="RobloxProphecy"):
@@ -62,33 +63,26 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
         if not self.bot.user or self.bot.user not in message.mentions:
             return
 
+        locale = get_message_locale(message)
         dotaz = self._strip_mentions(message.content, message.mentions)
         if not dotaz:
             await message.reply(
-                "Ahoj! Příště mi rovnou napiš otázku, ať ti můžu věštit budoucnost. 😊",
+                t("mention_prompt_missing", locale),
                 mention_author=False,
             )
             return
 
         async with message.channel.typing():
-            prompt = (
-                "Jsi veselý český věštec pro hráče Roblox hry Rebirth Champions Ultimate."
-                " Odpovídej vždy česky, ve 1–2 věty maximálně, s lehkým humorem a konkrétním tipem na další postup."
-                " Vyhýbej se vulgaritám a udrž tón přátelský pro komunitu Discordu."
-                f" Otázka hráče: {dotaz}"
-            )
+            prompt = t("prophecy_prompt_message", locale, question=dotaz)
 
             response_text = await self._ask_ollama(prompt)
 
         if not response_text:
-            await message.reply(
-                "Nemohu se momentálně spojit s Ollamou. Zkus to prosím za chvíli.",
-                mention_author=False,
-            )
+            await message.reply(t("prophecy_unavailable", locale), mention_author=False)
             return
 
         embed = discord.Embed(
-            title="🔮 Roblox věštba",
+            title=t("prophecy_title", locale),
             description=response_text,
             color=discord.Color.blurple(),
         )
@@ -102,28 +96,25 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
     )
     @app_commands.describe(dotaz="Co tě zajímá o budoucnosti v Rebirth Champions Ultimate?")
     async def rebirth_future(self, interaction: discord.Interaction, dotaz: str | None = None):
+        locale = get_interaction_locale(interaction)
         await interaction.response.defer()
 
-        prompt = (
-            "Jsi veselý český věštec pro hráče Roblox hry Rebirth Champions Ultimate."
-            " Odpovídej vždy česky, ve 2–3 větách, s lehkým humorem a konkrétním tipem na další postup."
-            " Vyhýbej se vulgaritám a udrž tón přátelský pro komunitu Discordu."
-        )
+        prompt = t("prophecy_prompt_slash", locale)
         if dotaz:
-            prompt += f" Otázka hráče: {dotaz}"
+            prompt += f" Otázka hráče: {dotaz}" if locale.value.startswith("cs") else f" Player question: {dotaz}"
         else:
-            prompt += " Dej obecnou předpověď pro nejbližší run."
+            prompt += t("prophecy_prompt_general", locale)
 
         response_text = await self._ask_ollama(prompt)
         if not response_text:
             await interaction.followup.send(
-                "Nemohu se momentálně spojit s Ollamou. Zkus to prosím za chvíli.",
+                t("prophecy_unavailable", locale),
                 ephemeral=True,
             )
             return
 
         embed = discord.Embed(
-            title="🔮 Roblox věštba",
+            title=t("prophecy_title", locale),
             description=response_text,
             color=discord.Color.blurple(),
         )

@@ -7,6 +7,7 @@ from db import (
     get_latest_clan_application_by_user,
     mark_clan_application_deleted,
 )
+from i18n import get_interaction_locale, t
 
 
 class BasicCommandsCog(commands.Cog, name="BasicCommands"):
@@ -39,22 +40,23 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
     @app_commands.describe(user="Uživatel, který má být vyhozen.")
     @app_commands.default_permissions(kick_members=True)
     async def kick_member(self, interaction: discord.Interaction, user: discord.Member):
+        locale = get_interaction_locale(interaction)
         if not self._can_moderate(interaction.user, user):
             await interaction.response.send_message(
-                "Nemůžeš vyhodit uživatele s vyšší nebo stejnou rolí.", ephemeral=True
+                t("cannot_moderate", locale), ephemeral=True
             )
             return
         if not self._bot_can_moderate(interaction.guild, user):
             await interaction.response.send_message(
-                "Nemohu vyhodit uživatele kvůli hierarchii rolí.", ephemeral=True
+                t("bot_cannot_moderate", locale), ephemeral=True
             )
             return
 
-        modal = KickReasonModal(self, target_member=user)
+        modal = KickReasonModal(self, target_member=user, locale=locale)
         await interaction.response.send_modal(modal)
 
     async def _remove_clan_ticket_for_member(
-        self, guild: discord.Guild, member: discord.Member, reason: str
+        self, guild: discord.Guild, member: discord.Member, reason: str, locale: discord.Locale
     ) -> str | None:
         latest_app = get_latest_clan_application_by_user(guild.id, member.id)
         if latest_app is None or latest_app.get("deleted"):
@@ -70,13 +72,13 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
                 await channel.delete(
                     reason=f"Kick uživatele {member} – odstranění ticketu (důvod: {reason})"
                 )
-                return f"Ticket {channel_label} byl smazán."
+                return t("ticket_removed", locale, channel=channel_label)
             except discord.Forbidden:
-                return f"Ticket {channel_label} se nepodařilo smazat kvůli oprávněním."
+                return t("ticket_remove_forbidden", locale, channel=channel_label)
             except discord.HTTPException:
-                return f"Při mazání ticketu {channel_label} došlo k chybě."
+                return t("ticket_remove_failed", locale, channel=channel_label)
 
-        return "Původní ticket se nenašel, označuji ho jako smazaný."
+        return t("ticket_mark_deleted", locale)
 
     @app_commands.command(name="ban", description="Zabanuje člena.")
     @app_commands.describe(user="Uživatel, který má být zabanován.", reason="Důvod banu.")
@@ -84,20 +86,26 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
     async def ban_member(
         self, interaction: discord.Interaction, user: discord.Member, reason: str | None = None
     ):
+        locale = get_interaction_locale(interaction)
         if not self._can_moderate(interaction.user, user):
             await interaction.response.send_message(
-                "Nemůžeš zabanovat uživatele s vyšší nebo stejnou rolí.", ephemeral=True
+                t("cannot_moderate", locale), ephemeral=True
             )
             return
         if not self._bot_can_moderate(interaction.guild, user):
             await interaction.response.send_message(
-                "Nemohu zabanovat uživatele kvůli hierarchii rolí.", ephemeral=True
+                t("bot_cannot_moderate", locale), ephemeral=True
             )
             return
 
         await interaction.guild.ban(user, reason=reason, delete_message_days=0)
         await interaction.response.send_message(
-            f"\N{HAMMER} {user.mention} byl/a zabanován/a. Důvod: {reason or 'neuveden'}.",
+            t(
+                "ban_success",
+                locale,
+                user=user.mention,
+                reason=reason or t("reason_unknown", locale),
+            ),
             ephemeral=True,
         )
 
@@ -115,22 +123,28 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
         duration_minutes: app_commands.Range[int, 1, 10080],
         reason: str | None = None,
     ):
+        locale = get_interaction_locale(interaction)
         if not self._can_moderate(interaction.user, user):
             await interaction.response.send_message(
-                "Nemůžeš umlčet uživatele s vyšší nebo stejnou rolí.", ephemeral=True
+                t("cannot_moderate", locale), ephemeral=True
             )
             return
         if not self._bot_can_moderate(interaction.guild, user):
             await interaction.response.send_message(
-                "Nemohu umlčet uživatele kvůli hierarchii rolí.", ephemeral=True
+                t("bot_cannot_moderate", locale), ephemeral=True
             )
             return
 
         until = datetime.utcnow() + timedelta(minutes=duration_minutes)
         await user.timeout(until, reason=reason)
         await interaction.response.send_message(
-            f"\N{SPEAKER WITH CANCELLATION STROKE} {user.mention} umlčen/a na {duration_minutes} minut."
-            f" Důvod: {reason or 'neuveden'}.",
+            t(
+                "mute_success",
+                locale,
+                user=user.mention,
+                minutes=duration_minutes,
+                reason=reason or t("reason_unknown", locale),
+            ),
             ephemeral=True,
         )
 
@@ -143,34 +157,38 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
     async def set_nickname(
         self, interaction: discord.Interaction, user: discord.Member, nickname: str | None = None
     ):
+        locale = get_interaction_locale(interaction)
         if not self._can_moderate(interaction.user, user):
             await interaction.response.send_message(
-                "Nemůžeš měnit přezdívku uživatele s vyšší nebo stejnou rolí.", ephemeral=True
+                t("cannot_moderate", locale), ephemeral=True
             )
             return
         if not self._bot_can_moderate(interaction.guild, user):
             await interaction.response.send_message(
-                "Nemohu změnit přezdívku kvůli hierarchii rolí.", ephemeral=True
+                t("bot_cannot_moderate", locale), ephemeral=True
             )
             return
 
         await user.edit(nick=nickname or None, reason="Změna přezdívky přes /setnick")
         if nickname:
-            msg = f"\N{MEMO} Přezdívka {user.mention} nastavena na '{nickname}'."
+            msg = t("nickname_set", locale, user=user.mention, nickname=nickname)
         else:
-            msg = f"\N{MEMO} Přezdívka {user.mention} byla smazána."
+            msg = t("nickname_cleared", locale, user=user.mention)
         await interaction.response.send_message(msg, ephemeral=True)
 
 
-class KickReasonModal(discord.ui.Modal, title="Důvod kicku"):
-    def __init__(self, cog: BasicCommandsCog, target_member: discord.Member):
-        super().__init__(timeout=None)
+class KickReasonModal(discord.ui.Modal):
+    def __init__(
+        self, cog: BasicCommandsCog, target_member: discord.Member, locale: discord.Locale
+    ):
+        super().__init__(title=t("kick_modal_title", locale), timeout=None)
         self.cog = cog
         self.target_member_id = target_member.id
+        self.locale = locale
 
         self.reason = discord.ui.TextInput(
-            label="Důvod kicku",
-            placeholder="Napiš stručně, proč hráče kickuješ",
+            label=t("kick_modal_label", locale),
+            placeholder=t("kick_modal_placeholder", locale),
             style=discord.TextStyle.paragraph,
             required=True,
             max_length=300,
@@ -179,39 +197,34 @@ class KickReasonModal(discord.ui.Modal, title="Důvod kicku"):
         self.add_item(self.reason)
 
     async def on_submit(self, interaction: discord.Interaction):
+        locale = get_interaction_locale(interaction) if interaction else self.locale
         guild = interaction.guild
         if guild is None:
-            await interaction.response.send_message(
-                "Tento příkaz lze použít pouze na serveru.", ephemeral=True
-            )
+            await interaction.response.send_message(t("guild_only", locale), ephemeral=True)
             return
 
         member = guild.get_member(self.target_member_id)
         if member is None:
-            await interaction.response.send_message(
-                "Uživatel už není na serveru.", ephemeral=True
-            )
+            await interaction.response.send_message(t("user_missing", locale), ephemeral=True)
             return
 
         if not self.cog._can_moderate(interaction.user, member):
             await interaction.response.send_message(
-                "Nemůžeš vyhodit uživatele s vyšší nebo stejnou rolí.", ephemeral=True
+                t("cannot_moderate", locale), ephemeral=True
             )
             return
 
         if not self.cog._bot_can_moderate(guild, member):
             await interaction.response.send_message(
-                "Nemohu vyhodit uživatele kvůli hierarchii rolí.", ephemeral=True
+                t("bot_cannot_moderate", locale), ephemeral=True
             )
             return
 
-        reason = self.reason.value.strip() or "neuveden"
+        reason = self.reason.value.strip() or t("reason_unknown", locale)
         await member.kick(reason=reason)
 
-        ticket_info = await self.cog._remove_clan_ticket_for_member(guild, member, reason)
-        response = (
-            f"\N{WAVING HAND SIGN} {member.mention} byl/a vyhozen/a. Důvod: {reason}."
-        )
+        ticket_info = await self.cog._remove_clan_ticket_for_member(guild, member, reason, locale)
+        response = t("kick_success", locale, user=member.mention, reason=reason)
         if ticket_info:
             response = f"{response}\n{ticket_info}"
 
