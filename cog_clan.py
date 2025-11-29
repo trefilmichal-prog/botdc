@@ -501,12 +501,17 @@ class ClanApplyPanelView(discord.ui.View):
         self._apply_locale()
 
     def _apply_locale(self):
-        for child in self.children:
+        is_english = normalize_locale(self.locale) == DEFAULT_LOCALE
+
+        for child in list(self.children):
             if isinstance(child, discord.ui.Button) and child.custom_id == "clan_apply_button":
                 child.label = "HROT"
 
             if isinstance(child, discord.ui.Button) and child.custom_id == "clan2_apply_button":
-                child.label = "HR2T"
+                if is_english:
+                    self.remove_item(child)
+                else:
+                    child.label = "HR2T"
 
     def _get_clan2_cog(self) -> "Clan2ApplicationsCog | None":
         return self.cog.bot.get_cog("Clan2ApplicationsCog")
