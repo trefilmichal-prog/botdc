@@ -333,8 +333,8 @@ STRINGS: dict[str, dict[str, str]] = {
     },
     "clan_benefits_title": {"cs": "Výhody klanu", "en": "Clan benefits"},
     "clan_benefits_list": {
-        "cs": "🫂\n\n Soutěže\n🍀\n Clan boosty (klikni na nadpis pro screen)",
-        "en": "🫂\n\n Giveaways\n🍀\n Clan boosts (click the title for a screenshot)",
+        "cs": "🫂Soutěže\n🍀Clan boosty (klikni na nadpis pro bonusy)",
+        "en": "🫂Giveaways\n🍀Clan boosts (click the title for a bonuses)",
     },
     "clan_requirements_title": {"cs": "Podmínky přijetí", "en": "Requirements to join"},
     "clan_requirements_list": {
