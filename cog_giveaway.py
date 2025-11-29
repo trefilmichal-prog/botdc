@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Dict, Any, Optional, List
 
@@ -10,7 +11,13 @@ from discord.ext import commands
 from discord import app_commands
 
 from config import GIVEAWAY_PING_ROLE_ID, DEFAULT_GIVEAWAY_DURATION_MINUTES
-from db import get_setting, set_setting
+from db import (
+    delete_giveaway_state,
+    get_setting,
+    load_active_giveaways,
+    save_giveaway_state,
+    set_setting,
+)
 
 
 class GiveawayType(str, Enum):
@@ -25,16 +32,78 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
         # message_id -> stav giveaway
         self.active_giveaways: Dict[int, Dict[str, Any]] = {}
 
+        self._restored = False
+
         # persistentní view pro giveaway tlačítka
         self.bot.add_view(GiveawayView(self))
 
+    async def cog_load(self):
+        await self.restore_active_giveaways()
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        await self.restore_active_giveaways()
+
     # ---------- INTERNÍ HELPERY ----------
 
-    async def schedule_giveaway_auto_end(self, message_id: int, duration_minutes: int):
-        try:
-            await asyncio.sleep(duration_minutes * 60)
-        except asyncio.CancelledError:
+    async def restore_active_giveaways(self):
+        if self._restored:
             return
+
+        self._restored = True
+        giveaways = load_active_giveaways()
+
+        for message_id, state in giveaways:
+            channel_id = state.get("channel_id")
+            if channel_id is None:
+                delete_giveaway_state(message_id)
+                continue
+
+            try:
+                state["type"] = GiveawayType(state["type"])
+            except Exception:
+                delete_giveaway_state(message_id)
+                continue
+
+            channel = self.bot.get_channel(channel_id)
+            if not isinstance(channel, discord.TextChannel):
+                delete_giveaway_state(message_id)
+                continue
+
+            try:
+                message = await channel.fetch_message(message_id)
+            except (discord.NotFound, discord.Forbidden):
+                delete_giveaway_state(message_id)
+                continue
+
+            self.active_giveaways[message_id] = state
+            view = GiveawayView(self)
+
+            participants: set[int] = state.get("participants", set())
+            if message.embeds:
+                embed = message.embeds[0].copy()
+                embed.set_footer(text=f"Počet účastníků: {len(participants)}")
+                await message.edit(embed=embed, view=view)
+            else:
+                await message.edit(view=view)
+
+            self.bot.loop.create_task(self.schedule_giveaway_auto_end(message_id))
+
+    async def schedule_giveaway_auto_end(self, message_id: int):
+        state = self.active_giveaways.get(message_id)
+        if not state:
+            return
+
+        end_at: Optional[datetime] = state.get("end_at")
+        if end_at is None:
+            return
+
+        delay_seconds = (end_at - datetime.utcnow()).total_seconds()
+        if delay_seconds > 0:
+            try:
+                await asyncio.sleep(delay_seconds)
+            except asyncio.CancelledError:
+                return
 
         state = self.active_giveaways.get(message_id)
         if not state or state.get("ended"):
@@ -46,18 +115,22 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
 
         channel = self.bot.get_channel(channel_id)
         if not isinstance(channel, discord.TextChannel):
+            delete_giveaway_state(message_id)
+            self.active_giveaways.pop(message_id, None)
             return
 
         try:
             message = await channel.fetch_message(message_id)
         except (discord.NotFound, discord.Forbidden):
+            delete_giveaway_state(message_id)
+            self.active_giveaways.pop(message_id, None)
             return
 
         view = GiveawayView(self)
         await self.finalize_giveaway(message, state, view)
 
         await channel.send(
-            f"Giveaway byla **automaticky ukončena** po {duration_minutes} minutách, "
+            f"Giveaway byla **automaticky ukončena** po {state.get('duration')} minutách, "
             f"výherci jsou zobrazeni v embedu."
         )
 
@@ -72,6 +145,9 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
 
         participants: set[int] = state.get("participants", set())
         if not participants:
+            state["ended"] = True
+            delete_giveaway_state(message.id)
+            self.active_giveaways.pop(message.id, None)
             return
 
         state["ended"] = True
@@ -192,6 +268,9 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
             except discord.Forbidden:
                 pass
 
+        delete_giveaway_state(message.id)
+        self.active_giveaways.pop(message.id, None)
+
     # ---------- SLASH COMMANDS ----------
 
     @app_commands.command(
@@ -266,6 +345,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
 
         image_url: Optional[str] = image.url if image is not None else None
         duration = int(duration_minutes) if duration_minutes is not None else DEFAULT_GIVEAWAY_DURATION_MINUTES
+        end_at = datetime.utcnow() + timedelta(minutes=duration)
 
         # ---------------------- COIN ----------------------
         if typ == GiveawayType.COIN:
@@ -297,6 +377,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 "host_id": interaction.user.id,
                 "image_url": image_url,
                 "duration": duration,
+                "end_at": end_at,
             }
 
         # ---------------------- PET -----------------------
@@ -330,6 +411,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 "host_id": interaction.user.id,
                 "image_url": image_url,
                 "duration": duration,
+                "end_at": end_at,
             }
 
         # ---------------------- SCREEN --------------------
@@ -356,6 +438,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 "image_url": image_url,
                 "winners_count": winners_count,
                 "duration": duration,
+                "end_at": end_at,
             }
 
         if image_url:
@@ -371,8 +454,10 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
 
         self.active_giveaways[msg.id] = state
 
+        save_giveaway_state(msg.id, state)
+
         # auto-end
-        self.bot.loop.create_task(self.schedule_giveaway_auto_end(msg.id, duration))
+        self.bot.loop.create_task(self.schedule_giveaway_auto_end(msg.id))
 
         await interaction.response.send_message(
             f"Giveaway spuštěna v {channel.mention} a automaticky se ukončí za {duration} minut.",
@@ -422,6 +507,8 @@ class GiveawayView(discord.ui.View):
             return
 
         participants.add(user_id)
+
+        save_giveaway_state(message.id, state)
 
         embed = message.embeds[0] if message.embeds else discord.Embed(color=0xFFD700)
         embed = embed.copy()
