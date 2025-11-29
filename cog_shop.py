@@ -32,6 +32,18 @@ def _can_manage_shop(interaction: discord.Interaction) -> bool:
             return True
         return any(role.id == SHOP_MANAGER_ROLE_ID for role in user.roles)
 
+    # Podpora pro interakce v DM – ověříme role uživatele na jakémkoli serveru bota
+    client = interaction.client
+    if isinstance(client, commands.Bot):
+        for guild in client.guilds:
+            member = guild.get_member(user.id)
+            if member is None:
+                continue
+            if member.guild_permissions.administrator:
+                return True
+            if any(role.id == SHOP_MANAGER_ROLE_ID for role in member.roles):
+                return True
+
     return False
 
 
@@ -41,6 +53,25 @@ class ShopCog(commands.Cog, name="ShopCog"):
 
         # persistentní view pro všechny aktivní položky v shopu
         self._register_persistent_views()
+
+    def _find_user_guild(self, user: discord.abc.User) -> Optional[discord.Guild]:
+        """Najde guildu, kde je uživatel členem (preferenčně s právy pro shop)."""
+
+        candidate: Optional[discord.Guild] = None
+        for guild in self.bot.guilds:
+            member = guild.get_member(user.id)
+            if member is None:
+                continue
+            # preferuj guildu, kde má uživatel oprávnění spravovat shop
+            if member.guild_permissions.administrator or any(
+                role.id == SHOP_MANAGER_ROLE_ID for role in member.roles
+            ):
+                return guild
+            if candidate is None:
+                candidate = guild
+
+        # fallback: vrať první guildu kvůli formátování jmen
+        return candidate
 
     def _register_persistent_views(self):
         item_ids = get_active_shop_item_ids()
@@ -147,16 +178,24 @@ class ShopCog(commands.Cog, name="ShopCog"):
     )
     @app_commands.check(_can_manage_shop)
     async def shoporders_cmd(self, interaction: discord.Interaction):
-        if interaction.guild is None:
+        target_guild = interaction.guild or self._find_user_guild(interaction.user)
+        view = ShopOrdersView(self, target_guild)
+        embed = view.build_embed()
+
+        try:
+            dm_message = await interaction.user.send(embed=embed, view=view)
+            view.message = dm_message
+        except discord.Forbidden:
             await interaction.response.send_message(
-                "Tento příkaz lze použít jen na serveru.", ephemeral=True
+                "Nepodařilo se odeslat DM – zkontroluj, zda máš povolené zprávy od členů serveru.",
+                ephemeral=True,
             )
             return
 
-        view = ShopOrdersView(self, interaction.guild)
-        embed = view.build_embed()
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-        view.message = await interaction.original_response()
+        await interaction.response.send_message(
+            "Souhrn nevyřízených objednávek byl odeslán do tvých DM.",
+            ephemeral=True,
+        )
 
 
 class BuyButton(discord.ui.Button):
@@ -421,12 +460,14 @@ class ShopOrdersView(discord.ui.View):
     async def refresh(self, interaction: discord.Interaction):
         self._refresh_buttons()
         embed = self.build_embed()
-        if self.message is None:
+        target_message = interaction.message or self.message
+        if target_message is None:
             try:
-                self.message = await interaction.original_response()
+                target_message = await interaction.original_response()
             except discord.NotFound:
                 return
-        await self.message.edit(embed=embed, view=self)
+        self.message = target_message
+        await target_message.edit(embed=embed, view=self)
 
 
 async def setup(bot: commands.Bot):
