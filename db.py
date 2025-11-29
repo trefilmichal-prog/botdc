@@ -1,5 +1,7 @@
+import json
 import sqlite3
 from datetime import datetime, timedelta
+from enum import Enum
 from typing import Optional, List, Tuple, Any, Dict
 
 from config import DB_PATH, INACTIVE_THRESHOLD_HOURS, CLAN_TICKET_CLEANUP_MINUTES
@@ -98,6 +100,25 @@ def init_db():
         """
     )
 
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS active_giveaways (
+            message_id INTEGER PRIMARY KEY,
+            channel_id INTEGER NOT NULL,
+            type TEXT NOT NULL,
+            host_id INTEGER,
+            amount INTEGER,
+            pet_name TEXT,
+            click_value TEXT,
+            image_url TEXT,
+            winners_count INTEGER,
+            duration_minutes INTEGER NOT NULL,
+            end_at TEXT NOT NULL,
+            participants_json TEXT NOT NULL
+        )
+        """
+    )
+
     # Statistiky uživatelů (XP/coins/level/messages)
     c.execute(
         """
@@ -191,6 +212,127 @@ def get_clan_stats_channel() -> Optional[int]:
         return int(value)
     except ValueError:
         return None
+
+
+# ---------- GIVEAWAYS ----------
+
+
+def save_giveaway_state(message_id: int, state: Dict[str, Any]):
+    conn = get_connection()
+    c = conn.cursor()
+
+    participants = state.get("participants", set())
+    if participants is None:
+        participants = set()
+    participants_json = json.dumps(list(participants))
+
+    end_at = state.get("end_at")
+    end_at_str = end_at.isoformat() if isinstance(end_at, datetime) else ""
+
+    gtype = state.get("type")
+    gtype_value = gtype.value if isinstance(gtype, Enum) else str(gtype)
+
+    c.execute(
+        """
+        INSERT INTO active_giveaways (
+            message_id, channel_id, type, host_id, amount, pet_name, click_value,
+            image_url, winners_count, duration_minutes, end_at, participants_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(message_id) DO UPDATE SET
+            channel_id = excluded.channel_id,
+            type = excluded.type,
+            host_id = excluded.host_id,
+            amount = excluded.amount,
+            pet_name = excluded.pet_name,
+            click_value = excluded.click_value,
+            image_url = excluded.image_url,
+            winners_count = excluded.winners_count,
+            duration_minutes = excluded.duration_minutes,
+            end_at = excluded.end_at,
+            participants_json = excluded.participants_json
+        """,
+        (
+            message_id,
+            int(state.get("channel_id", 0)),
+            gtype_value,
+            state.get("host_id"),
+            state.get("amount"),
+            state.get("pet_name"),
+            state.get("click_value"),
+            state.get("image_url"),
+            state.get("winners_count"),
+            state.get("duration", 0),
+            end_at_str,
+            participants_json,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def load_active_giveaways() -> List[Tuple[int, Dict[str, Any]]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT message_id, channel_id, type, host_id, amount, pet_name, click_value,
+               image_url, winners_count, duration_minutes, end_at, participants_json
+        FROM active_giveaways
+        """
+    )
+    rows = c.fetchall()
+    conn.close()
+
+    giveaways: List[Tuple[int, Dict[str, Any]]] = []
+    for row in rows:
+        (
+            message_id,
+            channel_id,
+            gtype,
+            host_id,
+            amount,
+            pet_name,
+            click_value,
+            image_url,
+            winners_count,
+            duration_minutes,
+            end_at_str,
+            participants_json,
+        ) = row
+
+        participants = set(json.loads(participants_json)) if participants_json else set()
+        end_at = datetime.fromisoformat(end_at_str) if end_at_str else None
+
+        giveaways.append(
+            (
+                message_id,
+                {
+                    "channel_id": channel_id,
+                    "type": gtype,
+                    "host_id": host_id,
+                    "amount": amount,
+                    "pet_name": pet_name,
+                    "click_value": click_value,
+                    "image_url": image_url,
+                    "winners_count": winners_count,
+                    "duration": duration_minutes,
+                    "end_at": end_at,
+                    "participants": participants,
+                    "ended": False,
+                },
+            )
+        )
+
+    return giveaways
+
+
+def delete_giveaway_state(message_id: int):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM active_giveaways WHERE message_id = ?", (message_id,))
+    conn.commit()
+    conn.close()
 
 
 # ---------- CLAN PANELY ----------
