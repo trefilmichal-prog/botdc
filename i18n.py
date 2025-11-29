@@ -172,6 +172,166 @@ STRINGS: dict[str, dict[str, str]] = {
         "cs": "Roli pro klan jsem na serveru nenašel. Zkontroluj hodnotu CLAN_MEMBER_ROLE_ID.",
         "en": "I couldn't find the clan role on the server. Check CLAN_MEMBER_ROLE_ID.",
     },
+    "clan_ticket_deleted": {
+        "cs": "Ticket {channel} byl smazán.",
+        "en": "Ticket {channel} was deleted.",
+    },
+    "clan_ticket_delete_forbidden": {
+        "cs": "Ticket {channel} se nepodařilo smazat kvůli oprávněním.",
+        "en": "Could not delete ticket {channel} because of permissions.",
+    },
+    "clan_ticket_delete_failed": {
+        "cs": "Při mazání ticketu {channel} došlo k chybě.",
+        "en": "An error occurred while deleting ticket {channel}.",
+    },
+    "clan_ticket_missing": {
+        "cs": "Původní ticket se nenašel, označuji ho jako smazaný.",
+        "en": "Original ticket not found; marking it as deleted.",
+    },
+    "clan_benefits_title": {"cs": "Výhody klanu", "en": "Clan benefits"},
+    "clan_benefits_list": {
+        "cs": "🫂 Skvělá CZ/SK komunita\n🎊 Soutěže\n🍀 Clan boosty (klikni na nadpis pro screen)",
+        "en": "🫂 Great CZ/SK community\n🎊 Giveaways\n🍀 Clan boosts (click the title for a screenshot)",
+    },
+    "clan_requirements_title": {"cs": "Podmínky přijetí", "en": "Requirements to join"},
+    "clan_requirements_list": {
+        "cs": "💫 500SX rebirthů +\n💫 Hrát 24/7\n💫 30% index\n💫 5d playtime",
+        "en": "💫 500SX rebirths+\n💫 Play 24/7\n💫 30% index\n💫 5d playtime",
+    },
+    "clan_panel_created": {
+        "cs": "Panel pro přihlášky do klanu byl vytvořen v tomto kanálu.",
+        "en": "The clan application panel has been created in this channel.",
+    },
+    "clan_admin_empty": {
+        "cs": "V klanu aktuálně není žádný hráč s nastavenou rolí.",
+        "en": "There are no players with the clan role right now.",
+    },
+    "clan_admin_panel_title": {"cs": "Clan – seznam členů", "en": "Clan – member list"},
+    "clan_admin_panel_footer": {
+        "cs": "Vyber hráče v menu a použij tlačítka níže (Warn / Kick).",
+        "en": "Select a player from the menu and use the buttons below (Warn / Kick).",
+    },
+    "clan_admin_select_empty": {
+        "cs": "Žádný člen k dispozici",
+        "en": "No member available",
+    },
+    "clan_admin_select_empty_desc": {
+        "cs": "V klanu aktuálně nikdo není.",
+        "en": "No one is currently in the clan.",
+    },
+    "clan_admin_select_placeholder": {
+        "cs": "Vyber hráče z klanu",
+        "en": "Choose a clan member",
+    },
+    "clan_application_open_in_channel": {
+        "cs": "Už máš otevřenou přihlášku v kanále {channel}.",
+        "en": "You already have an open application in {channel}.",
+    },
+    "clan_application_open_wait": {
+        "cs": "Už máš otevřenou přihlášku. Počkej, než bude vyřízena.",
+        "en": "You already have an open application. Please wait for it to be processed.",
+    },
+    "clan_modal_title": {"cs": "Přihláška do klanu", "en": "Clan application"},
+    "clan_modal_roblox_label": {"cs": "Roblox nick", "en": "Roblox username"},
+    "clan_modal_roblox_placeholder": {
+        "cs": "Tvůj nick v Robloxu",
+        "en": "Your Roblox username",
+    },
+    "clan_modal_hours_label": {
+        "cs": "Kolik hodin hraješ denně?",
+        "en": "How many hours do you play per day?",
+    },
+    "clan_modal_hours_placeholder": {
+        "cs": "např. 2–3 hodiny",
+        "en": "e.g., 2–3 hours",
+    },
+    "clan_modal_rebirths_label": {
+        "cs": "Kolik máš rebirthů?",
+        "en": "How many rebirths do you have?",
+    },
+    "clan_modal_rebirths_placeholder": {
+        "cs": "např. cca 1500",
+        "en": "e.g., around 1500",
+    },
+    "clan_modal_retry": {
+        "cs": "Nastala chyba, zkus to prosím znovu na serveru.",
+        "en": "Something went wrong, please try again on the server.",
+    },
+    "clan_ticket_category_missing": {
+        "cs": "Nastavená kategorie pro clan tickety neexistuje. Zkontroluj CLAN_TICKET_CATEGORY_ID v configu.",
+        "en": "The configured category for clan tickets doesn't exist. Check CLAN_TICKET_CATEGORY_ID in the config.",
+    },
+    "clan_ticket_audit": {
+        "cs": "Clan přihláška od {user} ({user_id})",
+        "en": "Clan application from {user} ({user_id})",
+    },
+    "clan_application_embed_title": {
+        "cs": "Přihláška – {nick}",
+        "en": "Application – {nick}",
+    },
+    "clan_application_field_roblox": {"cs": "Roblox nick", "en": "Roblox username"},
+    "clan_application_field_hours": {"cs": "Hodin denně", "en": "Hours per day"},
+    "clan_application_field_rebirths": {"cs": "Rebirthů", "en": "Rebirths"},
+    "clan_application_footer": {
+        "cs": "Admini: použijte tlačítka níže pro přijetí nebo odmítnutí.",
+        "en": "Admins: use the buttons below to accept or reject.",
+    },
+    "clan_application_intro_title": {
+        "cs": "Co poslat do ticketu",
+        "en": "What to send in the ticket",
+    },
+    "clan_application_intro_body": {
+        "cs": (
+            "Prosím pošli následující:\n"
+            "♻️ Screeny Petů\n"
+            "♻️ Tvoje Gamepassy (pokud vlastníš)\n"
+            "♻️ Tvoje Rebirthy\n"
+            "♻️ Tvojí Prestige\n\n"
+            "⚠️ Vše prosím vyfoť tak, aby byl vidět tvůj nick!"
+        ),
+        "en": (
+            "Please send the following:\n"
+            "♻️ Pet screenshots\n"
+            "♻️ Your Gamepasses (if you own any)\n"
+            "♻️ Your Rebirths\n"
+            "♻️ Your Prestige\n\n"
+            "⚠️ Make sure your username is visible in every screenshot!"
+        ),
+    },
+    "clan_application_created": {
+        "cs": (
+            "Přihláška byla uložena a ticket byl vytvořen: {channel}.\n"
+            "Prosím nahraj do ticketu požadované screeny."
+        ),
+        "en": (
+            "Your application was saved and a ticket was created: {channel}.\n"
+            "Please upload the requested screenshots in the ticket."
+        ),
+    },
+    "clan_application_not_found": {
+        "cs": "V tomto kanálu už není žádná otevřená přihláška.",
+        "en": "There is no open application in this channel anymore.",
+    },
+    "clan_admin_only": {
+        "cs": "Tuto akci může provést pouze admin.",
+        "en": "Only an admin can perform this action.",
+    },
+    "clan_application_accept_public": {
+        "cs": "✅ Přihláška byla **přijata**.",
+        "en": "✅ The application has been **accepted**.",
+    },
+    "clan_application_accept_dm": {
+        "cs": "Ahoj, tvoje přihláška do klanu na serveru **{guild}** byla **přijata**.\nVítej v klanu!",
+        "en": "Hi, your clan application on **{guild}** was **accepted**.\nWelcome to the clan!",
+    },
+    "clan_application_reject_public": {
+        "cs": "❌ Přihláška byla **zamítnuta**.",
+        "en": "❌ The application has been **rejected**.",
+    },
+    "clan_application_reject_dm": {
+        "cs": "Ahoj, tvoje přihláška do klanu na serveru **{guild}** byla bohužel **zamítnuta**.\nMůžeš zkusit požádat znovu později.",
+        "en": "Hi, your clan application on **{guild}** was **rejected**.\nYou can try applying again later.",
+    },
     "panel_refresh_error": {
         "cs": "[panel_refresh_loop] Chyba při obnově panelů: {error}",
         "en": "[panel_refresh_loop] Error while refreshing panels: {error}",
