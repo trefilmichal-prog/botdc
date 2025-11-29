@@ -17,6 +17,7 @@ from config import (
     CLAN_BANNER_IMAGE_URL,
     TICKET_VIEWER_ROLE_ID,
 )
+from i18n import DEFAULT_LOCALE, get_interaction_locale, t
 from db import (
     create_clan_application,
     get_open_application_by_user,
@@ -39,8 +40,8 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         self.bot = bot
 
         # persistentní view – panel pro přihlášky a admin view v ticketech
-        self.apply_panel_view = ClanApplyPanelView(self)
-        self.admin_view = ClanAdminView(self)
+        self.apply_panel_view = ClanApplyPanelView(self, DEFAULT_LOCALE)
+        self.admin_view = ClanAdminView(self, DEFAULT_LOCALE)
 
         self.bot.add_view(self.apply_panel_view)
         self.bot.add_view(self.admin_view)
@@ -65,7 +66,11 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         return name[:90]
 
     async def remove_clan_ticket_for_member(
-        self, guild: discord.Guild, member: discord.Member, reason: str
+        self,
+        guild: discord.Guild,
+        member: discord.Member,
+        reason: str,
+        locale: discord.Locale = DEFAULT_LOCALE,
     ) -> str | None:
         latest_app = get_latest_clan_application_by_user(guild.id, member.id)
         if latest_app is None or latest_app.get("deleted"):
@@ -85,15 +90,13 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
                         f"Kick uživatele {member} – odstranění ticketu (důvod: {reason})"
                     )
                 )
-                return f"Ticket {channel_label} byl smazán."
+                return t("clan_ticket_deleted", locale, channel=channel_label)
             except discord.Forbidden:
-                return (
-                    f"Ticket {channel_label} se nepodařilo smazat kvůli oprávněním."
-                )
+                return t("clan_ticket_delete_forbidden", locale, channel=channel_label)
             except discord.HTTPException:
-                return f"Při mazání ticketu {channel_label} došlo k chybě."
+                return t("clan_ticket_delete_failed", locale, channel=channel_label)
 
-        return "Původní ticket se nenašel, označuji ho jako smazaný."
+        return t("clan_ticket_missing", locale)
 
     def _get_ticket_base_from_app(
         self, app: Dict[str, Any], guild: discord.Guild
@@ -136,22 +139,21 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def setup_clan_panel_cmd(self, interaction: discord.Interaction):
+        locale = get_interaction_locale(interaction)
         channel = interaction.channel
         if not isinstance(channel, discord.TextChannel):
             await interaction.response.send_message(
-                "Tento příkaz lze použít pouze v textovém kanálu.",
+                t("guild_text_only", locale),
                 ephemeral=True,
             )
             return
 
         embed_description = (
-            "🫂 Skvělá CZ/SK komunita\n"
-            "🎊 Soutěže\n"
-            "🍀 Clan boosty (klikni na nadpis pro screen)"
+            t("clan_benefits_list", locale)
         )
 
         main_embed = discord.Embed(
-            title="Výhody klanu",
+            title=t("clan_benefits_title", locale),
             description=embed_description,
             color=0x3498DB,
         )
@@ -159,15 +161,10 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         if CLAN_BOOSTS_IMAGE_URL:
             main_embed.url = CLAN_BOOSTS_IMAGE_URL
 
-        requirements_text = (
-            "💫 500SX rebirthů +\n"
-            "💫 Hrát 24/7\n"
-            "💫 30% index\n"
-            "💫 5d playtime"
-        )
+        requirements_text = t("clan_requirements_list", locale)
 
         main_embed.add_field(
-            name="Podmínky přijetí",
+            name=t("clan_requirements_title", locale),
             value=requirements_text,
             inline=False,
         )
@@ -175,10 +172,13 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         if CLAN_BANNER_IMAGE_URL:
             main_embed.set_image(url=CLAN_BANNER_IMAGE_URL)
 
-        await channel.send(embed=main_embed, view=self.apply_panel_view)
+        localized_view = ClanApplyPanelView(self, locale)
+        self.bot.add_view(localized_view)
+
+        await channel.send(embed=main_embed, view=localized_view)
 
         await interaction.response.send_message(
-            "Panel pro přihlášky do klanu byl vytvořen v tomto kanálu.",
+            t("clan_panel_created", locale),
             ephemeral=True,
         )
 
@@ -190,15 +190,16 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
     )
     @app_commands.checks.has_permissions(manage_roles=True)
     async def clan_panel_cmd(self, interaction: discord.Interaction):
+        locale = get_interaction_locale(interaction)
         guild = interaction.guild
         if guild is None:
             await interaction.response.send_message(
-                "Příkaz lze použít pouze na serveru.",
+                t("guild_only", locale),
                 ephemeral=True,
             )
             return
 
-        embed, view = self.build_clan_admin_panel(guild)
+        embed, view = self.build_clan_admin_panel(guild, locale)
         await interaction.response.send_message(
             embed=embed,
             view=view,
@@ -439,7 +440,7 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         return None
 
     def build_clan_admin_panel(
-        self, guild: discord.Guild
+        self, guild: discord.Guild, locale: discord.Locale = DEFAULT_LOCALE
     ) -> tuple[discord.Embed, "ClanAdminPanelView"]:
         """
         Vytvoří embed + view se seznamem členů klanu (role CLAN_MEMBER_ROLE_ID).
@@ -456,15 +457,15 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
             ]
             desc = "\n".join(lines[:30])
         else:
-            desc = "V klanu aktuálně není žádný hráč s nastavenou rolí."
+            desc = t("clan_admin_empty", locale)
 
         embed = discord.Embed(
-            title="Clan – seznam členů",
+            title=t("clan_admin_panel_title", locale),
             description=desc,
             color=0xE67E22,
         )
         embed.set_footer(
-            text="Vyber hráče v menu a použij tlačítka níže (Warn / Kick)."
+            text=t("clan_admin_panel_footer", locale)
         )
 
         options: List[discord.SelectOption] = []
@@ -480,16 +481,23 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
                 )
             )
 
-        view = ClanAdminPanelView(self, options)
+        view = ClanAdminPanelView(self, options, locale)
         return embed, view
 
 
 # ---------- VIEW: Panel s tlačítkem "Podat přihlášku" ----------
 
 class ClanApplyPanelView(discord.ui.View):
-    def __init__(self, cog: ClanApplicationsCog):
+    def __init__(self, cog: ClanApplicationsCog, locale: discord.Locale):
         super().__init__(timeout=None)
         self.cog = cog
+        self.locale = locale
+        self._apply_locale()
+
+    def _apply_locale(self):
+        for child in self.children:
+            if isinstance(child, discord.ui.Button) and child.custom_id == "clan_apply_button":
+                child.label = t("clan_apply_button_label", self.locale)
 
     @discord.ui.button(
         label="Podat přihlášku",
@@ -501,11 +509,12 @@ class ClanApplyPanelView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ):
+        locale = get_interaction_locale(interaction)
         user = interaction.user
         guild = interaction.guild
         if guild is None:
             await interaction.response.send_message(
-                "Tento ticket lze použít pouze na serveru.",
+                t("guild_only", locale),
                 ephemeral=True,
             )
             return
@@ -517,12 +526,12 @@ class ClanApplyPanelView(discord.ui.View):
             channel = guild.get_channel(ch_id)
             if isinstance(channel, discord.TextChannel):
                 await interaction.response.send_message(
-                    f"Už máš otevřenou přihlášku v kanále {channel.mention}.",
+                    t("clan_application_open_in_channel", locale, channel=channel.mention),
                     ephemeral=True,
                 )
             else:
                 await interaction.response.send_message(
-                    "Už máš otevřenou přihlášku. Počkej, než bude vyřízena.",
+                    t("clan_application_open_wait", locale),
                     ephemeral=True,
                 )
             return
@@ -532,38 +541,43 @@ class ClanApplyPanelView(discord.ui.View):
             existing_channel = guild.get_channel(latest_app["channel_id"])
             if isinstance(existing_channel, discord.TextChannel):
                 await interaction.response.send_message(
-                    f"Už máš vytvořený ticket v kanále {existing_channel.mention}.",
+                    t(
+                        "clan_application_open_in_channel",
+                        locale,
+                        channel=existing_channel.mention,
+                    ),
                     ephemeral=True,
                 )
                 return
 
         # pouze otevřeme formulář, ticket se vytvoří až po submit
-        modal = ClanApplicationModal(self.cog)
+        modal = ClanApplicationModal(self.cog, locale)
         await interaction.response.send_modal(modal)
 
 
 # ---------- MODAL: Přihláška – vytvoření ticketu až po submit ----------
 
-class ClanApplicationModal(discord.ui.Modal, title="Přihláška do klanu"):
-    def __init__(self, cog: ClanApplicationsCog):
-        super().__init__(timeout=None)
+class ClanApplicationModal(discord.ui.Modal):
+    def __init__(self, cog: ClanApplicationsCog, locale: discord.Locale):
+        super().__init__(timeout=None, title=t("clan_modal_title", locale))
         self.cog = cog
+        self.locale = locale
 
         self.roblox_nick = discord.ui.TextInput(
-            label="Roblox nick",
-            placeholder="Tvůj nick v Robloxu",
+            label=t("clan_modal_roblox_label", locale),
+            placeholder=t("clan_modal_roblox_placeholder", locale),
             required=True,
             max_length=32,
         )
         self.hours_per_day = discord.ui.TextInput(
-            label="Kolik hodin hraješ denně?",
-            placeholder="např. 2–3 hodiny",
+            label=t("clan_modal_hours_label", locale),
+            placeholder=t("clan_modal_hours_placeholder", locale),
             required=True,
             max_length=32,
         )
         self.rebirths = discord.ui.TextInput(
-            label="Kolik máš rebirthů?",
-            placeholder="např. cca 1500",
+            label=t("clan_modal_rebirths_label", locale),
+            placeholder=t("clan_modal_rebirths_placeholder", locale),
             required=True,
             max_length=32,
         )
@@ -573,12 +587,13 @@ class ClanApplicationModal(discord.ui.Modal, title="Přihláška do klanu"):
         self.add_item(self.rebirths)
 
     async def on_submit(self, interaction: discord.Interaction):
+        locale = self.locale
         guild = interaction.guild
         user = interaction.user
 
         if guild is None or not isinstance(user, discord.Member):
             await interaction.response.send_message(
-                "Nastala chyba, zkus to prosím znovu na serveru.",
+                t("clan_modal_retry", locale),
                 ephemeral=True,
             )
             return
@@ -587,8 +602,7 @@ class ClanApplicationModal(discord.ui.Modal, title="Přihláška do klanu"):
         category = guild.get_channel(CLAN_TICKET_CATEGORY_ID)
         if not isinstance(category, discord.CategoryChannel):
             await interaction.response.send_message(
-                "Nastavená kategorie pro clan tickety neexistuje. "
-                "Zkontroluj CLAN_TICKET_CATEGORY_ID v configu.",
+                t("clan_ticket_category_missing", locale),
                 ephemeral=True,
             )
             return
@@ -600,12 +614,12 @@ class ClanApplicationModal(discord.ui.Modal, title="Přihláška do klanu"):
             channel = guild.get_channel(ch_id)
             if isinstance(channel, discord.TextChannel):
                 await interaction.response.send_message(
-                    f"Už máš otevřenou přihlášku v kanále {channel.mention}.",
+                    t("clan_application_open_in_channel", locale, channel=channel.mention),
                     ephemeral=True,
                 )
             else:
                 await interaction.response.send_message(
-                    "Už máš otevřenou přihlášku. Počkej, než bude vyřízena.",
+                    t("clan_application_open_wait", locale),
                     ephemeral=True,
                 )
             return
@@ -638,7 +652,7 @@ class ClanApplicationModal(discord.ui.Modal, title="Přihláška do klanu"):
             name=ch_name,
             category=category,
             overwrites=overwrites,
-            reason=f"Clan přihláška od {user} ({user.id})",
+            reason=t("clan_ticket_audit", DEFAULT_LOCALE, user=user, user_id=user.id),
         )
 
         # záznam v DB + doplnění údajů
@@ -662,27 +676,32 @@ class ClanApplicationModal(discord.ui.Modal, title="Přihláška do klanu"):
 
         # embed s informacemi z přihlášky
         app_embed = discord.Embed(
-            title=f"Přihláška – {nick}",
+            title=t("clan_application_embed_title", locale, nick=nick),
             color=0x2ECC71,
         )
-        app_embed.add_field(name="Roblox nick", value=nick, inline=False)
-        app_embed.add_field(name="Hodin denně", value=hours_text, inline=True)
-        app_embed.add_field(name="Rebirthů", value=rebirths_text, inline=True)
+        app_embed.add_field(
+            name=t("clan_application_field_roblox", locale),
+            value=nick,
+            inline=False,
+        )
+        app_embed.add_field(
+            name=t("clan_application_field_hours", locale),
+            value=hours_text,
+            inline=True,
+        )
+        app_embed.add_field(
+            name=t("clan_application_field_rebirths", locale),
+            value=rebirths_text,
+            inline=True,
+        )
         app_embed.set_footer(
-            text="Admini: použijte tlačítka níže pro přijetí nebo odmítnutí."
+            text=t("clan_application_footer", locale)
         )
 
         # embed s instrukcemi na screeny
         intro_embed = discord.Embed(
-            title="Co poslat do ticketu",
-            description=(
-                "Prosím pošli následující:\n"
-                "♻️ Screeny Petů\n"
-                "♻️ Tvoje Gamepassy (pokud vlastníš)\n"
-                "♻️ Tvoje Rebirthy\n"
-                "♻️ Tvojí Prestige\n\n"
-                "⚠️ Vše prosím vyfoť tak, aby byl vidět tvůj nick!"
-            ),
+            title=t("clan_application_intro_title", locale),
+            description=t("clan_application_intro_body", locale),
             color=0x2980B9,
         )
 
@@ -690,15 +709,17 @@ class ClanApplicationModal(discord.ui.Modal, title="Přihláška do klanu"):
         if CLAN_APPLICATION_PING_ROLE_ID:
             content_parts.insert(0, f"<@&{CLAN_APPLICATION_PING_ROLE_ID}>")
 
+        admin_view = ClanAdminView(self.cog, locale)
+        self.cog.bot.add_view(admin_view)
+
         await ticket_channel.send(
             content=" ".join(content_parts),
             embeds=[intro_embed, app_embed],
-            view=self.cog.admin_view,
+            view=admin_view,
         )
 
         await interaction.response.send_message(
-            f"Přihláška byla uložena a ticket byl vytvořen: {ticket_channel.mention}.\n"
-            f"Prosím nahraj do ticketu požadované screeny.",
+            t("clan_application_created", locale, channel=ticket_channel.mention),
             ephemeral=True,
         )
 
@@ -706,18 +727,34 @@ class ClanApplicationModal(discord.ui.Modal, title="Přihláška do klanu"):
 # ---------- VIEW: Admin rozhodnutí (Přijmout / Zamítnout) ----------
 
 class ClanAdminView(discord.ui.View):
-    def __init__(self, cog: ClanApplicationsCog):
+    def __init__(self, cog: ClanApplicationsCog, locale: discord.Locale):
         super().__init__(timeout=None)
         self.cog = cog
+        self.locale = locale
+        self._apply_locale()
+
+    def _apply_locale(self):
+        label_map = {
+            "clan_accept": "clan_accept_button_label",
+            "clan_toggle_vacation": "clan_vacation_button_label",
+            "clan_reject": "clan_reject_button_label",
+        }
+
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                key = label_map.get(child.custom_id)
+                if key:
+                    child.label = t(key, self.locale)
 
     async def _get_open_app_for_channel(
         self,
         interaction: discord.Interaction,
     ) -> Optional[Dict[str, Any]]:
+        locale = get_interaction_locale(interaction)
         channel = interaction.channel
         if not isinstance(channel, discord.TextChannel):
             await interaction.response.send_message(
-                "Tento ticket lze použít pouze v textovém kanálu.",
+                t("guild_text_only", locale),
                 ephemeral=True,
             )
             return None
@@ -725,7 +762,7 @@ class ClanAdminView(discord.ui.View):
         app = get_open_application_by_channel(channel.id)
         if app is None:
             await interaction.response.send_message(
-                "V tomto kanálu už není žádná otevřená přihláška.",
+                t("clan_application_not_found", locale),
                 ephemeral=True,
             )
             return None
@@ -753,18 +790,19 @@ class ClanAdminView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ):
+        locale = get_interaction_locale(interaction)
         guild = interaction.guild
         user = interaction.user
         if guild is None or not isinstance(user, discord.Member):
             await interaction.response.send_message(
-                "Tento ticket lze použít pouze na serveru.",
+                t("guild_only", locale),
                 ephemeral=True,
             )
             return
 
         if not self._is_admin(user):
             await interaction.response.send_message(
-                "Tuto akci může provést pouze admin.",
+                t("clan_admin_only", locale),
                 ephemeral=True,
             )
             return
@@ -790,15 +828,14 @@ class ClanAdminView(discord.ui.View):
                     pass
 
         await interaction.response.send_message(
-            "✅ Přihláška byla **přijata**.",
+            t("clan_application_accept_public", locale),
             ephemeral=False,
         )
 
         if member is not None:
             try:
                 await member.send(
-                    f"Ahoj, tvoje přihláška do klanu na serveru **{guild.name}** byla **přijata**.\n"
-                    f"Vítej v klanu!"
+                    t("clan_application_accept_dm", locale, guild=guild.name)
                 )
             except discord.Forbidden:
                 pass
@@ -895,18 +932,19 @@ class ClanAdminView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ):
+        locale = get_interaction_locale(interaction)
         guild = interaction.guild
         user = interaction.user
         if guild is None or not isinstance(user, discord.Member):
             await interaction.response.send_message(
-                "Tento ticket lze použít pouze na serveru.",
+                t("guild_only", locale),
                 ephemeral=True,
             )
             return
 
         if not self._is_admin(user):
             await interaction.response.send_message(
-                "Tuto akci může provést pouze admin.",
+                t("clan_admin_only", locale),
                 ephemeral=True,
             )
             return
@@ -924,15 +962,14 @@ class ClanAdminView(discord.ui.View):
             await self.cog.rename_ticket_channel(channel, base, "rejected")
 
         await interaction.response.send_message(
-            "❌ Přihláška byla **zamítnuta**.",
+            t("clan_application_reject_public", locale),
             ephemeral=False,
         )
 
         if member is not None:
             try:
                 await member.send(
-                    f"Ahoj, tvoje přihláška do klanu na serveru **{guild.name}** byla bohužel **zamítnuta**.\n"
-                    f"Můžeš zkusit požádat znovu později."
+                    t("clan_application_reject_dm", locale, guild=guild.name)
                 )
             except discord.Forbidden:
                 pass
@@ -945,23 +982,25 @@ class ClanAdminPanelView(discord.ui.View):
         self,
         cog: ClanApplicationsCog,
         options: List[discord.SelectOption],
+        locale: discord.Locale,
     ):
         super().__init__(timeout=None)
         self.cog = cog
+        self.locale = locale
         self.selected_member_id: Optional[int] = None
         self.member_select: Optional[discord.ui.Select] = None
 
         if not options:
             options = [
                 discord.SelectOption(
-                    label="Žádný člen k dispozici",
+                    label=t("clan_admin_select_empty", locale),
                     value="none",
-                    description="V klanu aktuálně nikdo není.",
+                    description=t("clan_admin_select_empty_desc", locale),
                 )
             ]
 
         select = discord.ui.Select(
-            placeholder="Vyber hráče z klanu",
+            placeholder=t("clan_admin_select_placeholder", locale),
             min_values=1,
             max_values=1,
             options=options,
@@ -970,6 +1009,20 @@ class ClanAdminPanelView(discord.ui.View):
         select.callback = self.on_select  # type: ignore
         self.member_select = select
         self.add_item(select)
+        self._apply_locale()
+
+    def _apply_locale(self):
+        label_map = {
+            "clan_admin_warn": "clan_admin_warn_button_label",
+            "clan_admin_toggle_vacation": "clan_vacation_button_label",
+            "clan_admin_kick": "clan_admin_kick_button_label",
+        }
+
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                key = label_map.get(child.custom_id)
+                if key:
+                    child.label = t(key, self.locale)
 
     async def on_select(self, interaction: discord.Interaction):
         guild = interaction.guild

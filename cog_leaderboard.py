@@ -12,6 +12,7 @@ from db import (
     remove_clan_panel,
     remove_leaderboard_panel,
 )
+from i18n import DEFAULT_LOCALE, get_interaction_locale, t
 
 
 class LeaderboardCog(commands.Cog, name="Leaderboard"):
@@ -34,17 +35,18 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
     async def leaderboard_cmd(
         self, interaction: discord.Interaction, metric: app_commands.Choice[str]
     ):
+        locale = get_interaction_locale(interaction)
         top_users = get_top_users_by_stat(metric.value, limit=10)
         if not top_users:
-            await interaction.response.send_message(
-                "Nikdo zatím nemá žádná data pro tento žebříček."
-            )
+            await interaction.response.send_message(t("leaderboard_empty", locale))
             return
 
-        embed = discord.Embed(
-            title=f"Žebříček – {'Coiny' if metric.value == 'coins' else 'Zprávy'}",
-            color=0x3498DB,
+        title = (
+            t("leaderboard_title_coins", locale)
+            if metric.value == "coins"
+            else t("leaderboard_title_messages", locale)
         )
+        embed = discord.Embed(title=title, color=0x3498DB)
 
         lines = []
         for idx, (user_id, value) in enumerate(top_users, start=1):
@@ -54,9 +56,12 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
         embed.description = "\n".join(lines)
         await interaction.response.send_message(embed=embed)
 
-    def build_leaderboard_embed(self) -> discord.Embed:
-        embed = discord.Embed(title="Žebříček", color=0x3498DB)
-        for label, stat in (("Coiny", "coins"), ("Zprávy", "message_count")):
+    def build_leaderboard_embed(self, locale: discord.Locale = DEFAULT_LOCALE) -> discord.Embed:
+        embed = discord.Embed(title=t("panel_title", locale), color=0x3498DB)
+        for label, stat in (
+            (t("panel_section_coins", locale), "coins"),
+            (t("panel_section_messages", locale), "message_count"),
+        ):
             top_users = get_top_users_by_stat(stat, limit=10)
             if top_users:
                 lines = [
@@ -65,11 +70,11 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
                 ]
                 value = "\n".join(lines)
             else:
-                value = "Žádná data pro tento žebříček."
+                value = t("panel_no_data", locale)
 
-            embed.add_field(name=f"Top {label}", value=value, inline=False)
+            embed.add_field(name=label, value=value, inline=False)
 
-        embed.set_footer(text="Panel se aktualizuje automaticky každých 5 minut.")
+        embed.set_footer(text=t("panel_footer", locale))
         return embed
 
     @app_commands.command(
@@ -81,21 +86,22 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
     async def setup_clan_room(
         self, interaction: discord.Interaction, channel: discord.TextChannel
     ):
+        locale = get_interaction_locale(interaction)
         role = interaction.guild.get_role(CLAN_MEMBER_ROLE_ID) if interaction.guild else None
         if role is None:
             await interaction.response.send_message(
-                f"Roli s ID `{CLAN_MEMBER_ROLE_ID}` jsem na tomto serveru nenašel.",
+                t("clan_setup_role_missing", locale, role_id=CLAN_MEMBER_ROLE_ID),
                 ephemeral=True,
             )
             return
 
-        embed = self.build_clan_panel_embed(role)
+        embed = self.build_clan_panel_embed(role, locale)
 
         message = await channel.send(embed=embed)
         add_clan_panel(channel.guild.id, channel.id, message.id)
 
         await interaction.response.send_message(
-            f"Zpráva s přehledem členů byla odeslána do {channel.mention}.",
+            t("clan_setup_sent", locale, channel=channel.mention),
             ephemeral=True,
         )
 
@@ -108,30 +114,33 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
     async def setup_leaderboard_room(
         self, interaction: discord.Interaction, channel: discord.TextChannel
     ):
-        embed = self.build_leaderboard_embed()
+        locale = get_interaction_locale(interaction)
+        embed = self.build_leaderboard_embed(locale)
         message = await channel.send(embed=embed)
         if interaction.guild:
             add_leaderboard_panel(interaction.guild.id, channel.id, message.id)
 
         await interaction.response.send_message(
-            f"Žebříček byl odeslán do {channel.mention}.", ephemeral=True
+            t("leaderboard_setup_sent", locale, channel=channel.mention), ephemeral=True
         )
 
-    def build_clan_panel_embed(self, role: discord.Role) -> discord.Embed:
+    def build_clan_panel_embed(
+        self, role: discord.Role, locale: discord.Locale = DEFAULT_LOCALE
+    ) -> discord.Embed:
         members = sorted(role.members, key=lambda m: m.display_name.lower())
         if members:
             member_lines = [member.mention for member in members]
             description = "\n".join(member_lines)
         else:
-            description = "Zatím nikdo nemá tuto roli."
+            description = t("clan_panel_empty", locale)
 
         color = role.color if role.color.value else 0x2ECC71
         embed = discord.Embed(
-            title="Členové klanu",
+            title=t("clan_panel_title", locale),
             description=description,
             color=color,
         )
-        embed.set_footer(text="Panel se aktualizuje automaticky každých 5 minut.")
+        embed.set_footer(text=t("panel_footer", locale))
         return embed
 
     async def refresh_clan_panels(self):
@@ -149,11 +158,8 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
             role = guild.get_role(CLAN_MEMBER_ROLE_ID) if CLAN_MEMBER_ROLE_ID else None
             if role is None:
                 embed = discord.Embed(
-                    title="Členové klanu",
-                    description=(
-                        "Roli pro klan jsem na serveru nenašel. "
-                        "Zkontroluj hodnotu CLAN_MEMBER_ROLE_ID."
-                    ),
+                    title=t("clan_panel_title", DEFAULT_LOCALE),
+                    description=t("clan_panel_role_missing", DEFAULT_LOCALE),
                     color=0xE74C3C,
                 )
             else:
@@ -216,7 +222,7 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
             await self.refresh_clan_panels()
             await self.refresh_leaderboard_panels()
         except Exception as exc:  # pragma: no cover - defensive logging
-            print(f"[panel_refresh_loop] Chyba při obnově panelů: {exc}")
+            print(t("panel_refresh_error", DEFAULT_LOCALE, error=exc))
 
     @panel_refresh_loop.before_loop
     async def before_panel_refresh_loop(self):

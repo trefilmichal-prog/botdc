@@ -11,6 +11,7 @@ from config import (
     XP_PER_LEVEL,
 )
 from db import get_or_create_user_stats, update_user_stats
+from i18n import get_interaction_locale, t
 
 
 class XpCog(commands.Cog, name="XpCog"):
@@ -57,17 +58,18 @@ class XpCog(commands.Cog, name="XpCog"):
         interaction: discord.Interaction,
         user: discord.Member | None = None,
     ):
+        locale = get_interaction_locale(interaction)
         target = user or interaction.user
         coins, exp, level, _, message_count = get_or_create_user_stats(target.id)
 
         embed = discord.Embed(
-            title=f"Profil – {target.display_name}",
+            title=t("profile_title", locale, name=target.display_name),
             color=0x00DD88,
         )
-        embed.add_field(name="Level", value=str(level), inline=True)
-        embed.add_field(name="Exp", value=str(exp), inline=True)
-        embed.add_field(name="Coiny", value=str(coins), inline=True)
-        embed.add_field(name="Zprávy", value=str(message_count), inline=True)
+        embed.add_field(name=t("profile_level", locale), value=str(level), inline=True)
+        embed.add_field(name=t("profile_exp", locale), value=str(exp), inline=True)
+        embed.add_field(name=t("profile_coins", locale), value=str(coins), inline=True)
+        embed.add_field(name=t("profile_messages", locale), value=str(message_count), inline=True)
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
