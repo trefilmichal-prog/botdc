@@ -8,10 +8,14 @@ from discord import app_commands
 
 from db import (
     create_shop_item,
+    create_shop_purchase,
     set_shop_item_message,
     get_shop_item,
     decrement_shop_item_stock,
     get_active_shop_item_ids,
+    complete_shop_purchase,
+    complete_shop_purchases_for_user,
+    get_pending_shop_purchases_grouped,
     get_or_create_user_stats,
     update_user_stats,
     get_setting,
@@ -28,6 +32,18 @@ def _can_manage_shop(interaction: discord.Interaction) -> bool:
             return True
         return any(role.id == SHOP_MANAGER_ROLE_ID for role in user.roles)
 
+    # Podpora pro interakce v DM – ověříme role uživatele na jakémkoli serveru bota
+    client = interaction.client
+    if isinstance(client, commands.Bot):
+        for guild in client.guilds:
+            member = guild.get_member(user.id)
+            if member is None:
+                continue
+            if member.guild_permissions.administrator:
+                return True
+            if any(role.id == SHOP_MANAGER_ROLE_ID for role in member.roles):
+                return True
+
     return False
 
 
@@ -37,6 +53,25 @@ class ShopCog(commands.Cog, name="ShopCog"):
 
         # persistentní view pro všechny aktivní položky v shopu
         self._register_persistent_views()
+
+    def _find_user_guild(self, user: discord.abc.User) -> Optional[discord.Guild]:
+        """Najde guildu, kde je uživatel členem (preferenčně s právy pro shop)."""
+
+        candidate: Optional[discord.Guild] = None
+        for guild in self.bot.guilds:
+            member = guild.get_member(user.id)
+            if member is None:
+                continue
+            # preferuj guildu, kde má uživatel oprávnění spravovat shop
+            if member.guild_permissions.administrator or any(
+                role.id == SHOP_MANAGER_ROLE_ID for role in member.roles
+            ):
+                return guild
+            if candidate is None:
+                candidate = guild
+
+        # fallback: vrať první guildu kvůli formátování jmen
+        return candidate
 
     def _register_persistent_views(self):
         item_ids = get_active_shop_item_ids()
@@ -137,6 +172,31 @@ class ShopCog(commands.Cog, name="ShopCog"):
             ephemeral=True,
         )
 
+    @app_commands.command(
+        name="shoporders",
+        description="Zobrazí souhrn nevyřízených objednávek ze shopu.",
+    )
+    @app_commands.check(_can_manage_shop)
+    async def shoporders_cmd(self, interaction: discord.Interaction):
+        target_guild = interaction.guild or self._find_user_guild(interaction.user)
+        view = ShopOrdersView(self, target_guild)
+        embed = view.build_embed()
+
+        try:
+            dm_message = await interaction.user.send(embed=embed, view=view)
+            view.message = dm_message
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "Nepodařilo se odeslat DM – zkontroluj, zda máš povolené zprávy od členů serveru.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.send_message(
+            "Souhrn nevyřízených objednávek byl odeslán do tvých DM.",
+            ephemeral=True,
+        )
+
 
 class BuyButton(discord.ui.Button):
     def __init__(self, cog: ShopCog, item_id: int):
@@ -193,6 +253,22 @@ class BuyButton(discord.ui.Button):
         title = item["title"]
         seller_id = item["seller_id"]
 
+        purchase_id = create_shop_purchase(
+            item_id=self.item_id,
+            buyer_id=buyer_id,
+            seller_id=seller_id,
+            price_coins=price,
+        )
+
+        buyer_display_name: str
+        if isinstance(user, discord.Member):
+            buyer_display_name = user.display_name
+        elif interaction.guild is not None:
+            member = interaction.guild.get_member(user.id)
+            buyer_display_name = member.display_name if member is not None else user.global_name or user.name
+        else:
+            buyer_display_name = user.global_name or user.name
+
         # DM prodejci
         seller_user = self.cog.bot.get_user(seller_id)
         if seller_user is None:
@@ -204,9 +280,14 @@ class BuyButton(discord.ui.Button):
 
         try:
             if seller_user is not None:
+                seller_view = PurchaseCompleteView(
+                    self.cog, purchase_id=purchase_id, seller_id=seller_id
+                )
                 await seller_user.send(
                     f"🛒 Položka **{title}** byla právě koupena uživatelem {user.mention} "
-                    f"za **{price}** coinů. Zbývající kusy: **{remaining_stock}**."
+                    f"({buyer_display_name}) za **{price}** coinů. Zbývající kusy: "
+                    f"**{remaining_stock}**.\nKlikni na **Hotovo**, až objednávku vyřídíš.",
+                    view=seller_view,
                 )
         except discord.Forbidden:
             pass
@@ -257,6 +338,136 @@ class ShopItemView(discord.ui.View):
         super().__init__(timeout=None)
         self.cog = cog
         self.add_item(BuyButton(cog, item_id))
+
+
+class PurchaseCompleteButton(discord.ui.Button):
+    def __init__(self, cog: ShopCog, purchase_id: int, seller_id: int):
+        super().__init__(
+            label="Hotovo", style=discord.ButtonStyle.success, custom_id=f"shop_done_{purchase_id}"
+        )
+        self.cog = cog
+        self.purchase_id = purchase_id
+        self.seller_id = seller_id
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.seller_id and not _can_manage_shop(interaction):
+            await interaction.response.send_message(
+                "Tuto objednávku může označit pouze prodejce nebo manažer shopu.",
+                ephemeral=True,
+            )
+            return
+
+        if not complete_shop_purchase(self.purchase_id):
+            await interaction.response.send_message(
+                "Objednávka už byla označena jako hotová.", ephemeral=True
+            )
+            return
+
+        self.disabled = True
+        self.label = "Hotovo ✅"
+        self.style = discord.ButtonStyle.secondary
+        if interaction.message:
+            try:
+                await interaction.message.edit(view=self.view)
+            except discord.HTTPException:
+                pass
+        await interaction.response.send_message("Objednávka označena jako vyřízená.", ephemeral=True)
+
+
+class PurchaseCompleteView(discord.ui.View):
+    def __init__(self, cog: ShopCog, purchase_id: int, seller_id: int):
+        super().__init__(timeout=None)
+        self.add_item(PurchaseCompleteButton(cog, purchase_id, seller_id))
+
+
+class CompleteBuyerOrdersButton(discord.ui.Button):
+    def __init__(self, view: ShopOrdersView, buyer_id: int, label: str):
+        super().__init__(label=label, style=discord.ButtonStyle.primary)
+        self.parent_view = view
+        self.buyer_id = buyer_id
+
+    async def callback(self, interaction: discord.Interaction):
+        if not _can_manage_shop(interaction):
+            await interaction.response.send_message(
+                "Nemáš oprávnění spravovat objednávky v shopu.", ephemeral=True
+            )
+            return
+
+        completed = complete_shop_purchases_for_user(self.buyer_id)
+        if completed == 0:
+            await interaction.response.send_message(
+                "Žádné čekající objednávky k označení.", ephemeral=True
+            )
+            return
+
+        await interaction.response.send_message(
+            f"Označeno jako hotové: **{completed}** objednávek.", ephemeral=True
+        )
+        await self.parent_view.refresh(interaction)
+
+
+class ShopOrdersView(discord.ui.View):
+    def __init__(self, cog: ShopCog, guild: Optional[discord.Guild]):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+        self.message: Optional[discord.Message] = None
+        self.pending: List[Dict[str, Any]] = []
+        self._refresh_buttons()
+
+    def _load_pending(self):
+        self.pending = get_pending_shop_purchases_grouped()
+
+    def _format_member(self, buyer_id: int) -> str:
+        if self.guild:
+            member = self.guild.get_member(buyer_id)
+            if member is not None:
+                return f"{member.mention} ({member.display_name})"
+        return f"<@{buyer_id}>"
+
+    def _refresh_buttons(self):
+        self._load_pending()
+        self.clear_items()
+        for entry in self.pending[:25]:
+            base_label = f"{entry['count']}× {self._format_member(entry['buyer_id'])}"
+            label = base_label if len(base_label) <= 80 else base_label[:77] + "..."
+            button = CompleteBuyerOrdersButton(self, buyer_id=entry["buyer_id"], label=label)
+            button.emoji = "✅"
+            self.add_item(button)
+
+    def build_embed(self) -> discord.Embed:
+        embed = discord.Embed(
+            title="Nevyřízené objednávky shopu",
+            description="",
+            color=0x00CCFF,
+        )
+        if not self.pending:
+            embed.description = "Žádné nevyřízené objednávky."
+            return embed
+
+        lines = []
+        total = 0
+        for entry in self.pending:
+            buyer_text = self._format_member(entry["buyer_id"])
+            count = entry["count"]
+            total += count
+            lines.append(f"{buyer_text}: **{count}** ks")
+
+        embed.description = "\n".join(lines)
+        embed.set_footer(text=f"Celkem čeká: {total} položek")
+        return embed
+
+    async def refresh(self, interaction: discord.Interaction):
+        self._refresh_buttons()
+        embed = self.build_embed()
+        target_message = interaction.message or self.message
+        if target_message is None:
+            try:
+                target_message = await interaction.original_response()
+            except discord.NotFound:
+                return
+        self.message = target_message
+        await target_message.edit(embed=embed, view=self)
 
 
 async def setup(bot: commands.Bot):
