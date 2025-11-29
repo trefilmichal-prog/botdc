@@ -333,13 +333,13 @@ STRINGS: dict[str, dict[str, str]] = {
     },
     "clan_benefits_title": {"cs": "Výhody klanu", "en": "Clan benefits"},
     "clan_benefits_list": {
-        "cs": "🫂 Skvělá CZ/SK komunita\n🎊 Soutěže\n🍀 Clan boosty (klikni na nadpis pro screen)",
-        "en": "🫂 Great CZ/SK community\n🎊 Giveaways\n🍀 Clan boosts (click the title for a screenshot)",
+        "cs": "🫂\n\n Soutěže\n🍀\n Clan boosty (klikni na nadpis pro screen)",
+        "en": "🫂\n\n Giveaways\n🍀\n Clan boosts (click the title for a screenshot)",
     },
     "clan_requirements_title": {"cs": "Podmínky přijetí", "en": "Requirements to join"},
     "clan_requirements_list": {
-        "cs": "💫 500SX rebirthů +\n💫 Hrát 24/7\n💫 30% index\n💫 5d playtime",
-        "en": "💫 500SX rebirths+\n💫 Play 24/7\n💫 30% index\n💫 5d playtime",
+        "cs": "💫 2SP rebirthů +\n💫 Hrát 24/7\n💫 30% index\n💫 10d playtime",
+        "en": "💫 2SP rebirths+\n💫 Play 24/7\n💫 30% index\n💫 10d playtime",
     },
     "clan_panel_created": {
         "cs": "Panel pro přihlášky do klanu byl vytvořen v tomto kanálu.",
