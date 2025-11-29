@@ -151,6 +151,20 @@ def init_db():
         """
     )
 
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS shop_purchases (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id INTEGER NOT NULL,
+            buyer_id INTEGER NOT NULL,
+            seller_id INTEGER NOT NULL,
+            price_coins INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            completed INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+
     # CLAN – přihlášky do klanu
     c.execute(
         """
@@ -805,6 +819,68 @@ def get_active_shop_item_ids() -> List[int]:
     rows = c.fetchall()
     conn.close()
     return [int(r[0]) for r in rows]
+
+
+def create_shop_purchase(
+    item_id: int, buyer_id: int, seller_id: int, price_coins: int
+) -> int:
+    now_str = datetime.utcnow().isoformat()
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO shop_purchases (item_id, buyer_id, seller_id, price_coins, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (item_id, buyer_id, seller_id, price_coins, now_str),
+    )
+    conn.commit()
+    purchase_id = c.lastrowid
+    conn.close()
+    return int(purchase_id)
+
+
+def get_pending_shop_purchases_grouped() -> List[Dict[str, Any]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT buyer_id, COUNT(*) AS cnt
+        FROM shop_purchases
+        WHERE completed = 0
+        GROUP BY buyer_id
+        ORDER BY cnt DESC
+        """
+    )
+    rows = c.fetchall()
+    conn.close()
+    return [{"buyer_id": int(r[0]), "count": int(r[1])} for r in rows]
+
+
+def complete_shop_purchase(purchase_id: int) -> bool:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "UPDATE shop_purchases SET completed = 1 WHERE id = ? AND completed = 0",
+        (purchase_id,),
+    )
+    conn.commit()
+    rowcount = c.rowcount
+    conn.close()
+    return rowcount > 0
+
+
+def complete_shop_purchases_for_user(buyer_id: int) -> int:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "UPDATE shop_purchases SET completed = 1 WHERE buyer_id = ? AND completed = 0",
+        (buyer_id,),
+    )
+    conn.commit()
+    rowcount = c.rowcount
+    conn.close()
+    return int(rowcount)
 
 
 # ---------- CLAN APPLICATIONS ----------
