@@ -41,6 +41,7 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.ticket_clan_label = "clan1"
 
         # persistentní view – panel pro přihlášky a admin view v ticketech
         self.apply_panel_view = ClanApplyPanelView(self, DEFAULT_LOCALE)
@@ -64,7 +65,8 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         }
         emoji = emoji_map.get(status, "🟠")
         normalized = self._normalize_ticket_base(base)
-        prefix = "clan" if status == "accepted" else "přihlášky"
+        clan_label = self.ticket_clan_label
+        prefix = f"{clan_label}" if status == "accepted" else f"přihlášky-{clan_label}"
         name = f"{emoji}{prefix}-{normalized}"
         return name[:90]
 
