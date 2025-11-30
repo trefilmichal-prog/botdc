@@ -129,12 +129,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "cs": (
             "Rebirth Champions Příručka\n"
             "\n"
-            "Peti a pet Equip\n"
             "Jak získat co největší Egg open:\n"
             "\n"
             "Game pass (1) + Ancient shop (1) + Aura egg open I (1) + Prestige (1) \n"
             "Egg mastery (2)"
-            "\n"
+            "\n\n"
             "Jak získat co největší pet equip:\n"
             "\n"
             "Game pass (3) + ancient shop (2) + clan (2) + ring (1) + aura enchant (1) + index (5) + "
