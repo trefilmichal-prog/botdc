@@ -9,7 +9,11 @@ const CONFIG_DIR = __DIR__ . '/config';
 const SETTINGS_FILE = CONFIG_DIR . '/settings.json';
 const TRANSLATIONS_FILE = CONFIG_DIR . '/translations.json';
 
-function load_json(string $path, array $fallback = []): array
+if (!defined('JSON_UNESCAPED_UNICODE')) {
+    define('JSON_UNESCAPED_UNICODE', 0);
+}
+
+function load_json($path, $fallback = [])
 {
     if (!is_readable($path)) {
         return $fallback;
@@ -20,7 +24,7 @@ function load_json(string $path, array $fallback = []): array
     return is_array($data) ? $data : $fallback;
 }
 
-function save_json(string $path, array $payload): bool
+function save_json($path, $payload)
 {
     $json = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 
@@ -28,11 +32,17 @@ function save_json(string $path, array $payload): bool
         return false;
     }
 
-    return (bool) file_put_contents($path, $json);
+    $result = @file_put_contents($path, $json);
+
+    return $result !== false;
 }
 
-function available_languages(array $translations): array
+function available_languages($translations)
 {
+    if (!is_array($translations)) {
+        return [];
+    }
+
     $languages = [];
     foreach ($translations as $value) {
         if (is_array($value)) {
