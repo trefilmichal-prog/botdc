@@ -214,6 +214,72 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         self.register_admin_panel(msg)
 
     @app_commands.command(
+        name="clan_kick",
+        description=(
+            "Odebere člena z klanu (role) a smaže jeho ticket, pokud existuje."
+        ),
+    )
+    @app_commands.checks.has_permissions(manage_roles=True)
+    async def clan_kick_cmd(
+        self, interaction: discord.Interaction, member: discord.Member
+    ):
+        locale = get_interaction_locale(interaction)
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message(
+                t("guild_only", locale), ephemeral=True
+            )
+            return
+
+        role = guild.get_role(CLAN_MEMBER_ROLE_ID) if CLAN_MEMBER_ROLE_ID else None
+        if role is None:
+            await interaction.response.send_message(
+                t("clan_setup_role_missing", locale, role_id=CLAN_MEMBER_ROLE_ID),
+                ephemeral=True,
+            )
+            return
+
+        if role not in member.roles:
+            await interaction.response.send_message(
+                t("clan_member_not_found", locale), ephemeral=True
+            )
+            return
+
+        try:
+            await member.remove_roles(
+                role,
+                reason="Clan kick command – odebrání clan role",
+            )
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                t("clan_member_role_forbidden", locale), ephemeral=True
+            )
+            return
+
+        ticket_info = await self.remove_clan_ticket_for_member(
+            guild, member, "Clan kick command"
+        )
+
+        try:
+            await member.send(
+                f"Na serveru **{guild.name}** ti byla odebrána role člena klanu. "
+                f"Pokud chceš, můžeš si znovu požádat o pozvánku přes ticket."
+            )
+            dm_info = t("direct_message_sent", locale)
+        except discord.Forbidden:
+            dm_info = t("direct_message_failed", locale)
+
+        response = (
+            f"\N{WAVING HAND SIGN} {member.mention} byl/a odebrán/a z klanu (odebrána role)."
+        )
+        if ticket_info:
+            response = f"{response}\n{ticket_info}"
+
+        response = f"{response}\n{dm_info}"
+
+        await interaction.response.send_message(response, ephemeral=True)
+
+    @app_commands.command(
         name="update_clan_ticket",
         description="Přesune clan tickety členů do správné kategorie.",
     )
