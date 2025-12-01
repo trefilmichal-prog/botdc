@@ -319,6 +319,14 @@ STRINGS: dict[str, dict[str, str]] = {
         "cs": "Roli pro klan jsem na serveru nenašel. Zkontroluj hodnotu CLAN_MEMBER_ROLE_ID.",
         "en": "I couldn't find the clan role on the server. Check CLAN_MEMBER_ROLE_ID.",
     },
+    "clan_member_not_found": {
+        "cs": "Tento uživatel nemá roli člena klanu.",
+        "en": "This user does not have the clan member role.",
+    },
+    "clan_member_role_forbidden": {
+        "cs": "Nemám oprávnění odebrat clan roli tomuto uživateli.",
+        "en": "I don't have permission to remove the clan role from this user.",
+    },
     "clan_ticket_deleted": {
         "cs": "Ticket {channel} byl smazán.",
         "en": "Ticket {channel} was deleted.",
@@ -334,6 +342,14 @@ STRINGS: dict[str, dict[str, str]] = {
     "clan_ticket_missing": {
         "cs": "Původní ticket se nenašel, označuji ho jako smazaný.",
         "en": "Original ticket not found; marking it as deleted.",
+    },
+    "direct_message_sent": {
+        "cs": "Soukromá zpráva byla úspěšně odeslána.",
+        "en": "The direct message was sent successfully.",
+    },
+    "direct_message_failed": {
+        "cs": "Nepodařilo se odeslat soukromou zprávu (pravděpodobně zablokováno).",
+        "en": "Failed to send the direct message (likely blocked).",
     },
     "clan_apply_button_label": {
         "cs": "Podat přihlášku",
