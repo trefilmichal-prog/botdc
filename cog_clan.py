@@ -256,6 +256,8 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
             )
             return
 
+        await interaction.response.defer(ephemeral=True)
+
         ticket_info = await self.remove_clan_ticket_for_member(
             guild, member, "Clan kick command"
         )
@@ -277,7 +279,7 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
 
         response = f"{response}\n{dm_info}"
 
-        await interaction.response.send_message(response, ephemeral=True)
+        await interaction.followup.send(response, ephemeral=True)
 
     @app_commands.command(
         name="update_clan_ticket",
