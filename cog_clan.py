@@ -9,6 +9,7 @@ from discord import app_commands
 
 from config import (
     CLAN_MEMBER_ROLE_ID,
+    CLAN_MEMBER_ROLE_EN_ID,
     CLAN_APPLICATION_PING_ROLE_ID,
     CLAN_TICKET_CATEGORY_ID,
     CLAN_ACCEPTED_TICKET_CATEGORY_ID,
@@ -963,6 +964,11 @@ class ClanAdminView(discord.ui.View):
             return
 
         app_locale = normalize_locale(app.get("locale", DEFAULT_LOCALE))
+        role_id = (
+            CLAN_MEMBER_ROLE_EN_ID
+            if app_locale == DEFAULT_LOCALE
+            else CLAN_MEMBER_ROLE_ID
+        )
 
         set_clan_application_status(app["id"], "accepted", datetime.utcnow())
 
@@ -972,8 +978,8 @@ class ClanAdminView(discord.ui.View):
             base = self.cog._get_ticket_base_from_app(app, guild)
             await self.cog.rename_ticket_channel(channel, base, "accepted")
             await self.cog.move_ticket_to_accepted_category(channel)
-        if member is not None and CLAN_MEMBER_ROLE_ID:
-            role = guild.get_role(CLAN_MEMBER_ROLE_ID)
+        if member is not None and role_id:
+            role = guild.get_role(role_id)
             if role is not None:
                 try:
                     await member.add_roles(role, reason="Přijetí do klanu")
