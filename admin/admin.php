@@ -22,6 +22,11 @@ $guildId = $guildIdStored ? $guildIdStored : $guildIdEnv;
 
 $notices = array();
 $errors = array();
+$page = isset($_GET['page']) ? $_GET['page'] : 'credentials';
+$allowedPages = array('credentials', 'token', 'guild', 'clan', 'warn', 'members');
+if(!in_array($page, $allowedPages)) {
+    $page = 'credentials';
+}
 
 function get_setting($db, $key) {
     $stmt = $db->prepare("SELECT value FROM settings WHERE key = ?");
@@ -411,11 +416,20 @@ if(isset($_POST['warn_user'])) {
     </header>
     <nav style="background:#0b1221;border-bottom:1px solid #1f2937;">
         <div style="max-width:1000px;margin:0 auto;padding:12px 16px;display:flex;gap:12px;flex-wrap:wrap;">
-            <a href="#credentials" style="color:#cbd5f5;text-decoration:none;">Přihlašovací údaje</a>
-            <a href="#token" style="color:#cbd5f5;text-decoration:none;">Discord token</a>
-            <a href="#guild" style="color:#cbd5f5;text-decoration:none;">Discord Guild</a>
-            <a href="#clan" style="color:#cbd5f5;text-decoration:none;">Clan management</a>
-            <a href="#warn" style="color:#cbd5f5;text-decoration:none;">Warn uživatele</a>
+            <?php
+                $links = array(
+                    'credentials' => 'Přihlašovací údaje',
+                    'token' => 'Discord token',
+                    'guild' => 'Discord Guild',
+                    'clan' => 'Clan management',
+                    'warn' => 'Warn uživatele',
+                    'members' => 'Členové'
+                );
+            ?>
+            <?php foreach($links as $key => $label): ?>
+                <?php $active = $page === $key ? 'font-weight:700;color:#a5b4fc;' : 'color:#cbd5f5;'; ?>
+                <a href="?page=<?php echo $key; ?>" style="text-decoration:none;<?php echo $active; ?>"><?php echo $label; ?></a>
+            <?php endforeach; ?>
         </div>
     </nav>
     <div class="container">
@@ -428,91 +442,104 @@ if(isset($_POST['warn_user'])) {
             <?php endforeach; ?>
         </div>
 
-        <div class="grid">
-            <div class="card" id="credentials">
-                <h3>Přihlašovací údaje</h3>
-                <p>Aktuální uživatel: <span class="pill"><?php echo htmlspecialchars($adminRow ? $adminRow['username'] : 'není nastaveno'); ?></span></p>
+        <?php if($page === 'credentials'): ?>
+            <div class="grid">
+                <div class="card" id="credentials">
+                    <h3>Přihlašovací údaje</h3>
+                    <p>Aktuální uživatel: <span class="pill"><?php echo htmlspecialchars($adminRow ? $adminRow['username'] : 'není nastaveno'); ?></span></p>
+                    <form method="POST">
+                        <input type="hidden" name="update_credentials" value="1">
+                        <label for="new_username">Nové uživatelské jméno</label>
+                        <input type="text" id="new_username" name="new_username" placeholder="Zadejte nové uživatelské jméno">
+                        <label for="new_password">Nové heslo</label>
+                        <input type="password" id="new_password" name="new_password" placeholder="Zadejte nové heslo">
+                        <button type="submit">Uložit nové údaje</button>
+                    </form>
+                </div>
+            </div>
+        <?php elseif($page === 'token'): ?>
+            <div class="grid">
+                <div class="card" id="token">
+                    <h3>Discord token</h3>
+                    <p>Zdroj tokenu: <span class="pill"><?php echo $discordTokenStored ? 'uložen v databázi' : ($discordTokenEnv ? 'načten z prostředí' : 'není nastaven'); ?></span></p>
+                    <form method="POST">
+                        <input type="hidden" name="save_token" value="1">
+                        <label for="discord_token">Discord Bot Token</label>
+                        <input type="text" id="discord_token" name="discord_token" placeholder="Zadejte token">
+                        <button type="submit">Uložit token</button>
+                    </form>
+                </div>
+            </div>
+        <?php elseif($page === 'guild'): ?>
+            <div class="grid">
+                <div class="card" id="guild">
+                    <h3>Discord Guild</h3>
+                    <p>Aktuální ID: <span class="pill"><?php echo $guildId ? htmlspecialchars($guildId) : 'není nastaveno'; ?></span></p>
+                    <form method="POST">
+                        <input type="hidden" name="save_guild" value="1">
+                        <label for="discord_guild_id">DISCORD_GUILD_ID</label>
+                        <input type="text" id="discord_guild_id" name="discord_guild_id" placeholder="Zadejte guild ID">
+                        <button type="submit">Uložit Guild ID</button>
+                    </form>
+                </div>
+            </div>
+        <?php elseif($page === 'clan'): ?>
+            <div class="card" id="clan" style="margin-top: 16px;">
+                <h3>Clan management</h3>
+                <p>Tato sekce sdružuje odkazy a tipy pro správu klanů v bota.</p>
+                <ul style="padding-left:20px;line-height:1.6;">
+                    <li>Využij slash příkazy <strong>/clan accept</strong> a <strong>/clan reject</strong> pro rozhodování přihlášek.</li>
+                    <li>Pro přijaté členy se používají role z konfigurace (<code>CLAN_MEMBER_ROLE_ID</code>, <code>CLAN2_MEMBER_ROLE_ID</code>).</li>
+                    <li>Schvalovací tickety najdeš v kategoriích definovaných v <code>config.py</code>.</li>
+                </ul>
+            </div>
+        <?php elseif($page === 'warn'): ?>
+            <div class="card" id="warn" style="margin-top: 16px;">
+                <h3>Warn uživatele</h3>
+                <p>Rychlé udělení varování přes API bota. Skript použije stejné warn role jako příkaz <strong>/warn</strong>.</p>
                 <form method="POST">
-                    <input type="hidden" name="update_credentials" value="1">
-                    <label for="new_username">Nové uživatelské jméno</label>
-                    <input type="text" id="new_username" name="new_username" placeholder="Zadejte nové uživatelské jméno">
-                    <label for="new_password">Nové heslo</label>
-                    <input type="password" id="new_password" name="new_password" placeholder="Zadejte nové heslo">
-                    <button type="submit">Uložit nové údaje</button>
+                    <input type="hidden" name="warn_user" value="1">
+                    <label for="target_user_id">ID uživatele</label>
+                    <input type="text" id="target_user_id" name="target_user_id" placeholder="Např. 123456789012345678">
+                    <p style="font-size:13px;color:#9ca3af;">Používá se <code>WARN_ROLE_1_ID</code>, <code>WARN_ROLE_2_ID</code> a <code>WARN_ROLE_3_ID</code> (env nebo výchozí hodnoty).</p>
+                    <button type="submit">Poslat /warn</button>
                 </form>
             </div>
-
-            <div class="card" id="token">
-                <h3>Discord token</h3>
-                <p>Zdroj tokenu: <span class="pill"><?php echo $discordTokenStored ? 'uložen v databázi' : ($discordTokenEnv ? 'načten z prostředí' : 'není nastaven'); ?></span></p>
-                <form method="POST">
-                    <input type="hidden" name="save_token" value="1">
-                    <label for="discord_token">Discord Bot Token</label>
-                    <input type="text" id="discord_token" name="discord_token" placeholder="Zadejte token">
-                    <button type="submit">Uložit token</button>
-                </form>
-            </div>
-
-            <div class="card" id="guild">
-                <h3>Discord Guild</h3>
-                <p>Aktuální ID: <span class="pill"><?php echo $guildId ? htmlspecialchars($guildId) : 'není nastaveno'; ?></span></p>
-                <form method="POST">
-                    <input type="hidden" name="save_guild" value="1">
-                    <label for="discord_guild_id">DISCORD_GUILD_ID</label>
-                    <input type="text" id="discord_guild_id" name="discord_guild_id" placeholder="Zadejte guild ID">
-                    <button type="submit">Uložit Guild ID</button>
-                </form>
-            </div>
-        </div>
-
-        <div class="card" id="clan" style="margin-top: 16px;">
-            <h3>Clan management</h3>
-            <p>Tato sekce sdružuje odkazy a tipy pro správu klanů v bota.</p>
-            <ul style="padding-left:20px;line-height:1.6;">
-                <li>Využij slash příkazy <strong>/clan accept</strong> a <strong>/clan reject</strong> pro rozhodování přihlášek.</li>
-                <li>Pro přijaté členy se používají role z konfigurace (<code>CLAN_MEMBER_ROLE_ID</code>, <code>CLAN2_MEMBER_ROLE_ID</code>).</li>
-                <li>Schvalovací tickety najdeš v kategoriích definovaných v <code>config.py</code>.</li>
-            </ul>
-        </div>
-
-        <div class="card" id="warn" style="margin-top: 16px;">
-            <h3>Warn uživatele</h3>
-            <p>Rychlé udělení varování přes API bota. Skript použije stejné warn role jako příkaz <strong>/warn</strong>.</p>
-            <form method="POST">
-                <input type="hidden" name="warn_user" value="1">
-                <label for="target_user_id">ID uživatele</label>
-                <input type="text" id="target_user_id" name="target_user_id" placeholder="Např. 123456789012345678">
-                <p style="font-size:13px;color:#9ca3af;">Používá se <code>WARN_ROLE_1_ID</code>, <code>WARN_ROLE_2_ID</code> a <code>WARN_ROLE_3_ID</code> (env nebo výchozí hodnoty).</p>
-                <button type="submit">Poslat /warn</button>
-            </form>
-        </div>
-
-        <div class="card" style="margin-top: 16px;">
-            <h3>Členové s rolí <?php echo htmlspecialchars($roleId); ?></h3>
-            <?php if(!$guildId || !$discordToken): ?>
-                <p class="error">Nastavte prosím DISCORD_GUILD_ID a Discord token (proměnná prostředí nebo uložený v databázi) pro načtení členů.</p>
-            <?php else: ?>
-                <?php
-                $members = fetch_guild_members($guildId, $discordToken);
-                $roleMembers = filter_members_with_role($members, $roleId);
-                ?>
-                <?php if(empty($roleMembers)): ?>
-                    <p>Nebyli nalezeni žádní členové s touto rolí.</p>
+        <?php elseif($page === 'members'): ?>
+            <div class="card" style="margin-top: 16px;">
+                <h3>Členové s rolí <?php echo htmlspecialchars($roleId); ?></h3>
+                <?php if(!$guildId || !$discordToken): ?>
+                    <p class="error">Nastavte prosím DISCORD_GUILD_ID a Discord token (proměnná prostředí nebo uložený v databázi) pro načtení členů.</p>
                 <?php else: ?>
-                    <table>
-                        <tr><th>#</th><th>ID</th><th>Přezdívka</th><th>Uživatel</th></tr>
-                        <?php foreach($roleMembers as $index => $member): ?>
-                            <tr>
-                                <td><?php echo $index + 1; ?></td>
-                                <td><?php echo htmlspecialchars($member['id']); ?></td>
-                                <td><?php echo htmlspecialchars($member['display']); ?></td>
-                                <td><?php echo htmlspecialchars($member['username']); ?></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </table>
+                    <?php
+                    $members = fetch_guild_members($guildId, $discordToken);
+                    $roleMembers = filter_members_with_role($members, $roleId);
+                    ?>
+                    <?php if(empty($roleMembers)): ?>
+                        <p>Nebyli nalezeni žádní členové s touto rolí.</p>
+                    <?php else: ?>
+                        <table>
+                            <tr><th>#</th><th>ID</th><th>Přezdívka</th><th>Uživatel</th><th>Akce</th></tr>
+                            <?php foreach($roleMembers as $index => $member): ?>
+                                <tr>
+                                    <td><?php echo $index + 1; ?></td>
+                                    <td><?php echo htmlspecialchars($member['id']); ?></td>
+                                    <td><?php echo htmlspecialchars($member['display']); ?></td>
+                                    <td><?php echo htmlspecialchars($member['username']); ?></td>
+                                    <td>
+                                        <form method="POST" style="margin:0;">
+                                            <input type="hidden" name="warn_user" value="1">
+                                            <input type="hidden" name="target_user_id" value="<?php echo htmlspecialchars($member['id']); ?>">
+                                            <button type="submit" style="width:auto;padding:8px 12px;">/warn</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </table>
+                    <?php endif; ?>
                 <?php endif; ?>
-            <?php endif; ?>
-        </div>
+            </div>
+        <?php endif; ?>
     </div>
 </body>
 </html>
