@@ -10,9 +10,11 @@ from discord import app_commands
 from config import (
     CLAN_MEMBER_ROLE_ID,
     CLAN_MEMBER_ROLE_EN_ID,
+    CLAN2_MEMBER_ROLE_ID,
     CLAN_APPLICATION_PING_ROLE_ID,
     CLAN_TICKET_CATEGORY_ID,
     CLAN_ACCEPTED_TICKET_CATEGORY_ID,
+    CLAN2_ACCEPTED_TICKET_CATEGORY_ID,
     CLAN_VACATION_TICKET_CATEGORY_ID,
     CLAN_BOOSTS_IMAGE_URL,
     CLAN_BANNER_IMAGE_URL,
@@ -560,6 +562,60 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
 
         view = ClanAdminPanelView(self, options, locale)
         return embed, view
+
+    def _get_ticket_target_category(self, member: discord.Member) -> int | None:
+        if CLAN2_MEMBER_ROLE_ID and member.get_role(CLAN2_MEMBER_ROLE_ID):
+            return CLAN2_ACCEPTED_TICKET_CATEGORY_ID
+
+        if CLAN_MEMBER_ROLE_ID and member.get_role(CLAN_MEMBER_ROLE_ID):
+            return CLAN_ACCEPTED_TICKET_CATEGORY_ID
+
+        if CLAN_MEMBER_ROLE_EN_ID and member.get_role(CLAN_MEMBER_ROLE_EN_ID):
+            return CLAN_ACCEPTED_TICKET_CATEGORY_ID
+
+        return None
+
+    @commands.Cog.listener()
+    async def on_member_update(
+        self, before: discord.Member, after: discord.Member
+    ) -> None:
+        if before.guild is None or before.guild != after.guild:
+            return
+
+        before_roles = {r.id for r in before.roles}
+        after_roles = {r.id for r in after.roles}
+
+        if before_roles == after_roles:
+            return
+
+        target_category_id = self._get_ticket_target_category(after)
+        if target_category_id is None:
+            return
+
+        ticket_channel = self.find_member_ticket_channel(after.guild, after)
+        if not isinstance(ticket_channel, discord.TextChannel):
+            return
+
+        if ticket_channel.category_id == target_category_id:
+            return
+
+        apps = get_clan_applications_by_user(after.guild.id, after.id)
+        selected_app: Optional[Dict[str, Any]] = None
+
+        for candidate in apps:
+            if candidate.get("channel_id") == ticket_channel.id:
+                selected_app = candidate
+                break
+
+        if selected_app is not None:
+            base = self._get_ticket_base_from_app(selected_app, after.guild)
+            await self.rename_ticket_channel(ticket_channel, base, "accepted")
+
+        await self.move_ticket_to_category(
+            ticket_channel,
+            target_category_id,
+            "Automatický přesun ticketu podle změny role",
+        )
 
 
 # ---------- VIEW: Panel s tlačítkem "Podat přihlášku" ----------
