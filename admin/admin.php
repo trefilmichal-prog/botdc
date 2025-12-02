@@ -4,10 +4,19 @@ if(!isset($_SESSION['login'])) { header("Location: index.php"); exit; }
 
 $db = new PDO('sqlite:database.sqlite');
 
+// Ensure settings table exists for storing credentials/token
+$db->exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)");
+
 // Discord guild/role configuration
 $guildId = getenv('DISCORD_GUILD_ID');
 $roleId = '1440268327892025438';
-$discordToken = getenv('DISCORD_TOKEN');
+$discordTokenEnv = getenv('DISCORD_TOKEN');
+$adminRow = $db->query("SELECT * FROM admins ORDER BY id LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+$discordTokenStored = get_setting($db, 'discord_token');
+$discordToken = $discordTokenStored ? $discordTokenStored : $discordTokenEnv;
+
+$notices = array();
+$errors = array();
 
 // Ensure table has required columns
 $db->exec("CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT, params TEXT, created_at TEXT, processed INTEGER DEFAULT 0, processed_at TEXT)");
@@ -18,6 +27,18 @@ if(!in_array('processed', $columnNames)) {
 }
 if(!in_array('processed_at', $columnNames)) {
     $db->exec("ALTER TABLE tasks ADD COLUMN processed_at TEXT");
+}
+
+function get_setting($db, $key) {
+    $stmt = $db->prepare("SELECT value FROM settings WHERE key = ?");
+    $stmt->execute(array($key));
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ? $row['value'] : null;
+}
+
+function set_setting($db, $key, $value) {
+    $stmt = $db->prepare("REPLACE INTO settings (key, value) VALUES (?, ?)");
+    $stmt->execute(array($key, $value));
 }
 
 function fetch_guild_members($guildId, $token) {
@@ -85,6 +106,38 @@ function filter_members_with_role($members, $roleId) {
     return $result;
 }
 
+if(isset($_POST['update_credentials'])) {
+    $newUsername = isset($_POST['new_username']) ? trim($_POST['new_username']) : '';
+    $newPassword = isset($_POST['new_password']) ? $_POST['new_password'] : '';
+
+    if($newUsername !== '' && $newPassword !== '') {
+        $hashed = md5($newPassword);
+        if($adminRow) {
+            $update = $db->prepare("UPDATE admins SET username = ?, password = ? WHERE id = ?");
+            $update->execute(array($newUsername, $hashed, $adminRow['id']));
+        } else {
+            $insert = $db->prepare("INSERT INTO admins (username, password) VALUES (?, ?)");
+            $insert->execute(array($newUsername, $hashed));
+        }
+        $adminRow = $db->query("SELECT * FROM admins ORDER BY id LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+        $notices[] = "Přihlašovací údaje byly aktualizovány.";
+    } else {
+        $errors[] = "Vyplňte prosím nové uživatelské jméno i heslo.";
+    }
+}
+
+if(isset($_POST['save_token'])) {
+    $tokenValue = isset($_POST['discord_token']) ? trim($_POST['discord_token']) : '';
+    if($tokenValue !== '') {
+        set_setting($db, 'discord_token', $tokenValue);
+        $discordTokenStored = $tokenValue;
+        $discordToken = $tokenValue;
+        $notices[] = "Discord token byl uložen do databáze.";
+    } else {
+        $errors[] = "Token nemůže být prázdný.";
+    }
+}
+
 if(isset($_POST['action']) && isset($_POST['params'])) {
     $ins = $db->prepare("INSERT INTO tasks (action, params, created_at) VALUES (?, ?, datetime('now'))");
     $ins->execute(array($_POST['action'], $_POST['params']));
@@ -97,6 +150,30 @@ $rows = $db->query("SELECT * FROM tasks ORDER BY id DESC")->fetchAll(PDO::FETCH_
 <head><title>Admin Panel</title></head>
 <body>
 <h2>Admin panel</h2>
+
+<?php foreach($notices as $msg): ?>
+    <p style="color: green;"><?php echo htmlspecialchars($msg); ?></p>
+<?php endforeach; ?>
+<?php foreach($errors as $msg): ?>
+    <p style="color: red;"><?php echo htmlspecialchars($msg); ?></p>
+<?php endforeach; ?>
+
+<h3>Nastavení přístupu</h3>
+<p>Aktuální přihlašovací jméno: <strong><?php echo htmlspecialchars($adminRow ? $adminRow['username'] : 'není nastaveno'); ?></strong></p>
+<form method="POST">
+    <input type="hidden" name="update_credentials" value="1">
+    <input type="text" name="new_username" placeholder="Nové uživatelské jméno"><br>
+    <input type="password" name="new_password" placeholder="Nové heslo"><br>
+    <button type="submit">Uložit nové údaje</button>
+</form>
+
+<h3>Discord token</h3>
+<p>Uložený token: <?php echo $discordTokenStored ? 'nastaven v databázi' : ($discordTokenEnv ? 'načten z proměnné prostředí' : 'není nastaven'); ?></p>
+<form method="POST">
+    <input type="hidden" name="save_token" value="1">
+    <input type="text" name="discord_token" placeholder="Discord Bot Token" value="">
+    <button type="submit">Uložit token</button>
+</form>
 
 <form method="POST">
 <input type="text" name="action" placeholder="Action"><br>
@@ -121,7 +198,7 @@ $rows = $db->query("SELECT * FROM tasks ORDER BY id DESC")->fetchAll(PDO::FETCH_
 
 <h3>Členové s rolí <?php echo htmlspecialchars($roleId); ?></h3>
 <?php if(!$guildId || !$discordToken): ?>
-    <p style="color:red;">Nastavte prosím proměnné prostředí DISCORD_GUILD_ID a DISCORD_TOKEN pro načtení členů.</p>
+    <p style="color:red;">Nastavte prosím DISCORD_GUILD_ID a Discord token (proměnná prostředí nebo uložený v databázi) pro načtení členů.</p>
 <?php else: ?>
     <?php
     $members = fetch_guild_members($guildId, $discordToken);
