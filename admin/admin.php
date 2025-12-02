@@ -11,6 +11,9 @@ $db->exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT
 $roleId = '1440268327892025438';
 $discordTokenEnv = getenv('DISCORD_TOKEN');
 $guildIdEnv = getenv('DISCORD_GUILD_ID');
+$warnRole1 = getenv('WARN_ROLE_1_ID') ? getenv('WARN_ROLE_1_ID') : '1441381537542307860';
+$warnRole2 = getenv('WARN_ROLE_2_ID') ? getenv('WARN_ROLE_2_ID') : '1441381594941358135';
+$warnRole3 = getenv('WARN_ROLE_3_ID') ? getenv('WARN_ROLE_3_ID') : '1441381627878965349';
 $adminRow = $db->query("SELECT * FROM admins ORDER BY id LIMIT 1")->fetch(PDO::FETCH_ASSOC);
 $discordTokenStored = get_setting($db, 'discord_token');
 $guildIdStored = get_setting($db, 'discord_guild_id');
@@ -97,6 +100,87 @@ function filter_members_with_role($members, $roleId) {
     return $result;
 }
 
+function get_member_roles($guildId, $userId, $token) {
+    $url = "https://discord.com/api/v10/guilds/{$guildId}/members/{$userId}";
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+        "Authorization: Bot {$token}",
+        'User-Agent: ezrz-dcbot-admin'
+    ));
+
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if($httpCode !== 200 || $response === false) {
+        return null;
+    }
+
+    $data = json_decode($response, true);
+    return is_array($data) && isset($data['roles']) ? $data['roles'] : null;
+}
+
+function remove_role($guildId, $userId, $roleId, $token) {
+    $url = "https://discord.com/api/v10/guilds/{$guildId}/members/{$userId}/roles/{$roleId}";
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'DELETE');
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+        "Authorization: Bot {$token}",
+        'User-Agent: ezrz-dcbot-admin'
+    ));
+    curl_exec($ch);
+    curl_close($ch);
+}
+
+function add_role($guildId, $userId, $roleId, $token) {
+    $url = "https://discord.com/api/v10/guilds/{$guildId}/members/{$userId}/roles/{$roleId}";
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+        "Authorization: Bot {$token}",
+        'User-Agent: ezrz-dcbot-admin'
+    ));
+    curl_exec($ch);
+    curl_close($ch);
+}
+
+function warn_member($guildId, $userId, $token, $warnRole1, $warnRole2, $warnRole3) {
+    $roles = get_member_roles($guildId, $userId, $token);
+    if($roles === null) {
+        return array(false, 'Nepodařilo se načíst role uživatele. Zkontrolujte token a oprávnění bota.');
+    }
+
+    if(in_array($warnRole3, $roles)) {
+        return array(false, 'Uživatel již má maximální počet varování (3/3).');
+    }
+
+    $nextRole = $warnRole1;
+    $rolesToRemove = array($warnRole2, $warnRole3);
+    $status = '1/3';
+
+    if(in_array($warnRole2, $roles)) {
+        $nextRole = $warnRole3;
+        $rolesToRemove = array($warnRole2);
+        $status = '3/3';
+    } elseif(in_array($warnRole1, $roles)) {
+        $nextRole = $warnRole2;
+        $rolesToRemove = array($warnRole1);
+        $status = '2/3';
+    }
+
+    foreach($rolesToRemove as $roleId) {
+        if(in_array($roleId, $roles)) {
+            remove_role($guildId, $userId, $roleId, $token);
+        }
+    }
+
+    add_role($guildId, $userId, $nextRole, $token);
+    return array(true, "Varování bylo uděleno ({$status}).");
+}
+
 if(isset($_POST['update_credentials'])) {
     $newUsername = isset($_POST['new_username']) ? trim($_POST['new_username']) : '';
     $newPassword = isset($_POST['new_password']) ? $_POST['new_password'] : '';
@@ -138,6 +222,22 @@ if(isset($_POST['save_guild'])) {
         $notices[] = "DISCORD_GUILD_ID byl uložen do databáze.";
     } else {
         $errors[] = "Guild ID nemůže být prázdné.";
+    }
+}
+
+if(isset($_POST['warn_user'])) {
+    $userId = isset($_POST['target_user_id']) ? trim($_POST['target_user_id']) : '';
+    if($userId === '') {
+        $errors[] = "Zadejte ID uživatele, kterého chcete varovat.";
+    } elseif(!$guildId || !$discordToken) {
+        $errors[] = "Pro varování uživatele nastavte DISCORD_GUILD_ID a Discord token.";
+    } else {
+        list($ok, $msg) = warn_member($guildId, $userId, $discordToken, $warnRole1, $warnRole2, $warnRole3);
+        if($ok) {
+            $notices[] = $msg;
+        } else {
+            $errors[] = $msg;
+        }
     }
 }
 ?>
@@ -254,6 +354,15 @@ if(isset($_POST['save_guild'])) {
     <header>
         <h1>Discord bot &mdash; Admin panel</h1>
     </header>
+    <nav style="background:#0b1221;border-bottom:1px solid #1f2937;">
+        <div style="max-width:1000px;margin:0 auto;padding:12px 16px;display:flex;gap:12px;flex-wrap:wrap;">
+            <a href="#credentials" style="color:#cbd5f5;text-decoration:none;">Přihlašovací údaje</a>
+            <a href="#token" style="color:#cbd5f5;text-decoration:none;">Discord token</a>
+            <a href="#guild" style="color:#cbd5f5;text-decoration:none;">Discord Guild</a>
+            <a href="#clan" style="color:#cbd5f5;text-decoration:none;">Clan management</a>
+            <a href="#warn" style="color:#cbd5f5;text-decoration:none;">Warn uživatele</a>
+        </div>
+    </nav>
     <div class="container">
         <div class="status">
             <?php foreach($notices as $msg): ?>
@@ -265,7 +374,7 @@ if(isset($_POST['save_guild'])) {
         </div>
 
         <div class="grid">
-            <div class="card">
+            <div class="card" id="credentials">
                 <h3>Přihlašovací údaje</h3>
                 <p>Aktuální uživatel: <span class="pill"><?php echo htmlspecialchars($adminRow ? $adminRow['username'] : 'není nastaveno'); ?></span></p>
                 <form method="POST">
@@ -278,7 +387,7 @@ if(isset($_POST['save_guild'])) {
                 </form>
             </div>
 
-            <div class="card">
+            <div class="card" id="token">
                 <h3>Discord token</h3>
                 <p>Zdroj tokenu: <span class="pill"><?php echo $discordTokenStored ? 'uložen v databázi' : ($discordTokenEnv ? 'načten z prostředí' : 'není nastaven'); ?></span></p>
                 <form method="POST">
@@ -289,7 +398,7 @@ if(isset($_POST['save_guild'])) {
                 </form>
             </div>
 
-            <div class="card">
+            <div class="card" id="guild">
                 <h3>Discord Guild</h3>
                 <p>Aktuální ID: <span class="pill"><?php echo $guildId ? htmlspecialchars($guildId) : 'není nastaveno'; ?></span></p>
                 <form method="POST">
@@ -299,6 +408,28 @@ if(isset($_POST['save_guild'])) {
                     <button type="submit">Uložit Guild ID</button>
                 </form>
             </div>
+        </div>
+
+        <div class="card" id="clan" style="margin-top: 16px;">
+            <h3>Clan management</h3>
+            <p>Tato sekce sdružuje odkazy a tipy pro správu klanů v bota.</p>
+            <ul style="padding-left:20px;line-height:1.6;">
+                <li>Využij slash příkazy <strong>/clan accept</strong> a <strong>/clan reject</strong> pro rozhodování přihlášek.</li>
+                <li>Pro přijaté členy se používají role z konfigurace (<code>CLAN_MEMBER_ROLE_ID</code>, <code>CLAN2_MEMBER_ROLE_ID</code>).</li>
+                <li>Schvalovací tickety najdeš v kategoriích definovaných v <code>config.py</code>.</li>
+            </ul>
+        </div>
+
+        <div class="card" id="warn" style="margin-top: 16px;">
+            <h3>Warn uživatele</h3>
+            <p>Rychlé udělení varování přes API bota. Skript použije stejné warn role jako příkaz <strong>/warn</strong>.</p>
+            <form method="POST">
+                <input type="hidden" name="warn_user" value="1">
+                <label for="target_user_id">ID uživatele</label>
+                <input type="text" id="target_user_id" name="target_user_id" placeholder="Např. 123456789012345678">
+                <p style="font-size:13px;color:#9ca3af;">Používá se <code>WARN_ROLE_1_ID</code>, <code>WARN_ROLE_2_ID</code> a <code>WARN_ROLE_3_ID</code> (env nebo výchozí hodnoty).</p>
+                <button type="submit">Poslat /warn</button>
+            </form>
         </div>
 
         <div class="card" style="margin-top: 16px;">
