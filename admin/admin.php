@@ -23,7 +23,7 @@ $guildId = $guildIdStored ? $guildIdStored : $guildIdEnv;
 $notices = array();
 $errors = array();
 $page = isset($_GET['page']) ? $_GET['page'] : 'credentials';
-$allowedPages = array('credentials', 'token', 'guild', 'clan', 'warn', 'members');
+$allowedPages = array('credentials', 'token', 'guild', 'clan', 'members');
 if(!in_array($page, $allowedPages)) {
     $page = 'credentials';
 }
@@ -422,7 +422,6 @@ if(isset($_POST['warn_user'])) {
                     'token' => 'Discord token',
                     'guild' => 'Discord Guild',
                     'clan' => 'Clan management',
-                    'warn' => 'Warn uživatele',
                     'members' => 'Členové'
                 );
             ?>
@@ -493,18 +492,6 @@ if(isset($_POST['warn_user'])) {
                     <li>Schvalovací tickety najdeš v kategoriích definovaných v <code>config.py</code>.</li>
                 </ul>
             </div>
-        <?php elseif($page === 'warn'): ?>
-            <div class="card" id="warn" style="margin-top: 16px;">
-                <h3>Warn uživatele</h3>
-                <p>Rychlé udělení varování přes API bota. Skript použije stejné warn role jako příkaz <strong>/warn</strong>.</p>
-                <form method="POST">
-                    <input type="hidden" name="warn_user" value="1">
-                    <label for="target_user_id">ID uživatele</label>
-                    <input type="text" id="target_user_id" name="target_user_id" placeholder="Např. 123456789012345678">
-                    <p style="font-size:13px;color:#9ca3af;">Používá se <code>WARN_ROLE_1_ID</code>, <code>WARN_ROLE_2_ID</code> a <code>WARN_ROLE_3_ID</code> (env nebo výchozí hodnoty).</p>
-                    <button type="submit">Poslat /warn</button>
-                </form>
-            </div>
         <?php elseif($page === 'members'): ?>
             <div class="card" style="margin-top: 16px;">
                 <h3>Členové s rolí <?php echo htmlspecialchars($roleId); ?></h3>
@@ -519,13 +506,11 @@ if(isset($_POST['warn_user'])) {
                         <p>Nebyli nalezeni žádní členové s touto rolí.</p>
                     <?php else: ?>
                         <table>
-                            <tr><th>#</th><th>ID</th><th>Přezdívka</th><th>Uživatel</th><th>Akce</th></tr>
+                            <tr><th>#</th><th>Přezdívka</th><th>Akce</th></tr>
                             <?php foreach($roleMembers as $index => $member): ?>
                                 <tr>
                                     <td><?php echo $index + 1; ?></td>
-                                    <td><?php echo htmlspecialchars($member['id']); ?></td>
                                     <td><?php echo htmlspecialchars($member['display']); ?></td>
-                                    <td><?php echo htmlspecialchars($member['username']); ?></td>
                                     <td>
                                         <form method="POST" style="margin:0;">
                                             <input type="hidden" name="warn_user" value="1">
