@@ -8,9 +8,15 @@ $db = new PDO('sqlite:database.sqlite');
 $db->exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)");
 
 // Discord guild/role configuration
-$clanRoles = array(
-    '1440268327892025438' => 'Clan 1',
-    '1444077881159450655' => 'Clan 2'
+$clans = array(
+    'clan1' => array(
+        'label' => 'Clan 1',
+        'roles' => array('1440268327892025438', '1444077881159450655')
+    ),
+    'clan2' => array(
+        'label' => 'Clan 2',
+        'roles' => array('1444306127687778405')
+    )
 );
 $discordTokenEnv = getenv('DISCORD_TOKEN');
 $guildIdEnv = getenv('DISCORD_GUILD_ID');
@@ -86,10 +92,22 @@ function fetch_guild_members($guildId, $token) {
     return $members;
 }
 
-function filter_members_with_role($members, $roleId, $roleLabel) {
+function filter_members_by_clan($members, $clanData) {
     $result = array();
     foreach($members as $member) {
-        if(isset($member['roles']) && in_array($roleId, $member['roles'])) {
+        if(!isset($member['roles']) || !is_array($member['roles'])) {
+            continue;
+        }
+
+        $matchedRole = null;
+        foreach($clanData['roles'] as $roleId) {
+            if(in_array($roleId, $member['roles'])) {
+                $matchedRole = $roleId;
+                break;
+            }
+        }
+
+        if($matchedRole !== null) {
             $username = isset($member['user']['username']) ? $member['user']['username'] : 'Unknown';
             $display = isset($member['nick']) && $member['nick'] !== null ? $member['nick'] : $username;
 
@@ -97,7 +115,8 @@ function filter_members_with_role($members, $roleId, $roleLabel) {
                 'id' => $member['user']['id'],
                 'username' => $username,
                 'display' => $display,
-                'role' => $roleLabel
+                'role' => $clanData['label'],
+                'role_id' => $matchedRole
             );
         }
     }
@@ -156,18 +175,37 @@ function add_role($guildId, $userId, $roleId, $token) {
     curl_close($ch);
 }
 
-function transfer_member($guildId, $userId, $fromRole, $toRole, $token) {
+function transfer_member($guildId, $userId, $fromRoles, $toRoles, $token) {
     $roles = get_member_roles($guildId, $userId, $token);
     if($roles === null) {
         return array(false, 'Nepodařilo se načíst role uživatele.');
     }
 
-    if(!in_array($fromRole, $roles)) {
+    $hasFromRole = false;
+    foreach($fromRoles as $roleId) {
+        if(in_array($roleId, $roles)) {
+            $hasFromRole = true;
+            break;
+        }
+    }
+
+    if(!$hasFromRole) {
         return array(false, 'Uživatel nemá očekávanou roli klanu.');
     }
 
-    remove_role($guildId, $userId, $fromRole, $token);
-    add_role($guildId, $userId, $toRole, $token);
+    if(empty($toRoles)) {
+        return array(false, 'Cílová role není nastavena.');
+    }
+
+    $targetRole = $toRoles[0];
+
+    foreach($fromRoles as $roleId) {
+        if(in_array($roleId, $roles)) {
+            remove_role($guildId, $userId, $roleId, $token);
+        }
+    }
+
+    add_role($guildId, $userId, $targetRole, $token);
 
     return array(true, 'Uživatel byl převeden.');
 }
@@ -323,15 +361,15 @@ if(isset($_POST['warn_user'])) {
 
 if(isset($_POST['transfer_user'])) {
     $userId = isset($_POST['target_user_id']) ? trim($_POST['target_user_id']) : '';
-    $fromRole = isset($_POST['from_role']) ? trim($_POST['from_role']) : '';
-    $toRole = isset($_POST['to_role']) ? trim($_POST['to_role']) : '';
+    $fromRoles = isset($_POST['from_roles']) ? array_filter(explode(',', $_POST['from_roles'])) : array();
+    $toRoles = isset($_POST['to_roles']) ? array_filter(explode(',', $_POST['to_roles'])) : array();
 
-    if($userId === '' || $fromRole === '' || $toRole === '') {
+    if($userId === '' || empty($fromRoles) || empty($toRoles)) {
         $errors[] = "Neplatná data pro převod člena.";
     } elseif(!$guildId || !$discordToken) {
         $errors[] = "Pro převod člena nastavte DISCORD_GUILD_ID a Discord token.";
     } else {
-        list($ok, $msg) = transfer_member($guildId, $userId, $fromRole, $toRole, $discordToken);
+        list($ok, $msg) = transfer_member($guildId, $userId, $fromRoles, $toRoles, $discordToken);
         if($ok) {
             $notices[] = $msg;
         } else {
@@ -541,10 +579,10 @@ if(isset($_POST['transfer_user'])) {
                 <?php
                     $members = fetch_guild_members($guildId, $discordToken);
                 ?>
-                <?php foreach($clanRoles as $roleId => $roleLabel): ?>
-                    <?php $roleMembers = filter_members_with_role($members, $roleId, $roleLabel); ?>
+                <?php foreach($clans as $clanKey => $clanData): ?>
+                    <?php $roleMembers = filter_members_by_clan($members, $clanData); ?>
                     <div class="card" style="margin-top: 16px;">
-                        <h3><?php echo htmlspecialchars($roleLabel); ?> (<?php echo htmlspecialchars($roleId); ?>)</h3>
+                        <h3><?php echo htmlspecialchars($clanData['label']); ?> (<?php echo htmlspecialchars(implode(', ', $clanData['roles'])); ?>)</h3>
                         <?php if(empty($roleMembers)): ?>
                             <p>Nebyli nalezeni žádní členové s touto rolí.</p>
                         <?php else: ?>
@@ -552,11 +590,11 @@ if(isset($_POST['transfer_user'])) {
                                 <tr><th>#</th><th>Přezdívka</th><th>Role</th><th>Akce</th></tr>
                                 <?php foreach($roleMembers as $index => $member): ?>
                                     <?php
-                                        $targetRoleId = null;
-                                        foreach($clanRoles as $otherRoleId => $otherLabel) {
-                                            if($otherRoleId !== $roleId) {
-                                                $targetRoleId = $otherRoleId;
-                                                $targetRoleLabel = $otherLabel;
+                                        $targetClanKey = null;
+                                        foreach($clans as $otherKey => $otherClan) {
+                                            if($otherKey !== $clanKey) {
+                                                $targetClanKey = $otherKey;
+                                                $targetClan = $otherClan;
                                                 break;
                                             }
                                         }
@@ -571,13 +609,13 @@ if(isset($_POST['transfer_user'])) {
                                                 <input type="hidden" name="target_user_id" value="<?php echo htmlspecialchars($member['id']); ?>">
                                                 <button type="submit" style="width:auto;padding:8px 12px;">/warn</button>
                                             </form>
-                                            <?php if($targetRoleId !== null): ?>
+                                            <?php if($targetClanKey !== null): ?>
                                                 <form method="POST" style="margin:0;">
                                                     <input type="hidden" name="transfer_user" value="1">
                                                     <input type="hidden" name="target_user_id" value="<?php echo htmlspecialchars($member['id']); ?>">
-                                                    <input type="hidden" name="from_role" value="<?php echo htmlspecialchars($roleId); ?>">
-                                                    <input type="hidden" name="to_role" value="<?php echo htmlspecialchars($targetRoleId); ?>">
-                                                    <button type="submit" style="width:auto;padding:8px 12px;">Převést do <?php echo htmlspecialchars($targetRoleLabel); ?></button>
+                                                    <input type="hidden" name="from_roles" value="<?php echo htmlspecialchars(implode(',', $clanData['roles'])); ?>">
+                                                    <input type="hidden" name="to_roles" value="<?php echo htmlspecialchars(implode(',', $targetClan['roles'])); ?>">
+                                                    <button type="submit" style="width:auto;padding:8px 12px;">Převést do <?php echo htmlspecialchars($targetClan['label']); ?></button>
                                                 </form>
                                             <?php endif; ?>
                                         </td>
