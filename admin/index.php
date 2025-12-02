@@ -5,7 +5,17 @@ $db = new PDO('sqlite:database.sqlite');
 
 // Create table if not exists
 $db->exec("CREATE TABLE IF NOT EXISTS admins (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, password TEXT)");
-$db->exec("CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT, params TEXT, created_at TEXT)");
+$db->exec("CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT, params TEXT, created_at TEXT, processed INTEGER DEFAULT 0, processed_at TEXT)");
+
+// Ensure new columns exist even on older DBs
+$columns = $db->query("PRAGMA table_info(tasks)")->fetchAll(PDO::FETCH_ASSOC);
+$columnNames = array_column($columns, 'name');
+if(!in_array('processed', $columnNames)) {
+    $db->exec("ALTER TABLE tasks ADD COLUMN processed INTEGER NOT NULL DEFAULT 0");
+}
+if(!in_array('processed_at', $columnNames)) {
+    $db->exec("ALTER TABLE tasks ADD COLUMN processed_at TEXT");
+}
 
 $stmt = $db->query("SELECT COUNT(*) FROM admins");
 if ($stmt->fetchColumn() == 0) {
