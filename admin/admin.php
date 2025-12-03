@@ -125,7 +125,8 @@ function filter_members_by_clan($members, $clanData) {
                 'username' => $username,
                 'display' => $display,
                 'role' => $clanData['label'],
-                'role_id' => $matchedRole
+                'role_id' => $matchedRole,
+                'roles' => $member['roles']
             );
         }
     }
@@ -329,6 +330,45 @@ function record_warning($db, $userId) {
     }
 
     return array($newCount, $now);
+}
+
+function derive_warn_count_from_roles($roles, $warnRole1, $warnRole2, $warnRole3) {
+    $warnCount = 0;
+
+    if(in_array($warnRole1, $roles)) {
+        $warnCount = 1;
+    }
+    if(in_array($warnRole2, $roles)) {
+        $warnCount = 2;
+    }
+    if(in_array($warnRole3, $roles)) {
+        $warnCount = 3;
+    }
+
+    return $warnCount;
+}
+
+function sync_warning_record_with_roles($db, $userId, $warnCount) {
+    $stmt = $db->prepare("SELECT warn_count, last_warned_at FROM warnings WHERE user_id = ?");
+    $stmt->execute(array($userId));
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if($row) {
+        if($warnCount === 0) {
+            $delete = $db->prepare("DELETE FROM warnings WHERE user_id = ?");
+            $delete->execute(array($userId));
+            return null;
+        }
+
+        if((int)$row['warn_count'] !== $warnCount) {
+            $update = $db->prepare("UPDATE warnings SET warn_count = ? WHERE user_id = ?");
+            $update->execute(array($warnCount, $userId));
+        }
+
+        return $row['last_warned_at'];
+    }
+
+    return null;
 }
 
 function get_warning_map($db) {
@@ -732,8 +772,21 @@ if(isset($_POST['kick_user'])) {
                                                 break;
                                             }
                                         }
-                                        $warnCount = isset($warningMap[$member['id']]) ? $warningMap[$member['id']]['warn_count'] : 0;
-                                        $lastWarned = isset($warningMap[$member['id']]) ? $warningMap[$member['id']]['last_warned_at'] : '—';
+                                        $warnCount = derive_warn_count_from_roles($member['roles'], $warnRole1, $warnRole2, $warnRole3);
+                                        if($warnCount === 0 && isset($warningMap[$member['id']])) {
+                                            sync_warning_record_with_roles($db, $member['id'], $warnCount);
+                                            unset($warningMap[$member['id']]);
+                                        }
+
+                                        $lastWarned = '—';
+                                        if($warnCount > 0) {
+                                            $lastWarned = isset($warningMap[$member['id']]) ? $warningMap[$member['id']]['last_warned_at'] : '—';
+                                            $syncedTimestamp = sync_warning_record_with_roles($db, $member['id'], $warnCount);
+                                            if($syncedTimestamp !== null) {
+                                                $warningMap[$member['id']] = array('warn_count' => $warnCount, 'last_warned_at' => $syncedTimestamp);
+                                                $lastWarned = $syncedTimestamp;
+                                            }
+                                        }
                                     ?>
                                     <tr>
                                         <td><?php echo $index + 1; ?></td>
