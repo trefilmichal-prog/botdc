@@ -247,11 +247,22 @@ class AutoTranslateCog(commands.Cog):
                 logger.warning("Unable to resolve reacting user %s: %s", payload.user_id, error)
                 return
 
-        view = TranslationRevealView(
-            translation=safe_translation,
-            source_message=message,
-            requester_id=payload.user_id,
-        )
+        try:
+            await message.reply(
+                f"Překlad pro {recipient.display_name}: {safe_translation}",
+                mention_author=False,
+                allowed_mentions=discord.AllowedMentions(
+                    users=[recipient], roles=False, everyone=False, replied_user=False
+                ),
+                silent=True,
+                delete_after=60,
+            )
+        except discord.HTTPException as error:
+            logger.warning(
+                "Failed to send reaction translation for message %s: %s",
+                message.id,
+                error,
+            )
 
         try:
             await message.reply(
