@@ -1011,6 +1011,30 @@ def get_clan_applications_by_user(
     return [_row_to_clan_application(row) for row in rows]
 
 
+def get_clan_application_by_channel(
+    guild_id: int, channel_id: int
+) -> Optional[Dict[str, Any]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT id, guild_id, channel_id, user_id,
+               roblox_nick, hours_per_day, rebirths, locale,
+               status, created_at, decided_at, deleted
+        FROM clan_applications
+        WHERE guild_id = ? AND channel_id = ? AND deleted = 0
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (guild_id, channel_id),
+    )
+    row = c.fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return _row_to_clan_application(row)
+
+
 def get_open_application_by_channel(channel_id: int) -> Optional[Dict[str, Any]]:
     conn = get_connection()
     c = conn.cursor()
