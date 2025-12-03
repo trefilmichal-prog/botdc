@@ -270,12 +270,16 @@ class BuyButton(discord.ui.Button):
             buyer_display_name = user.global_name or user.name
 
         # DM prodejci
+        seller_display = f"<@{seller_id}>"
         seller_user = self.cog.bot.get_user(seller_id)
-        if seller_user is None:
+        if seller_user is not None:
+            seller_display = seller_user.mention
+        else:
             for guild in self.cog.bot.guilds:
                 member = guild.get_member(seller_id)
                 if member is not None:
                     seller_user = member
+                    seller_display = member.mention
                     break
 
         try:
@@ -296,6 +300,7 @@ class BuyButton(discord.ui.Button):
         try:
             await user.send(
                 f"✅ Koupil jsi si položku **{title}** za **{price}** coinů.\n"
+                f"Prodejce: {seller_display}\n"
                 f"Zůstatek: **{new_coins}** coinů."
             )
         except discord.Forbidden:
