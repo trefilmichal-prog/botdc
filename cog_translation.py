@@ -316,9 +316,11 @@ async def setup(bot: commands.Bot):
     async def translate_to_czech(
         interaction: discord.Interaction, message: discord.Message
     ) -> None:
-        target_cog = bot.get_cog("AutoTranslateCog")
+        target_cog = bot.get_cog("AutoTranslateCog") or cog
         responder = getattr(target_cog, "_respond_with_translation", None)
+
         if not isinstance(target_cog, AutoTranslateCog) or not callable(responder):
+            logger.warning("Translation cog unavailable for Czech context menu")
             await interaction.response.send_message(
                 "Překlad není dostupný, zkuste to prosím znovu později.",
                 ephemeral=True,
@@ -330,9 +332,11 @@ async def setup(bot: commands.Bot):
     async def translate_to_english(
         interaction: discord.Interaction, message: discord.Message
     ) -> None:
-        target_cog = bot.get_cog("AutoTranslateCog")
+        target_cog = bot.get_cog("AutoTranslateCog") or cog
         responder = getattr(target_cog, "_respond_with_translation", None)
+
         if not isinstance(target_cog, AutoTranslateCog) or not callable(responder):
+            logger.warning("Translation cog unavailable for English context menu")
             await interaction.response.send_message(
                 "Překlad není dostupný, zkuste to prosím znovu později.",
                 ephemeral=True,
