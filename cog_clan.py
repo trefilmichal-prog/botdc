@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple, TYPE_CHECKING
 
@@ -132,6 +133,40 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
 
         return "ticket"
 
+    async def safe_channel_edit(
+        self,
+        channel: discord.TextChannel,
+        *,
+        reason: str | None = None,
+        **kwargs,
+    ) -> bool:
+        """Edit a channel and respect HTTP 429 retry hints."""
+
+        try:
+            await channel.edit(reason=reason, **kwargs)
+            return True
+        except discord.HTTPException as exc:
+            retry_after_header = (
+                exc.response.headers.get("Retry-After") if exc.response else None
+            )
+
+            try:
+                retry_after = float(retry_after_header) if retry_after_header else None
+            except (TypeError, ValueError):
+                retry_after = None
+
+            if exc.status == 429 and retry_after:
+                await asyncio.sleep(retry_after)
+                try:
+                    await channel.edit(reason=reason, **kwargs)
+                    return True
+                except (discord.HTTPException, discord.Forbidden):
+                    return False
+
+            return False
+        except discord.Forbidden:
+            return False
+
     async def rename_ticket_channel(
         self,
         channel: discord.TextChannel,
@@ -148,10 +183,7 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         }
         reason = reason_map.get(status, "Aktualizace ticketu klanu")
 
-        try:
-            await channel.edit(name=new_name, reason=reason)
-        except (discord.Forbidden, discord.HTTPException):
-            pass
+        await self.safe_channel_edit(channel, name=new_name, reason=reason)
 
     # ---------- SLASH COMMANDS – PŘIHLÁŠKY ----------
 
@@ -282,13 +314,14 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
                 unchanged += 1
                 continue
 
-            try:
-                await channel.edit(
-                    name=new_name,
-                    reason="Hromadné přejmenování ticketů podle klanu",
-                )
+            success = await self.safe_channel_edit(
+                channel,
+                name=new_name,
+                reason="Hromadné přejmenování ticketů podle klanu",
+            )
+            if success:
                 updated += 1
-            except (discord.Forbidden, discord.HTTPException):
+            else:
                 continue
 
         await interaction.followup.send(
@@ -423,13 +456,14 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
                 already_ok += 1
                 continue
 
-            try:
-                await channel.edit(
-                    category=target_category,
-                    reason="Přemapování clan ticketů na novou kategorii",
-                )
+            success = await self.safe_channel_edit(
+                channel,
+                category=target_category,
+                reason="Přemapování clan ticketů na novou kategorii",
+            )
+            if success:
                 moved += 1
-            except (discord.Forbidden, discord.HTTPException):
+            else:
                 failed += 1
 
         await interaction.response.send_message(
@@ -568,11 +602,9 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         if channel.category_id == category.id:
             return True
 
-        try:
-            await channel.edit(category=category, reason=reason)
-            return True
-        except (discord.Forbidden, discord.HTTPException):
-            return False
+        return await self.safe_channel_edit(
+            channel, category=category, reason=reason
+        )
 
     async def move_ticket_to_accepted_category(
         self, channel: discord.TextChannel
@@ -947,7 +979,8 @@ class ClanApplicationModal(discord.ui.Modal):
             )
         else:
             ticket_channel = existing_channel
-            await ticket_channel.edit(
+            await self.cog.safe_channel_edit(
+                ticket_channel,
                 name=ch_name,
                 category=category,
                 overwrites=overwrites,
