@@ -8,6 +8,7 @@ if not TOKEN:
 # Ollama konfigurace
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))
 
 # Odkazy na obrázky pro clan embed
 CLAN_BOOSTS_IMAGE_URL = "https://ezrz.eu/dcbot/stats.jpg"
@@ -32,6 +33,10 @@ INACTIVE_THRESHOLD_HOURS = 24
 
 # Role pro ping u giveaway
 GIVEAWAY_PING_ROLE_ID = 1440268327892025438
+
+# Automatické překlady
+AUTO_TRANSLATE_CHANNEL_ID = 1440270650018369628
+AUTO_TRANSLATE_TARGET_CHANNEL_ID = 1444077684287078531
 
 # Výchozí délka giveaway (minuty), když není zadána
 DEFAULT_GIVEAWAY_DURATION_MINUTES = 15
