@@ -977,6 +977,7 @@ class Clan2AdminView(discord.ui.View):
         await interaction.response.send_message(
             t("clan_application_reject_public", locale),
             ephemeral=False,
+            view=DeleteRejectedTicketView(self.cog, app, locale),
         )
 
         if member is not None:
@@ -989,6 +990,88 @@ class Clan2AdminView(discord.ui.View):
 
 
 # ---------- VIEW: Admin panel klanu (Warn / Kick) ----------
+
+
+class DeleteRejectedTicketView(discord.ui.View):
+    def __init__(
+        self, cog: "Clan2ApplicationsCog", app: Dict[str, Any], locale: discord.Locale
+    ):
+        super().__init__(timeout=7 * 24 * 60 * 60)
+        self.cog = cog
+        self.app_id = app["id"]
+        self.channel_id = app["channel_id"]
+        self.app_user_id = app["user_id"]
+        self.locale = locale
+
+        delete_button = discord.ui.Button(
+            label=t("clan_delete_ticket_button_label", locale),
+            style=discord.ButtonStyle.danger,
+            custom_id="clan2_delete_ticket",
+        )
+        delete_button.callback = self.delete_ticket  # type: ignore
+        self.add_item(delete_button)
+
+    def _can_manage(self, member: discord.Member) -> bool:
+        perms = member.guild_permissions
+        if perms.administrator or perms.manage_guild or perms.manage_roles:
+            return True
+
+        if TICKET_VIEWER_ROLE_ID:
+            role = member.guild.get_role(TICKET_VIEWER_ROLE_ID)
+            if role in member.roles:
+                return True
+
+        return member.id == self.app_user_id
+
+    async def delete_ticket(self, interaction: discord.Interaction):
+        locale = get_interaction_locale(interaction)
+        guild = interaction.guild
+        user = interaction.user
+
+        if guild is None or not isinstance(user, discord.Member):
+            await interaction.response.send_message(
+                t("guild_only", locale), ephemeral=True
+            )
+            return
+
+        if not self._can_manage(user):
+            await interaction.response.send_message(
+                t("clan_admin_only", locale), ephemeral=True
+            )
+            return
+
+        if interaction.channel_id != self.channel_id:
+            await interaction.response.send_message(
+                t("clan_ticket_missing", locale), ephemeral=True
+            )
+            return
+
+        channel = interaction.channel
+        if not isinstance(channel, discord.TextChannel):
+            await interaction.response.send_message(
+                t("clan_ticket_missing", locale), ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            await channel.delete(reason="Smazání clan ticketu po zamítnutí přihlášky")
+            mark_clan_application_deleted(self.app_id)
+            await interaction.followup.send(
+                t("clan_ticket_deleted", self.locale, channel=channel.mention),
+                ephemeral=True,
+            )
+        except discord.Forbidden:
+            await interaction.followup.send(
+                t("clan_ticket_delete_forbidden", locale, channel=channel.mention),
+                ephemeral=True,
+            )
+        except discord.HTTPException:
+            await interaction.followup.send(
+                t("clan_ticket_delete_failed", locale, channel=channel.mention),
+                ephemeral=True,
+            )
 
 class Clan2AdminPanelView(discord.ui.View):
     def __init__(
