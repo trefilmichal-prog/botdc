@@ -36,7 +36,7 @@ class Clan2ApplicationsCog(commands.Cog, name="Clan2ApplicationsCog"):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.ticket_clan_label = "clan2"
+        self.ticket_clan_label = "HR2T"
 
         # persistentní view – admin view v ticketech
         self.admin_view = Clan2AdminView(self, DEFAULT_LOCALE)
