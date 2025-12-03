@@ -434,6 +434,10 @@ STRINGS: dict[str, dict[str, str]] = {
     },
     "clan_accept_button_label": {"cs": "Přijmout", "en": "Accept"},
     "clan_reject_button_label": {"cs": "Zamítnout", "en": "Reject"},
+    "clan_delete_ticket_button_label": {
+        "cs": "Smazat ticket",
+        "en": "Delete ticket",
+    },
     "clan_vacation_button_label": {"cs": "Dovolená", "en": "Vacation"},
     "clan_application_embed_title": {
         "cs": "Přihláška – {nick}",
