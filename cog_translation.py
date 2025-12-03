@@ -118,6 +118,27 @@ class AutoTranslateCog(commands.Cog):
         )
         return safe_content.replace("<@&", "<@\u200b&")
 
+
+class TranslationRevealView(discord.ui.View):
+    def __init__(self, *, translation: str, recipient_id: int):
+        super().__init__(timeout=300)
+        self.translation = translation
+        self.recipient_id = recipient_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user and interaction.user.id == self.recipient_id:
+            return True
+
+        await interaction.response.send_message(
+            "Tento překlad je dostupný pouze pro reagujícího uživatele.",
+            ephemeral=True,
+        )
+        return False
+
+    @discord.ui.button(label="Zobrazit překlad", style=discord.ButtonStyle.primary)
+    async def reveal(self, interaction: discord.Interaction, _: discord.ui.Button):
+        await interaction.response.send_message(self.translation, ephemeral=True)
+
     def _build_prompt(self, language: str, content: str) -> str:
         return (
             f"Translate the following Discord message to {language}. "
@@ -247,13 +268,18 @@ class AutoTranslateCog(commands.Cog):
                 logger.warning("Unable to resolve reacting user %s: %s", payload.user_id, error)
                 return
 
+        view = TranslationRevealView(
+            translation=f"Překlad: {safe_translation}", recipient_id=recipient.id
+        )
+
         try:
             await message.reply(
-                f"Překlad pro {recipient.display_name}: {safe_translation}",
+                f"Překlad pro {recipient.display_name} je připraven (pouze pro vás).",
                 mention_author=False,
                 allowed_mentions=discord.AllowedMentions(
                     users=[recipient], roles=False, everyone=False, replied_user=False
                 ),
+                view=view,
             )
         except discord.HTTPException as error:
             logger.warning(
