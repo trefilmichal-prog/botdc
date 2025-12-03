@@ -309,34 +309,28 @@ class TranslationRevealView(discord.ui.View):
                 error,
             )
 
-    @app_commands.context_menu(name="Přeložit do češtiny")
     async def translate_to_czech(
         self, interaction: discord.Interaction, message: discord.Message
     ) -> None:
         await self._respond_with_translation(interaction, "Czech", message)
 
-    @app_commands.context_menu(name="Translate to English")
     async def translate_to_english(
         self, interaction: discord.Interaction, message: discord.Message
     ) -> None:
         await self._respond_with_translation(interaction, "English", message)
 
-        try:
-            await message.reply(
-                f"Překlad pro {recipient.display_name} je připraven (pouze pro vás).",
-                mention_author=False,
-                allowed_mentions=discord.AllowedMentions(
-                    users=[recipient], roles=False, everyone=False, replied_user=False
-                ),
-                view=view,
-            )
-        except discord.HTTPException as error:
-            logger.warning(
-                "Failed to send reaction translation for message %s: %s",
-                message.id,
-                error,
-            )
-
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(AutoTranslateCog(bot))
+    cog = AutoTranslateCog(bot)
+    await bot.add_cog(cog)
+
+    bot.tree.add_command(
+        app_commands.ContextMenu(
+            name="Přeložit do češtiny", callback=cog.translate_to_czech
+        )
+    )
+    bot.tree.add_command(
+        app_commands.ContextMenu(
+            name="Translate to English", callback=cog.translate_to_english
+        )
+    )
