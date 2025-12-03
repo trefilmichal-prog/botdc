@@ -317,27 +317,29 @@ async def setup(bot: commands.Bot):
         interaction: discord.Interaction, message: discord.Message
     ) -> None:
         target_cog = bot.get_cog("AutoTranslateCog")
-        if not isinstance(target_cog, AutoTranslateCog):
+        responder = getattr(target_cog, "_respond_with_translation", None)
+        if not isinstance(target_cog, AutoTranslateCog) or not callable(responder):
             await interaction.response.send_message(
                 "Překlad není dostupný, zkuste to prosím znovu později.",
                 ephemeral=True,
             )
             return
 
-        await target_cog._respond_with_translation(interaction, "Czech", message)
+        await responder(interaction, "Czech", message)
 
     async def translate_to_english(
         interaction: discord.Interaction, message: discord.Message
     ) -> None:
         target_cog = bot.get_cog("AutoTranslateCog")
-        if not isinstance(target_cog, AutoTranslateCog):
+        responder = getattr(target_cog, "_respond_with_translation", None)
+        if not isinstance(target_cog, AutoTranslateCog) or not callable(responder):
             await interaction.response.send_message(
                 "Překlad není dostupný, zkuste to prosím znovu později.",
                 ephemeral=True,
             )
             return
 
-        await target_cog._respond_with_translation(interaction, "English", message)
+        await responder(interaction, "English", message)
 
     bot.tree.add_command(
         app_commands.ContextMenu(
