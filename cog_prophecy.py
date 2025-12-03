@@ -1,5 +1,7 @@
 import asyncio
 import json
+import logging
+import socket
 import urllib.error
 import urllib.request
 
@@ -7,13 +9,14 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from config import OLLAMA_MODEL, OLLAMA_URL
+from config import OLLAMA_MODEL, OLLAMA_TIMEOUT, OLLAMA_URL
 from i18n import CZECH_LOCALE, get_interaction_locale, get_message_locale, t
 
 
 class ProphecyCog(commands.Cog, name="RobloxProphecy"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._logger = logging.getLogger(__name__)
 
     def _strip_mentions(self, content: str, mentions: list[discord.abc.User]) -> str:
         for mention in mentions:
@@ -38,7 +41,7 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(request, timeout=OLLAMA_TIMEOUT) as response:
             return response.read().decode("utf-8")
 
     async def _ask_ollama(self, prompt: str) -> str | None:
@@ -52,11 +55,11 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
         try:
             raw_response = await asyncio.to_thread(self._post_json, payload)
             data = json.loads(raw_response)
-        except (urllib.error.URLError, TimeoutError) as error:
-            print(f"Ollama request failed: {error}")
+        except (urllib.error.URLError, TimeoutError, socket.timeout) as error:
+            self._logger.warning("Ollama request failed: %s", error)
             return None
         except json.JSONDecodeError:
-            print("Ollama returned invalid JSON")
+            self._logger.warning("Ollama returned invalid JSON")
             return None
 
         response_text = data.get("response") if isinstance(data, dict) else None
