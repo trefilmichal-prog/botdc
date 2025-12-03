@@ -22,6 +22,34 @@ from config import (
 logger = logging.getLogger(__name__)
 
 
+class TranslationRevealView(discord.ui.View):
+    def __init__(self, *, translation: str, source_message: discord.Message, requester_id: int):
+        super().__init__(timeout=600)
+        self._translation = translation
+        self._source_message = source_message
+        self._requester_id = requester_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user and interaction.user.id == self._requester_id:
+            return True
+
+        await interaction.response.send_message(
+            "Tento překlad není pro vás. Přidejte vlastní reakci, pokud chcete překlad.",
+            ephemeral=True,
+        )
+        return False
+
+    @discord.ui.button(label="Zobrazit překlad", style=discord.ButtonStyle.primary)
+    async def reveal_translation(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        await interaction.response.send_message(
+            f"Překlad zprávy: {self._source_message.jump_url}\n\n{self._translation}",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+
 class AutoTranslateCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -219,52 +247,25 @@ class AutoTranslateCog(commands.Cog):
                 logger.warning("Unable to resolve reacting user %s: %s", payload.user_id, error)
                 return
 
-        if not isinstance(channel, (discord.TextChannel, discord.VoiceChannel, discord.StageChannel, discord.ForumChannel)):
-            logger.warning(
-                "Channel %s does not support private translation threads for message %s",
-                channel,
-                message.id,
-            )
-            return
-
-        try:
-            thread = await channel.create_thread(
-                name=f"translation-{message.id}-{recipient.display_name}"[:100],
-                auto_archive_duration=60,
-                type=discord.ChannelType.private_thread,
-                invitable=False,
-                message=message,
-            )
-        except discord.Forbidden:
-            logger.warning(
-                "Cannot create private translation thread for message %s and user %s",
-                message.id,
-                payload.user_id,
-            )
-            return
-        except discord.HTTPException as error:
-            logger.warning(
-                "Failed to create private translation thread for message %s: %s",
-                message.id,
-                error,
-            )
-            return
-
-        try:
-            await thread.add_user(recipient)
-        except discord.HTTPException as error:
-            logger.warning(
-                "Could not add reacting user %s to translation thread for message %s: %s",
-                payload.user_id,
-                message.id,
-                error,
-            )
-            return
-
-        await thread.send(
-            f"Překlad zprávy: {message.jump_url}\n\n{safe_translation}",
-            allowed_mentions=self._safe_allowed_mentions,
+        view = TranslationRevealView(
+            translation=safe_translation,
+            source_message=message,
+            requester_id=payload.user_id,
         )
+
+        try:
+            await message.reply(
+                "Klikni na tlačítko níže pro zobrazení překladu. Překlad uvidíš pouze ty.",
+                mention_author=False,
+                allowed_mentions=self._safe_allowed_mentions,
+                view=view,
+            )
+        except discord.HTTPException as error:
+            logger.warning(
+                "Failed to send translation reveal button for message %s: %s",
+                message.id,
+                error,
+            )
 
 
 async def setup(bot: commands.Bot):
