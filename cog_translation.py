@@ -254,26 +254,10 @@ class AutoTranslateCog(commands.Cog):
                 allowed_mentions=discord.AllowedMentions(
                     users=[recipient], roles=False, everyone=False, replied_user=False
                 ),
-                silent=True,
-                delete_after=60,
             )
         except discord.HTTPException as error:
             logger.warning(
                 "Failed to send reaction translation for message %s: %s",
-                message.id,
-                error,
-            )
-
-        try:
-            await message.reply(
-                "Klikni na tlačítko níže pro zobrazení překladu. Překlad uvidíš pouze ty.",
-                mention_author=False,
-                allowed_mentions=self._safe_allowed_mentions,
-                view=view,
-            )
-        except discord.HTTPException as error:
-            logger.warning(
-                "Failed to send translation reveal button for message %s: %s",
                 message.id,
                 error,
             )
