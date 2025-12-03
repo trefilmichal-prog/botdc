@@ -2,10 +2,18 @@
 session_start();
 if(!isset($_SESSION['login'])) { header("Location: index.php"); exit; }
 
+
 $db = new PDO('sqlite:database.sqlite');
 
 // Ensure settings table exists for storing credentials/token/guild ID
 $db->exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)");
+
+// Track manual warnings issued from the admin panel
+$db->exec("CREATE TABLE IF NOT EXISTS warnings (
+    user_id TEXT PRIMARY KEY,
+    warn_count INTEGER NOT NULL DEFAULT 0,
+    last_warned_at TEXT NOT NULL
+)");
 
 // Discord guild/role configuration
 $clans = array(
@@ -117,7 +125,8 @@ function filter_members_by_clan($members, $clanData) {
                 'username' => $username,
                 'display' => $display,
                 'role' => $clanData['label'],
-                'role_id' => $matchedRole
+                'role_id' => $matchedRole,
+                'roles' => $member['roles']
             );
         }
     }
@@ -261,7 +270,7 @@ function send_direct_message($userId, $token, $content) {
     return array(true, 'DM byla odeslána.');
 }
 
-function warn_member($guildId, $userId, $token, $warnRole1, $warnRole2, $warnRole3) {
+function warn_member($db, $guildId, $userId, $token, $warnRole1, $warnRole2, $warnRole3) {
     $roles = get_member_roles($guildId, $userId, $token);
     if($roles === null) {
         return array(false, 'Nepodařilo se načíst role uživatele. Zkontrolujte token a oprávnění bota.');
@@ -295,9 +304,83 @@ function warn_member($guildId, $userId, $token, $warnRole1, $warnRole2, $warnRol
 
     $dmText = "Dostal jsi varování ({$status}). Dodržuj prosím pravidla Discord serveru.";
     list($dmOk, $dmMsg) = send_direct_message($userId, $token, $dmText);
-    $finalMsg = $dmOk ? "Varování bylo uděleno ({$status}). Soukromá zpráva byla odeslána." : "Varování bylo uděleno ({$status}). Soukromou zprávu se nepodařilo odeslat: {$dmMsg}";
 
-    return array(true, $finalMsg);
+    list($warnCount, $lastWarnedAt) = record_warning($db, $userId);
+    $warnInfo = "Počet varování: {$warnCount}, poslední: {$lastWarnedAt}.";
+
+    $finalMsg = $dmOk ? "Varování bylo uděleno ({$status}). Soukromá zpráva byla odeslána. {$warnInfo}" : "Varování bylo uděleno ({$status}). Soukromou zprávu se nepodařilo odeslat: {$dmMsg} {$warnInfo}";
+
+    return array(true, $finalMsg, $warnCount, $lastWarnedAt);
+}
+
+function record_warning($db, $userId) {
+    $now = date('Y-m-d H:i:s');
+    $stmt = $db->prepare("SELECT warn_count FROM warnings WHERE user_id = ?");
+    $stmt->execute(array($userId));
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if($row) {
+        $newCount = $row['warn_count'] + 1;
+        $update = $db->prepare("UPDATE warnings SET warn_count = ?, last_warned_at = ? WHERE user_id = ?");
+        $update->execute(array($newCount, $now, $userId));
+    } else {
+        $newCount = 1;
+        $insert = $db->prepare("INSERT INTO warnings (user_id, warn_count, last_warned_at) VALUES (?, ?, ?)");
+        $insert->execute(array($userId, $newCount, $now));
+    }
+
+    return array($newCount, $now);
+}
+
+function derive_warn_count_from_roles($roles, $warnRole1, $warnRole2, $warnRole3) {
+    $warnCount = 0;
+
+    if(in_array($warnRole1, $roles)) {
+        $warnCount = 1;
+    }
+    if(in_array($warnRole2, $roles)) {
+        $warnCount = 2;
+    }
+    if(in_array($warnRole3, $roles)) {
+        $warnCount = 3;
+    }
+
+    return $warnCount;
+}
+
+function sync_warning_record_with_roles($db, $userId, $warnCount) {
+    $stmt = $db->prepare("SELECT warn_count, last_warned_at FROM warnings WHERE user_id = ?");
+    $stmt->execute(array($userId));
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if($row) {
+        if($warnCount === 0) {
+            $delete = $db->prepare("DELETE FROM warnings WHERE user_id = ?");
+            $delete->execute(array($userId));
+            return null;
+        }
+
+        if((int)$row['warn_count'] !== $warnCount) {
+            $update = $db->prepare("UPDATE warnings SET warn_count = ? WHERE user_id = ?");
+            $update->execute(array($warnCount, $userId));
+        }
+
+        return $row['last_warned_at'];
+    }
+
+    return null;
+}
+
+function get_warning_map($db) {
+    $stmt = $db->query("SELECT user_id, warn_count, last_warned_at FROM warnings");
+    $result = array();
+    while($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $result[$row['user_id']] = array(
+            'warn_count' => $row['warn_count'],
+            'last_warned_at' => $row['last_warned_at']
+        );
+    }
+    return $result;
 }
 
 function kick_member($guildId, $userId, $token, $rolesToRemove) {
@@ -373,7 +456,7 @@ if(isset($_POST['warn_user'])) {
     } elseif(!$guildId || !$discordToken) {
         $errors[] = "Pro varování uživatele nastavte DISCORD_GUILD_ID a Discord token.";
     } else {
-        list($ok, $msg) = warn_member($guildId, $userId, $discordToken, $warnRole1, $warnRole2, $warnRole3);
+        list($ok, $msg) = warn_member($db, $guildId, $userId, $discordToken, $warnRole1, $warnRole2, $warnRole3);
         if($ok) {
             $notices[] = $msg;
         } else {
@@ -669,6 +752,7 @@ if(isset($_POST['kick_user'])) {
                 <?php
                     $members = fetch_guild_members($guildId, $discordToken);
                 ?>
+                <?php $warningMap = get_warning_map($db); ?>
                 <?php foreach($clans as $clanKey => $clanData): ?>
                     <?php $roleMembers = filter_members_by_clan($members, $clanData); ?>
                     <div class="card" style="margin-top: 16px;">
@@ -677,7 +761,7 @@ if(isset($_POST['kick_user'])) {
                             <p>Nebyli nalezeni žádní členové s touto rolí.</p>
                         <?php else: ?>
                             <table>
-                                <tr><th>#</th><th>Přezdívka</th><th>Role</th><th>Akce</th></tr>
+                                <tr><th>#</th><th>Přezdívka</th><th>Role</th><th>Varování</th><th>Akce</th></tr>
                                 <?php foreach($roleMembers as $index => $member): ?>
                                     <?php
                                         $targetClanKey = null;
@@ -688,11 +772,32 @@ if(isset($_POST['kick_user'])) {
                                                 break;
                                             }
                                         }
+                                        $warnCount = derive_warn_count_from_roles($member['roles'], $warnRole1, $warnRole2, $warnRole3);
+                                        if($warnCount === 0 && isset($warningMap[$member['id']])) {
+                                            sync_warning_record_with_roles($db, $member['id'], $warnCount);
+                                            unset($warningMap[$member['id']]);
+                                        }
+
+                                        $lastWarned = '—';
+                                        if($warnCount > 0) {
+                                            $lastWarned = isset($warningMap[$member['id']]) ? $warningMap[$member['id']]['last_warned_at'] : '—';
+                                            $syncedTimestamp = sync_warning_record_with_roles($db, $member['id'], $warnCount);
+                                            if($syncedTimestamp !== null) {
+                                                $warningMap[$member['id']] = array('warn_count' => $warnCount, 'last_warned_at' => $syncedTimestamp);
+                                                $lastWarned = $syncedTimestamp;
+                                            }
+                                        }
                                     ?>
                                     <tr>
                                         <td><?php echo $index + 1; ?></td>
                                         <td><?php echo htmlspecialchars($member['display']); ?></td>
                                         <td><?php echo htmlspecialchars($member['role']); ?></td>
+                                        <td>
+                                            <div style="display:flex;flex-direction:column;gap:4px;">
+                                                <span class="pill" style="background:rgba(251,191,36,0.15);border-color:rgba(251,191,36,0.35);color:#fcd34d;width:max-content;">Počet: <?php echo htmlspecialchars($warnCount); ?></span>
+                                                <span style="font-size:12px;color:#cbd5f5;">Poslední: <?php echo htmlspecialchars($lastWarned); ?></span>
+                                            </div>
+                                        </td>
                                         <td style="display:flex;gap:8px;flex-wrap:wrap;">
                                             <form method="POST" style="margin:0;">
                                                 <input type="hidden" name="warn_user" value="1">
