@@ -531,20 +531,81 @@ if(isset($_POST['kick_user'])) {
     <header>
         <h1>Discord bot &mdash; Admin panel</h1>
     </header>
-    <nav style="background:#0b1221;border-bottom:1px solid #1f2937;">
-        <div style="max-width:1000px;margin:0 auto;padding:12px 16px;display:flex;gap:12px;flex-wrap:wrap;">
+    <style>
+        .nav-bar {
+            background:#0b1221;
+            border-bottom:1px solid #1f2937;
+        }
+        .nav-grid {
+            max-width:1000px;
+            margin:0 auto;
+            padding:12px 16px 16px;
+            display:grid;
+            gap:12px;
+            grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
+        }
+        .nav-item {
+            display:flex;
+            gap:12px;
+            align-items:flex-start;
+            padding:12px 14px;
+            border-radius:10px;
+            text-decoration:none;
+            border:1px solid #1f2937;
+            background:#0f172a;
+            color:#cbd5f5;
+            box-shadow:0 6px 14px rgba(0,0,0,0.2);
+            transition:border-color 0.2s, box-shadow 0.2s, transform 0.1s;
+        }
+        .nav-item:hover {
+            border-color:#334155;
+            box-shadow:0 10px 20px rgba(0,0,0,0.28);
+            transform:translateY(-1px);
+        }
+        .nav-item.active {
+            border-color:#6366f1;
+            box-shadow:0 10px 22px rgba(99,102,241,0.18);
+            background:linear-gradient(135deg,#0f172a,#111827);
+        }
+        .nav-icon {
+            font-size:18px;
+            margin-top:2px;
+        }
+        .nav-text {
+            display:flex;
+            flex-direction:column;
+            gap:4px;
+        }
+        .nav-label {
+            font-weight:700;
+            color:#e5e7eb;
+        }
+        .nav-desc {
+            font-size:13px;
+            color:#94a3b8;
+            line-height:1.4;
+        }
+    </style>
+    <nav class="nav-bar">
+        <div class="nav-grid">
             <?php
                 $links = array(
-                    'credentials' => 'Přihlašovací údaje',
-                    'token' => 'Discord token',
-                    'guild' => 'Discord Guild',
-                    'clan' => 'Clan management',
-                    'members' => 'Členové'
+                    'credentials' => array('label' => 'Přihlašovací údaje', 'desc' => 'Změna uživatelského jména a hesla do panelu.', 'icon' => '🔐'),
+                    'token' => array('label' => 'Discord token', 'desc' => 'Uložení nebo kontrola tokenu bota.', 'icon' => '🤖'),
+                    'guild' => array('label' => 'Discord Guild', 'desc' => 'Nastavení ID serveru, se kterým bot pracuje.', 'icon' => '🏰'),
+                    'clan' => array('label' => 'Clan management', 'desc' => 'Tipy a odkazy pro práci s klanovými příkazy.', 'icon' => '🛡️'),
+                    'members' => array('label' => 'Členové', 'desc' => 'Seznam členů klanů a rychlé akce.', 'icon' => '👥')
                 );
             ?>
-            <?php foreach($links as $key => $label): ?>
-                <?php $active = $page === $key ? 'font-weight:700;color:#a5b4fc;' : 'color:#cbd5f5;'; ?>
-                <a href="?page=<?php echo $key; ?>" style="text-decoration:none;<?php echo $active; ?>"><?php echo $label; ?></a>
+            <?php foreach($links as $key => $data): ?>
+                <?php $active = $page === $key ? 'active' : ''; ?>
+                <a class="nav-item <?php echo $active; ?>" href="?page=<?php echo $key; ?>">
+                    <div class="nav-icon"><?php echo $data['icon']; ?></div>
+                    <div class="nav-text">
+                        <span class="nav-label"><?php echo $data['label']; ?></span>
+                        <span class="nav-desc"><?php echo $data['desc']; ?></span>
+                    </div>
+                </a>
             <?php endforeach; ?>
         </div>
     </nav>
