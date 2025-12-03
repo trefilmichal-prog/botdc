@@ -22,6 +22,34 @@ from config import (
 logger = logging.getLogger(__name__)
 
 
+class TranslationRevealView(discord.ui.View):
+    def __init__(self, *, translation: str, source_message: discord.Message, requester_id: int):
+        super().__init__(timeout=600)
+        self._translation = translation
+        self._source_message = source_message
+        self._requester_id = requester_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user and interaction.user.id == self._requester_id:
+            return True
+
+        await interaction.response.send_message(
+            "Tento překlad není pro vás. Přidejte vlastní reakci, pokud chcete překlad.",
+            ephemeral=True,
+        )
+        return False
+
+    @discord.ui.button(label="Zobrazit překlad", style=discord.ButtonStyle.primary)
+    async def reveal_translation(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        await interaction.response.send_message(
+            f"Překlad zprávy: {self._source_message.jump_url}\n\n{self._translation}",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+
 class AutoTranslateCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -211,11 +239,33 @@ class AutoTranslateCog(commands.Cog):
 
         safe_translation = self._sanitize_output(translation)
 
-        await message.reply(
-            safe_translation,
-            mention_author=False,
-            allowed_mentions=self._safe_allowed_mentions,
+        recipient = self.bot.get_user(payload.user_id)
+        if recipient is None:
+            try:
+                recipient = await self.bot.fetch_user(payload.user_id)
+            except (discord.NotFound, discord.HTTPException) as error:
+                logger.warning("Unable to resolve reacting user %s: %s", payload.user_id, error)
+                return
+
+        view = TranslationRevealView(
+            translation=safe_translation,
+            source_message=message,
+            requester_id=payload.user_id,
         )
+
+        try:
+            await message.reply(
+                "Klikni na tlačítko níže pro zobrazení překladu. Překlad uvidíš pouze ty.",
+                mention_author=False,
+                allowed_mentions=self._safe_allowed_mentions,
+                view=view,
+            )
+        except discord.HTTPException as error:
+            logger.warning(
+                "Failed to send translation reveal button for message %s: %s",
+                message.id,
+                error,
+            )
 
 
 async def setup(bot: commands.Bot):
