@@ -26,6 +26,9 @@ class AutoTranslateCog(commands.Cog):
         self.bot = bot
         self._target_channel: discord.abc.Messageable | None = None
         self._reaction_targets = {"🇨🇿": "Czech", "🇺🇲": "English"}
+        self._safe_allowed_mentions = discord.AllowedMentions(
+            everyone=False, roles=False, replied_user=False
+        )
 
     def _post_json(self, payload: dict[str, object]) -> str:
         request = urllib.request.Request(
@@ -119,7 +122,61 @@ class AutoTranslateCog(commands.Cog):
             )
             return
 
-        await target_channel.send(translation)
+        await target_channel.send(
+            translation, allowed_mentions=self._safe_allowed_mentions
+        )
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        if payload.user_id == getattr(self.bot.user, "id", None):
+            return
+
+        target_language = self._reaction_targets.get(str(payload.emoji))
+        if not target_language:
+            return
+
+        channel = self.bot.get_channel(payload.channel_id)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(payload.channel_id)
+            except (discord.Forbidden, discord.HTTPException) as error:
+                logger.warning("Unable to fetch channel %s: %s", payload.channel_id, error)
+                return
+
+        if not isinstance(channel, discord.abc.Messageable):
+            return
+
+        try:
+            message = await channel.fetch_message(payload.message_id)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException) as error:
+            logger.warning("Unable to fetch message %s: %s", payload.message_id, error)
+            return
+
+        if message.author.bot:
+            return
+
+        if not message.content.strip():
+            return
+
+        prepared_content = self._prepare_content(message.content)
+        prompt = self._build_prompt(target_language, prepared_content)
+
+        async with channel.typing():
+            translation = await self._ask_ollama(prompt)
+
+        if not translation:
+            logger.warning(
+                "Reaction translation failed for message %s with emoji %s",
+                message.id,
+                payload.emoji,
+            )
+            return
+
+        await message.reply(
+            translation,
+            mention_author=False,
+            allowed_mentions=self._safe_allowed_mentions,
+        )
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
