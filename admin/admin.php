@@ -23,6 +23,7 @@ $guildIdEnv = getenv('DISCORD_GUILD_ID');
 $warnRole1 = getenv('WARN_ROLE_1_ID') ? getenv('WARN_ROLE_1_ID') : '1441381537542307860';
 $warnRole2 = getenv('WARN_ROLE_2_ID') ? getenv('WARN_ROLE_2_ID') : '1441381594941358135';
 $warnRole3 = getenv('WARN_ROLE_3_ID') ? getenv('WARN_ROLE_3_ID') : '1441381627878965349';
+$kickRoles = array('1440268327892025438', '1444077881159450655', '1444306127687778405');
 $adminRow = $db->query("SELECT * FROM admins ORDER BY id LIMIT 1")->fetch(PDO::FETCH_ASSOC);
 $discordTokenStored = get_setting($db, 'discord_token');
 $guildIdStored = get_setting($db, 'discord_guild_id');
@@ -299,6 +300,28 @@ function warn_member($guildId, $userId, $token, $warnRole1, $warnRole2, $warnRol
     return array(true, $finalMsg);
 }
 
+function kick_member($guildId, $userId, $token, $rolesToRemove) {
+    $roles = get_member_roles($guildId, $userId, $token);
+    if($roles === null) {
+        return array(false, 'Nepodařilo se načíst role uživatele.');
+    }
+
+    $removedAny = false;
+    foreach($rolesToRemove as $roleId) {
+        if(in_array($roleId, $roles)) {
+            remove_role($guildId, $userId, $roleId, $token);
+            $removedAny = true;
+        }
+    }
+
+    $dmText = 'Byl jsi vyhozen z klanu. Můžeš si podat novou přihlášku.';
+    list($dmOk, $dmMsg) = send_direct_message($userId, $token, $dmText);
+    $status = $removedAny ? 'Role byly odebrány.' : 'Nebyla odebrána žádná role.';
+    $finalMsg = $dmOk ? "Člen byl odebrán z klanu. {$status} Soukromá zpráva byla odeslána." : "Člen byl odebrán z klanu. {$status} Soukromou zprávu se nepodařilo odeslat: {$dmMsg}";
+
+    return array(true, $finalMsg);
+}
+
 if(isset($_POST['update_credentials'])) {
     $newUsername = isset($_POST['new_username']) ? trim($_POST['new_username']) : '';
     $newPassword = isset($_POST['new_password']) ? $_POST['new_password'] : '';
@@ -370,6 +393,23 @@ if(isset($_POST['transfer_user'])) {
         $errors[] = "Pro převod člena nastavte DISCORD_GUILD_ID a Discord token.";
     } else {
         list($ok, $msg) = transfer_member($guildId, $userId, $fromRoles, $toRoles, $discordToken);
+        if($ok) {
+            $notices[] = $msg;
+        } else {
+            $errors[] = $msg;
+        }
+    }
+}
+
+if(isset($_POST['kick_user'])) {
+    $userId = isset($_POST['target_user_id']) ? trim($_POST['target_user_id']) : '';
+
+    if($userId === '') {
+        $errors[] = "Zadejte ID uživatele, kterého chcete vyhodit.";
+    } elseif(!$guildId || !$discordToken) {
+        $errors[] = "Pro vyhození uživatele nastavte DISCORD_GUILD_ID a Discord token.";
+    } else {
+        list($ok, $msg) = kick_member($guildId, $userId, $discordToken, $kickRoles);
         if($ok) {
             $notices[] = $msg;
         } else {
@@ -608,6 +648,11 @@ if(isset($_POST['transfer_user'])) {
                                                 <input type="hidden" name="warn_user" value="1">
                                                 <input type="hidden" name="target_user_id" value="<?php echo htmlspecialchars($member['id']); ?>">
                                                 <button type="submit" style="width:auto;padding:8px 12px;">/warn</button>
+                                            </form>
+                                            <form method="POST" style="margin:0;">
+                                                <input type="hidden" name="kick_user" value="1">
+                                                <input type="hidden" name="target_user_id" value="<?php echo htmlspecialchars($member['id']); ?>">
+                                                <button type="submit" style="width:auto;padding:8px 12px;">Kick</button>
                                             </form>
                                             <?php if($targetClanKey !== null): ?>
                                                 <form method="POST" style="margin:0;">
