@@ -30,6 +30,7 @@ from db import (
     get_latest_clan_application_by_user,
     get_clan_applications_by_user,
     get_open_application_by_channel,
+    get_clan_application_by_channel,
     update_clan_application_form,
     set_clan_application_status,
     mark_clan_application_deleted,
@@ -69,6 +70,19 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         emoji = emoji_map.get(status, "🟠")
         normalized = self._normalize_ticket_base(base)
         clan_label = self.ticket_clan_label
+        prefix = f"{clan_label}" if status == "accepted" else f"přihlášky-{clan_label}"
+        name = f"{emoji}{prefix}-{normalized}"
+        return name[:90]
+
+    def build_ticket_name_for_label(
+        self, base: str, status: str, clan_label: str
+    ) -> str:
+        emoji_map = {
+            "accepted": "🟢",
+            "rejected": "🔴",
+        }
+        emoji = emoji_map.get(status, "🟠")
+        normalized = self._normalize_ticket_base(base)
         prefix = f"{clan_label}" if status == "accepted" else f"přihlášky-{clan_label}"
         name = f"{emoji}{prefix}-{normalized}"
         return name[:90]
@@ -215,6 +229,62 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         )
         msg = await interaction.original_response()
         self.register_admin_panel(msg)
+
+    @app_commands.command(
+        name="up_text",
+        description="Hromadně přejmenuje tickety podle toho, v jakém jsou klanu.",
+    )
+    @app_commands.checks.has_permissions(manage_channels=True)
+    async def update_ticket_names(self, interaction: discord.Interaction):
+        locale = get_interaction_locale(interaction)
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message(
+                t("guild_only", locale),
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        updated = 0
+        unchanged = 0
+
+        for channel in guild.text_channels:
+            app = get_clan_application_by_channel(guild.id, channel.id)
+            if app is None:
+                continue
+
+            base = self._get_ticket_base_from_app(app, guild)
+            member = guild.get_member(app["user_id"])
+
+            clan_label = "HROT"
+            if member is not None:
+                if CLAN2_MEMBER_ROLE_ID and member.get_role(CLAN2_MEMBER_ROLE_ID):
+                    clan_label = "HR2T"
+                elif CLAN_MEMBER_ROLE_ID and member.get_role(CLAN_MEMBER_ROLE_ID):
+                    clan_label = "HROT"
+
+            status = app.get("status", "open")
+            new_name = self.build_ticket_name_for_label(base, status, clan_label)
+
+            if channel.name == new_name:
+                unchanged += 1
+                continue
+
+            try:
+                await channel.edit(
+                    name=new_name,
+                    reason="Hromadné přejmenování ticketů podle klanu",
+                )
+                updated += 1
+            except (discord.Forbidden, discord.HTTPException):
+                continue
+
+        await interaction.followup.send(
+            f"Přejmenováno ticketů: {updated}. Beze změny: {unchanged}.",
+            ephemeral=True,
+        )
 
     @app_commands.command(
         name="clan_kick",
