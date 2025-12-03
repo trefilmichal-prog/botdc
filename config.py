@@ -33,6 +33,9 @@ INACTIVE_THRESHOLD_HOURS = 24
 # Role pro ping u giveaway
 GIVEAWAY_PING_ROLE_ID = 1440268327892025438
 
+# Automatické překlady
+AUTO_TRANSLATE_CHANNEL_ID = 1440270650018369628
+
 # Výchozí délka giveaway (minuty), když není zadána
 DEFAULT_GIVEAWAY_DURATION_MINUTES = 15
 
