@@ -8,7 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import OLLAMA_MODEL, OLLAMA_URL
-from i18n import get_interaction_locale, get_message_locale, t
+from i18n import CZECH_LOCALE, get_interaction_locale, get_message_locale, t
 
 
 class ProphecyCog(commands.Cog, name="RobloxProphecy"):
@@ -21,6 +21,15 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
             for pattern in patterns:
                 content = content.replace(pattern, "")
         return content.strip()
+
+    def _detect_czech_text(self, content: str) -> bool:
+        czech_characters = "áčďéěíňóřšťúůýžÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ"
+        if any(char in czech_characters for char in content):
+            return True
+
+        lowercase = content.lower()
+        czech_keywords = ("protože", "že", "jak", "kde", "co", "vtip", "prosím", "můžeš")
+        return any(keyword in lowercase for keyword in czech_keywords)
 
     def _post_json(self, payload: dict[str, object]) -> str:
         request = urllib.request.Request(
@@ -63,8 +72,10 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
         if not self.bot.user or self.bot.user not in message.mentions:
             return
 
-        locale = get_message_locale(message)
         dotaz = self._strip_mentions(message.content, message.mentions)
+        locale = get_message_locale(message)
+        if locale != CZECH_LOCALE and self._detect_czech_text(dotaz):
+            locale = CZECH_LOCALE
         if not dotaz:
             await message.reply(
                 t("mention_prompt_missing", locale),
@@ -92,9 +103,9 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
 
     @app_commands.command(
         name="rebirth_future",
-        description="Zeptej se Ollamy na vtipnou věštbu pro Rebirth Champions Ultimate.",
+        description="Zeptej se Ollamy na vtipnou odpověď bez věštění.",
     )
-    @app_commands.describe(dotaz="Co tě zajímá o budoucnosti v Rebirth Champions Ultimate?")
+    @app_commands.describe(dotaz="Na co se chceš zeptat? (česky nebo anglicky)")
     async def rebirth_future(self, interaction: discord.Interaction, dotaz: str | None = None):
         locale = get_interaction_locale(interaction)
         await interaction.response.defer()
