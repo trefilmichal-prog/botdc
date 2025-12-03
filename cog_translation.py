@@ -9,9 +9,11 @@ from discord.ext import commands
 
 from config import (
     AUTO_TRANSLATE_CHANNEL_ID,
+    AUTO_TRANSLATE_TARGET_CHANNEL_ID,
     CLAN_MEMBER_ROLE_EN_ID,
     CLAN_MEMBER_ROLE_ID,
     OLLAMA_MODEL,
+    OLLAMA_TIMEOUT,
     OLLAMA_URL,
 )
 
@@ -22,6 +24,7 @@ logger = logging.getLogger(__name__)
 class AutoTranslateCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._target_channel: discord.abc.Messageable | None = None
 
     def _post_json(self, payload: dict[str, object]) -> str:
         request = urllib.request.Request(
@@ -30,7 +33,7 @@ class AutoTranslateCog(commands.Cog):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(request, timeout=OLLAMA_TIMEOUT) as response:
             return response.read().decode("utf-8")
 
     async def _ask_ollama(self, prompt: str) -> str | None:
@@ -55,6 +58,21 @@ class AutoTranslateCog(commands.Cog):
         if not response_text:
             return None
         return response_text.strip()
+
+    async def _target_messageable(self) -> discord.abc.Messageable | None:
+        if self._target_channel:
+            return self._target_channel
+
+        channel = self.bot.get_channel(AUTO_TRANSLATE_TARGET_CHANNEL_ID)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(AUTO_TRANSLATE_TARGET_CHANNEL_ID)
+            except (discord.Forbidden, discord.HTTPException) as error:
+                logger.warning("Unable to fetch target channel %s: %s", AUTO_TRANSLATE_TARGET_CHANNEL_ID, error)
+                return None
+
+        self._target_channel = channel
+        return channel
 
     def _prepare_content(self, content: str) -> str:
         return content.replace(
@@ -87,7 +105,16 @@ class AutoTranslateCog(commands.Cog):
             logger.warning("Translation failed for message %s", message.id)
             return
 
-        await message.reply(translation, mention_author=False)
+        target_channel = await self._target_messageable()
+        if not target_channel:
+            logger.warning(
+                "Translation ready for message %s but target channel %s unavailable",
+                message.id,
+                AUTO_TRANSLATE_TARGET_CHANNEL_ID,
+            )
+            return
+
+        await target_channel.send(translation)
 
 
 async def setup(bot: commands.Bot):
