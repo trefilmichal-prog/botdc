@@ -209,13 +209,15 @@ function transfer_member($guildId, $userId, $fromRoles, $toRoles, $token) {
 
     $targetRole = $toRoles[0];
 
+    // Nejprve přidej cílovou roli, aby uživatel nepřišel o všechny clan role
+    // při přesunu mezi klany (ticket by se jinak mohl smazat).
+    add_role($guildId, $userId, $targetRole, $token);
+
     foreach($fromRoles as $roleId) {
-        if(in_array($roleId, $roles)) {
+        if(in_array($roleId, $roles) && $roleId !== $targetRole) {
             remove_role($guildId, $userId, $roleId, $token);
         }
     }
-
-    add_role($guildId, $userId, $targetRole, $token);
 
     return array(true, 'Uživatel byl převeden.');
 }
