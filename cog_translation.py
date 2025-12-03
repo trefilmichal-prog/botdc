@@ -22,6 +22,34 @@ from config import (
 logger = logging.getLogger(__name__)
 
 
+class TranslationRevealView(discord.ui.View):
+    def __init__(self, *, translation: str, source_message: discord.Message, requester_id: int):
+        super().__init__(timeout=600)
+        self._translation = translation
+        self._source_message = source_message
+        self._requester_id = requester_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user and interaction.user.id == self._requester_id:
+            return True
+
+        await interaction.response.send_message(
+            "Tento překlad není pro vás. Přidejte vlastní reakci, pokud chcete překlad.",
+            ephemeral=True,
+        )
+        return False
+
+    @discord.ui.button(label="Zobrazit překlad", style=discord.ButtonStyle.primary)
+    async def reveal_translation(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        await interaction.response.send_message(
+            f"Překlad zprávy: {self._source_message.jump_url}\n\n{self._translation}",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+
 class AutoTranslateCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
