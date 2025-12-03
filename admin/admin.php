@@ -33,7 +33,7 @@ $guildId = $guildIdStored ? $guildIdStored : $guildIdEnv;
 $notices = array();
 $errors = array();
 $page = isset($_GET['page']) ? $_GET['page'] : 'credentials';
-$allowedPages = array('credentials', 'token', 'guild', 'clan', 'members');
+$allowedPages = array('credentials', 'token', 'guild', 'members');
 if(!in_array($page, $allowedPages)) {
     $page = 'credentials';
 }
@@ -593,7 +593,6 @@ if(isset($_POST['kick_user'])) {
                     'credentials' => array('label' => 'Přihlašovací údaje', 'desc' => 'Změna uživatelského jména a hesla do panelu.', 'icon' => '🔐'),
                     'token' => array('label' => 'Discord token', 'desc' => 'Uložení nebo kontrola tokenu bota.', 'icon' => '🤖'),
                     'guild' => array('label' => 'Discord Guild', 'desc' => 'Nastavení ID serveru, se kterým bot pracuje.', 'icon' => '🏰'),
-                    'clan' => array('label' => 'Clan management', 'desc' => 'Tipy a odkazy pro práci s klanovými příkazy.', 'icon' => '🛡️'),
                     'members' => array('label' => 'Členové', 'desc' => 'Seznam členů klanů a rychlé akce.', 'icon' => '👥')
                 );
             ?>
@@ -659,16 +658,6 @@ if(isset($_POST['kick_user'])) {
                         <button type="submit">Uložit Guild ID</button>
                     </form>
                 </div>
-            </div>
-        <?php elseif($page === 'clan'): ?>
-            <div class="card" id="clan" style="margin-top: 16px;">
-                <h3>Clan management</h3>
-                <p>Tato sekce sdružuje odkazy a tipy pro správu klanů v bota.</p>
-                <ul style="padding-left:20px;line-height:1.6;">
-                    <li>Využij slash příkazy <strong>/clan accept</strong> a <strong>/clan reject</strong> pro rozhodování přihlášek.</li>
-                    <li>Pro přijaté členy se používají role z konfigurace (<code>CLAN_MEMBER_ROLE_ID</code>, <code>CLAN2_MEMBER_ROLE_ID</code>).</li>
-                    <li>Schvalovací tickety najdeš v kategoriích definovaných v <code>config.py</code>.</li>
-                </ul>
             </div>
         <?php elseif($page === 'members'): ?>
             <?php if(!$guildId || !$discordToken): ?>
