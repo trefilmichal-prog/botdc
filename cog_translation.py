@@ -24,6 +24,34 @@ from config import (
 logger = logging.getLogger(__name__)
 
 
+class TranslationRevealView(discord.ui.View):
+    def __init__(self, *, translation: str, source_message: discord.Message, requester_id: int):
+        super().__init__(timeout=600)
+        self._translation = translation
+        self._source_message = source_message
+        self._requester_id = requester_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user and interaction.user.id == self._requester_id:
+            return True
+
+        await interaction.response.send_message(
+            "Tento překlad není pro vás. Přidejte vlastní reakci, pokud chcete překlad.",
+            ephemeral=True,
+        )
+        return False
+
+    @discord.ui.button(label="Zobrazit překlad", style=discord.ButtonStyle.primary)
+    async def reveal_translation(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        await interaction.response.send_message(
+            f"Překlad zprávy: {self._source_message.jump_url}\n\n{self._translation}",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+
 class AutoTranslateCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -91,6 +119,27 @@ class AutoTranslateCog(commands.Cog):
             "@here", "@\u200bhere"
         )
         return safe_content.replace("<@&", "<@\u200b&")
+
+
+class TranslationRevealView(discord.ui.View):
+    def __init__(self, *, translation: str, recipient_id: int):
+        super().__init__(timeout=300)
+        self.translation = translation
+        self.recipient_id = recipient_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user and interaction.user.id == self.recipient_id:
+            return True
+
+        await interaction.response.send_message(
+            "Tento překlad je dostupný pouze pro reagujícího uživatele.",
+            ephemeral=True,
+        )
+        return False
+
+    @discord.ui.button(label="Zobrazit překlad", style=discord.ButtonStyle.primary)
+    async def reveal(self, interaction: discord.Interaction, _: discord.ui.Button):
+        await interaction.response.send_message(self.translation, ephemeral=True)
 
     def _build_prompt(self, language: str, content: str) -> str:
         return (
