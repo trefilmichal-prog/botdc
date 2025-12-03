@@ -512,46 +512,46 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "[panel_refresh_loop] Error while refreshing panels: {error}",
     },
     "mention_prompt_missing": {
-        "cs": "Ahoj! Příště mi rovnou napiš otázku, ať ti můžu věštit budoucnost. 😊",
-        "en": "Hi! Please include your question next time so I can tell your future. 😊",
+        "cs": "Ahoj! Příště mi rovnou napiš otázku, ať ti můžu odpovědět. 😊",
+        "en": "Hi! Please include your question next time so I can answer you. 😊",
     },
     "prophecy_prompt_message": {
         "cs": (
-            "Jsi veselý český věštec pro hráče Roblox hry Rebirth Champions Ultimate."
-            " Odpovídej vždy česky, ve 1–2 věty maximálně, s lehkým humorem a konkrétním tipem na další postup."
-            " Vyhýbej se vulgaritám a udrž tón přátelský pro komunitu Discordu."
+            "Jsi vtipný český bot, který reaguje přátelsky a s humorem."
+            " Odpovídej vždy česky v 1–2 krátkých větách, drž se otázky a nepředpovídej budoucnost ani neřeš hry."
+            " Vyhýbej se vulgaritám a udrž tón vhodný pro Discord komunitu."
             " Otázka hráče: {question}"
         ),
         "en": (
-            "You are a cheerful English-speaking fortune teller for Roblox game Rebirth Champions Ultimate players."
-            " Always answer in English in at most 1–2 sentences with light humor and a concrete next-step tip."
-            " Avoid profanity and keep a friendly Discord tone."
+            "You are a funny English-speaking bot with a friendly vibe."
+            " Answer in English using 1–2 short sentences, stay on the question, and avoid prophecies or game advice."
+            " Avoid profanity and keep a Discord-friendly tone."
             " Player question: {question}"
         ),
     },
     "prophecy_prompt_slash": {
         "cs": (
-            "Jsi veselý český věštec pro hráče Roblox hry Rebirth Champions Ultimate."
-            " Odpovídej vždy česky, ve 2–3 větách, s lehkým humorem a konkrétním tipem na další postup."
-            " Vyhýbej se vulgaritám a udrž tón přátelský pro komunitu Discordu."
+            "Jsi vtipný český bot, který reaguje přátelsky a s humorem."
+            " Odpovídej vždy česky ve 2–3 větách, drž se otázky a nepředpovídej budoucnost ani neřeš hry."
+            " Vyhýbej se vulgaritám a udrž tón vhodný pro Discord komunitu."
         ),
         "en": (
-            "You are a cheerful English-speaking fortune teller for Roblox game Rebirth Champions Ultimate players."
-            " Always answer in English in 2–3 sentences with light humor and a concrete next-step tip."
-            " Avoid profanity and keep a friendly Discord tone."
+            "You are a funny English-speaking bot with a friendly vibe."
+            " Answer in English in 2–3 sentences, stick to the question, and avoid prophecies or game advice."
+            " Avoid profanity and keep a Discord-friendly tone."
         ),
     },
     "prophecy_prompt_general": {
-        "cs": " Dej obecnou předpověď pro nejbližší run.",
-        "en": " Give a general prediction for the next run.",
+        "cs": " Dej krátkou a vtipnou odpověď, žádné věštění.",
+        "en": " Give a short, funny reply with no fortune-telling.",
     },
     "prophecy_unavailable": {
         "cs": "Nemohu se momentálně spojit s Ollamou. Zkus to prosím za chvíli.",
         "en": "I cannot reach Ollama right now. Please try again soon.",
     },
     "prophecy_title": {
-        "cs": "🔮 Roblox věštba",
-        "en": "🔮 Roblox prophecy",
+        "cs": "😂 Vtipná odpověď",
+        "en": "😂 Funny reply",
     },
     "profile_title": {
         "cs": "Profil – {name}",
