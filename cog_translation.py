@@ -211,12 +211,23 @@ class AutoTranslateCog(commands.Cog):
 
         safe_translation = self._sanitize_output(translation)
 
-        await channel.send(
-            safe_translation,
-            reference=message.to_reference(),
-            mention_author=False,
-            allowed_mentions=self._safe_allowed_mentions,
-        )
+        recipient = self.bot.get_user(payload.user_id)
+        if recipient is None:
+            try:
+                recipient = await self.bot.fetch_user(payload.user_id)
+            except (discord.NotFound, discord.HTTPException) as error:
+                logger.warning("Unable to resolve reacting user %s: %s", payload.user_id, error)
+                return
+
+        try:
+            await recipient.send(
+                f"Překlad zprávy: {message.jump_url}\n\n{safe_translation}",
+                allowed_mentions=self._safe_allowed_mentions,
+            )
+        except discord.Forbidden:
+            logger.warning("Cannot DM translation to user %s", payload.user_id)
+        except discord.HTTPException as error:
+            logger.warning("Failed to DM translation to user %s: %s", payload.user_id, error)
 
 
 async def setup(bot: commands.Bot):
