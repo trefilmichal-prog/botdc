@@ -211,8 +211,9 @@ class AutoTranslateCog(commands.Cog):
 
         safe_translation = self._sanitize_output(translation)
 
-        await message.reply(
+        await channel.send(
             safe_translation,
+            reference=message.to_reference(),
             mention_author=False,
             allowed_mentions=self._safe_allowed_mentions,
         )
