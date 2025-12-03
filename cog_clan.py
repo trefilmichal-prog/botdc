@@ -259,13 +259,23 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
             member = guild.get_member(app["user_id"])
 
             clan_label = "HROT"
+            status = app.get("status", "open")
+
             if member is not None:
+                has_clan_role = False
+
                 if CLAN2_MEMBER_ROLE_ID and member.get_role(CLAN2_MEMBER_ROLE_ID):
                     clan_label = "HR2T"
+                    has_clan_role = True
                 elif CLAN_MEMBER_ROLE_ID and member.get_role(CLAN_MEMBER_ROLE_ID):
                     clan_label = "HROT"
+                    has_clan_role = True
+                elif CLAN_MEMBER_ROLE_EN_ID and member.get_role(CLAN_MEMBER_ROLE_EN_ID):
+                    clan_label = "HROT"
+                    has_clan_role = True
 
-            status = app.get("status", "open")
+                if has_clan_role:
+                    status = "accepted"
             new_name = self.build_ticket_name_for_label(base, status, clan_label)
 
             if channel.name == new_name:
