@@ -41,7 +41,7 @@ class AutoTranslateCog(commands.Cog):
             "model": OLLAMA_MODEL,
             "prompt": prompt,
             "stream": False,
-            "options": {"temperature": 0.3},
+            "options": {"temperature": 0},
         }
 
         try:
@@ -94,6 +94,7 @@ class AutoTranslateCog(commands.Cog):
         prompt = (
             "Translate the following Discord message to English. "
             "Preserve the original formatting, emojis, and mentions. "
+            "Use a neutral, respectful tone without jokes or additions. "
             "Answer with the translation only.\n\n"
             f"Message: {prepared_content}"
         )
