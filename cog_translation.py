@@ -315,6 +315,7 @@ async def setup(bot: commands.Bot):
     await bot.add_cog(cog)
 
     cog_ref = weakref.ref(cog)
+    responder_ref = weakref.WeakMethod(cog._respond_with_translation)
 
     async def _invoke_translation(
         language: str, interaction: discord.Interaction, message: discord.Message
@@ -331,7 +332,9 @@ async def setup(bot: commands.Bot):
             )
             return
 
-        responder = getattr(target_cog, "_respond_with_translation", None)
+        responder = responder_ref() or getattr(
+            target_cog, "_respond_with_translation", None
+        )
         if not callable(responder):
             logger.warning(
                 "Translation responder missing for %s context menu", language
