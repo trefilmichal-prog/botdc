@@ -309,28 +309,43 @@ class TranslationRevealView(discord.ui.View):
                 error,
             )
 
-    async def translate_to_czech(
-        self, interaction: discord.Interaction, message: discord.Message
-    ) -> None:
-        await self._respond_with_translation(interaction, "Czech", message)
-
-    async def translate_to_english(
-        self, interaction: discord.Interaction, message: discord.Message
-    ) -> None:
-        await self._respond_with_translation(interaction, "English", message)
-
-
 async def setup(bot: commands.Bot):
     cog = AutoTranslateCog(bot)
     await bot.add_cog(cog)
 
+    async def translate_to_czech(
+        interaction: discord.Interaction, message: discord.Message
+    ) -> None:
+        target_cog = bot.get_cog("AutoTranslateCog")
+        if not isinstance(target_cog, AutoTranslateCog):
+            await interaction.response.send_message(
+                "Překlad není dostupný, zkuste to prosím znovu později.",
+                ephemeral=True,
+            )
+            return
+
+        await target_cog._respond_with_translation(interaction, "Czech", message)
+
+    async def translate_to_english(
+        interaction: discord.Interaction, message: discord.Message
+    ) -> None:
+        target_cog = bot.get_cog("AutoTranslateCog")
+        if not isinstance(target_cog, AutoTranslateCog):
+            await interaction.response.send_message(
+                "Překlad není dostupný, zkuste to prosím znovu později.",
+                ephemeral=True,
+            )
+            return
+
+        await target_cog._respond_with_translation(interaction, "English", message)
+
     bot.tree.add_command(
         app_commands.ContextMenu(
-            name="Přeložit do češtiny", callback=cog.translate_to_czech
+            name="Přeložit do češtiny", callback=translate_to_czech
         )
     )
     bot.tree.add_command(
         app_commands.ContextMenu(
-            name="Translate to English", callback=cog.translate_to_english
+            name="Translate to English", callback=translate_to_english
         )
     )
