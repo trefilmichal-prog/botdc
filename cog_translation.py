@@ -92,6 +92,31 @@ class AutoTranslateCog(commands.Cog):
             f"Message: {content}"
         )
 
+    @commands.hybrid_command(name="translate")
+    async def translate_command(
+        self, ctx: commands.Context, language: str, *, text: str
+    ):
+        """Translate arbitrary text for anyone without special permissions."""
+
+        prompt = self._build_prompt(language, text)
+
+        async with ctx.typing():
+            translation = await self._ask_ollama(prompt)
+
+        if not translation:
+            await ctx.reply(
+                "Překlad se nepodařil, zkuste to prosím znovu.",
+                mention_author=False,
+                allowed_mentions=self._safe_allowed_mentions,
+            )
+            return
+
+        await ctx.reply(
+            translation,
+            mention_author=False,
+            allowed_mentions=self._safe_allowed_mentions,
+        )
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author.bot:
@@ -177,54 +202,6 @@ class AutoTranslateCog(commands.Cog):
             mention_author=False,
             allowed_mentions=self._safe_allowed_mentions,
         )
-
-    @commands.Cog.listener()
-    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
-        if payload.user_id == getattr(self.bot.user, "id", None):
-            return
-
-        target_language = self._reaction_targets.get(str(payload.emoji))
-        if not target_language:
-            return
-
-        channel = self.bot.get_channel(payload.channel_id)
-        if channel is None:
-            try:
-                channel = await self.bot.fetch_channel(payload.channel_id)
-            except (discord.Forbidden, discord.HTTPException) as error:
-                logger.warning("Unable to fetch channel %s: %s", payload.channel_id, error)
-                return
-
-        if not isinstance(channel, discord.abc.Messageable):
-            return
-
-        try:
-            message = await channel.fetch_message(payload.message_id)
-        except (discord.NotFound, discord.Forbidden, discord.HTTPException) as error:
-            logger.warning("Unable to fetch message %s: %s", payload.message_id, error)
-            return
-
-        if message.author.bot:
-            return
-
-        if not message.content.strip():
-            return
-
-        prepared_content = self._prepare_content(message.content)
-        prompt = self._build_prompt(target_language, prepared_content)
-
-        async with channel.typing():
-            translation = await self._ask_ollama(prompt)
-
-        if not translation:
-            logger.warning(
-                "Reaction translation failed for message %s with emoji %s",
-                message.id,
-                payload.emoji,
-            )
-            return
-
-        await message.reply(translation, mention_author=False)
 
 
 async def setup(bot: commands.Bot):
