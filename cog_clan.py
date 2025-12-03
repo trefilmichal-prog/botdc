@@ -588,6 +588,23 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         if before_roles == after_roles:
             return
 
+        membership_roles = {
+            CLAN_MEMBER_ROLE_ID,
+            CLAN_MEMBER_ROLE_EN_ID,
+            CLAN2_MEMBER_ROLE_ID,
+        }
+
+        had_membership = bool(before_roles & membership_roles)
+        has_membership = bool(after_roles & membership_roles)
+
+        if had_membership and not has_membership:
+            await self.remove_clan_ticket_for_member(
+                after.guild,
+                after,
+                "Ztráta členské role",
+            )
+            return
+
         target_category_id = self._get_ticket_target_category(after)
         if target_category_id is None:
             return
