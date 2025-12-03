@@ -211,9 +211,49 @@ class AutoTranslateCog(commands.Cog):
 
         safe_translation = self._sanitize_output(translation)
 
-        await message.reply(
-            safe_translation,
-            mention_author=False,
+        recipient = self.bot.get_user(payload.user_id)
+        if recipient is None:
+            try:
+                recipient = await self.bot.fetch_user(payload.user_id)
+            except (discord.NotFound, discord.HTTPException) as error:
+                logger.warning("Unable to resolve reacting user %s: %s", payload.user_id, error)
+                return
+
+        try:
+            thread = await message.create_thread(
+                name=f"translation-{message.id}-{recipient.display_name}"[:100],
+                auto_archive_duration=60,
+                type=discord.ChannelType.private_thread,
+                invitable=False,
+            )
+        except discord.Forbidden:
+            logger.warning(
+                "Cannot create private translation thread for message %s and user %s",
+                message.id,
+                payload.user_id,
+            )
+            return
+        except discord.HTTPException as error:
+            logger.warning(
+                "Failed to create private translation thread for message %s: %s",
+                message.id,
+                error,
+            )
+            return
+
+        try:
+            await thread.add_user(recipient)
+        except discord.HTTPException as error:
+            logger.warning(
+                "Could not add reacting user %s to translation thread for message %s: %s",
+                payload.user_id,
+                message.id,
+                error,
+            )
+            return
+
+        await thread.send(
+            f"Překlad zprávy: {message.jump_url}\n\n{safe_translation}",
             allowed_mentions=self._safe_allowed_mentions,
         )
 
