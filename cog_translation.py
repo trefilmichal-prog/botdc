@@ -211,11 +211,30 @@ class AutoTranslateCog(commands.Cog):
 
         safe_translation = self._sanitize_output(translation)
 
-        await message.reply(
-            safe_translation,
-            mention_author=False,
-            allowed_mentions=self._safe_allowed_mentions,
-        )
+        recipient = self.bot.get_user(payload.user_id)
+        if recipient is None:
+            try:
+                recipient = await self.bot.fetch_user(payload.user_id)
+            except (discord.NotFound, discord.HTTPException) as error:
+                logger.warning("Unable to resolve reacting user %s: %s", payload.user_id, error)
+                return
+
+        try:
+            await message.reply(
+                f"Překlad pro {recipient.display_name}: {safe_translation}",
+                mention_author=False,
+                allowed_mentions=discord.AllowedMentions(
+                    users=[recipient], roles=False, everyone=False, replied_user=False
+                ),
+                silent=True,
+                delete_after=60,
+            )
+        except discord.HTTPException as error:
+            logger.warning(
+                "Failed to send reaction translation for message %s: %s",
+                message.id,
+                error,
+            )
 
 
 async def setup(bot: commands.Bot):
