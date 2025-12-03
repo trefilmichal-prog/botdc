@@ -10,7 +10,7 @@ from discord import app_commands
 
 from config import (
     CLAN2_MEMBER_ROLE_ID,
-    CLAN_APPLICATION_PING_ROLE_ID,
+    CLAN2_APPLICATION_PING_ROLE_ID,
     CLAN_TICKET_CATEGORY_ID,
     CLAN2_ACCEPTED_TICKET_CATEGORY_ID,
     CLAN_VACATION_TICKET_CATEGORY_ID,
@@ -715,8 +715,8 @@ class Clan2ApplicationModal(discord.ui.Modal):
         )
 
         content_parts = [user.mention]
-        if CLAN_APPLICATION_PING_ROLE_ID:
-            content_parts.insert(0, f"<@&{CLAN_APPLICATION_PING_ROLE_ID}>")
+        if CLAN2_APPLICATION_PING_ROLE_ID:
+            content_parts.insert(0, f"<@&{CLAN2_APPLICATION_PING_ROLE_ID}>")
 
         admin_view = Clan2AdminView(self.cog, locale)
         self.cog.bot.add_view(admin_view)
