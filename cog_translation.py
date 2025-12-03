@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import types
 import weakref
 import urllib.error
 import urllib.request
@@ -59,6 +60,12 @@ class AutoTranslateCog(commands.Cog):
         self._reaction_targets = {"🇨🇿": "Czech", "🇺🇲": "English"}
         self._safe_allowed_mentions = discord.AllowedMentions(
             everyone=False, roles=False, replied_user=False
+        )
+        self._auto_translate_cooldown = commands.CooldownMapping.from_cooldown(
+            5, 30, commands.BucketType.channel
+        )
+        self._reaction_cooldown = commands.CooldownMapping.from_cooldown(
+            3, 20, commands.BucketType.channel
         )
 
     def _post_json(self, payload: dict[str, object]) -> str:
@@ -198,6 +205,15 @@ class AutoTranslateCog(commands.Cog):
         if message.channel.id != AUTO_TRANSLATE_CHANNEL_ID:
             return
 
+        retry_after = self._auto_translate_cooldown.get_bucket(message).update_rate_limit()
+        if retry_after:
+            logger.info(
+                "Překlad ve kanálu %s odložen kvůli limitu, čeká %.1fs",
+                message.channel.id,
+                retry_after,
+            )
+            return
+
         if not message.content.strip():
             return
 
@@ -232,6 +248,17 @@ class AutoTranslateCog(commands.Cog):
 
         target_language = self._reaction_targets.get(str(payload.emoji))
         if not target_language:
+            return
+
+        retry_after = self._reaction_cooldown.get_bucket(
+            types.SimpleNamespace(channel=types.SimpleNamespace(id=payload.channel_id))
+        ).update_rate_limit()
+        if retry_after:
+            logger.info(
+                "Reakční překlad v kanálu %s odložen kvůli limitu, čeká %.1fs",
+                payload.channel_id,
+                retry_after,
+            )
             return
 
         channel = self.bot.get_channel(payload.channel_id)
