@@ -83,6 +83,12 @@ class AutoTranslateCog(commands.Cog):
             f"<@&{CLAN_MEMBER_ROLE_ID}>", f"<@&{CLAN_MEMBER_ROLE_EN_ID}>"
         )
 
+    def _sanitize_output(self, content: str) -> str:
+        safe_content = content.replace("@everyone", "@\u200beveryone").replace(
+            "@here", "@\u200bhere"
+        )
+        return safe_content.replace("<@&", "<@\u200b&")
+
     def _build_prompt(self, language: str, content: str) -> str:
         return (
             f"Translate the following Discord message to {language}. "
@@ -111,8 +117,9 @@ class AutoTranslateCog(commands.Cog):
             )
             return
 
+        safe_translation = self._sanitize_output(translation)
         await ctx.reply(
-            translation,
+            safe_translation,
             mention_author=False,
             allowed_mentions=self._safe_allowed_mentions,
         )
@@ -138,6 +145,7 @@ class AutoTranslateCog(commands.Cog):
             logger.warning("Translation failed for message %s", message.id)
             return
 
+        safe_translation = self._sanitize_output(translation)
         target_channel = await self._target_messageable()
         if not target_channel:
             logger.warning(
@@ -148,7 +156,7 @@ class AutoTranslateCog(commands.Cog):
             return
 
         await target_channel.send(
-            translation, allowed_mentions=self._safe_allowed_mentions
+            safe_translation, allowed_mentions=self._safe_allowed_mentions
         )
 
     @commands.Cog.listener()
@@ -197,8 +205,10 @@ class AutoTranslateCog(commands.Cog):
             )
             return
 
+        safe_translation = self._sanitize_output(translation)
+
         await message.reply(
-            translation,
+            safe_translation,
             mention_author=False,
             allowed_mentions=self._safe_allowed_mentions,
         )
