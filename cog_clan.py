@@ -44,7 +44,7 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.ticket_clan_label = "clan1"
+        self.ticket_clan_label = "HROT"
 
         # persistentní view – panel pro přihlášky a admin view v ticketech
         self.apply_panel_view = ClanApplyPanelView(self, DEFAULT_LOCALE)
