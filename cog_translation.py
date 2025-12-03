@@ -15,6 +15,7 @@ from config import (
     OLLAMA_MODEL,
     OLLAMA_TIMEOUT,
     OLLAMA_URL,
+    REACTION_TRANSLATION_BLOCKED_CHANNEL_IDS,
 )
 
 
@@ -175,6 +176,9 @@ class AutoTranslateCog(commands.Cog):
             except (discord.Forbidden, discord.HTTPException) as error:
                 logger.warning("Unable to fetch channel %s: %s", payload.channel_id, error)
                 return
+
+        if payload.channel_id in REACTION_TRANSLATION_BLOCKED_CHANNEL_IDS:
+            return
 
         if not isinstance(channel, discord.abc.Messageable):
             return
