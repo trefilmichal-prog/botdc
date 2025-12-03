@@ -219,12 +219,21 @@ class AutoTranslateCog(commands.Cog):
                 logger.warning("Unable to resolve reacting user %s: %s", payload.user_id, error)
                 return
 
+        if not isinstance(channel, (discord.TextChannel, discord.VoiceChannel, discord.StageChannel, discord.ForumChannel)):
+            logger.warning(
+                "Channel %s does not support private translation threads for message %s",
+                channel,
+                message.id,
+            )
+            return
+
         try:
-            thread = await message.create_thread(
+            thread = await channel.create_thread(
                 name=f"translation-{message.id}-{recipient.display_name}"[:100],
                 auto_archive_duration=60,
                 type=discord.ChannelType.private_thread,
                 invitable=False,
+                message=message,
             )
         except discord.Forbidden:
             logger.warning(
