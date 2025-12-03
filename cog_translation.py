@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import weakref
 import urllib.error
 import urllib.request
 
@@ -313,37 +314,34 @@ async def setup(bot: commands.Bot):
     cog = AutoTranslateCog(bot)
     await bot.add_cog(cog)
 
-    async def translate_to_czech(
-        interaction: discord.Interaction, message: discord.Message
-    ) -> None:
-        target_cog = bot.get_cog("AutoTranslateCog") or cog
-        responder = getattr(target_cog, "_respond_with_translation", None)
+    cog_ref = weakref.ref(cog)
 
-        if not isinstance(target_cog, AutoTranslateCog) or not callable(responder):
-            logger.warning("Translation cog unavailable for Czech context menu")
+    async def _invoke_translation(
+        language: str, interaction: discord.Interaction, message: discord.Message
+    ) -> None:
+        target_cog = cog_ref()
+
+        if not isinstance(target_cog, AutoTranslateCog):
+            logger.warning(
+                "Translation cog unavailable for %s context menu", language
+            )
             await interaction.response.send_message(
                 "Překlad není dostupný, zkuste to prosím znovu později.",
                 ephemeral=True,
             )
             return
 
-        await responder(interaction, "Czech", message)
+        await target_cog._respond_with_translation(interaction, language, message)
+
+    async def translate_to_czech(
+        interaction: discord.Interaction, message: discord.Message
+    ) -> None:
+        await _invoke_translation("Czech", interaction, message)
 
     async def translate_to_english(
         interaction: discord.Interaction, message: discord.Message
     ) -> None:
-        target_cog = bot.get_cog("AutoTranslateCog") or cog
-        responder = getattr(target_cog, "_respond_with_translation", None)
-
-        if not isinstance(target_cog, AutoTranslateCog) or not callable(responder):
-            logger.warning("Translation cog unavailable for English context menu")
-            await interaction.response.send_message(
-                "Překlad není dostupný, zkuste to prosím znovu později.",
-                ephemeral=True,
-            )
-            return
-
-        await responder(interaction, "English", message)
+        await _invoke_translation("English", interaction, message)
 
     bot.tree.add_command(
         app_commands.ContextMenu(
