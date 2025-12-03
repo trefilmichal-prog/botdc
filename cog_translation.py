@@ -5,6 +5,7 @@ import urllib.error
 import urllib.request
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 from config import (
@@ -148,6 +149,41 @@ class TranslationRevealView(discord.ui.View):
             f"Message: {content}"
         )
 
+    async def _translate_text(self, language: str, content: str) -> str | None:
+        prepared_content = self._prepare_content(content)
+        prompt = self._build_prompt(language, prepared_content)
+        return await self._ask_ollama(prompt)
+
+    async def _respond_with_translation(
+        self, interaction: discord.Interaction, language: str, message: discord.Message
+    ) -> None:
+        if message.author.bot:
+            await interaction.response.send_message(
+                "Botí zprávy nelze překládat.", ephemeral=True
+            )
+            return
+
+        if not message.content.strip():
+            await interaction.response.send_message(
+                "Zpráva je prázdná, není co překládat.", ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        translation = await self._translate_text(language, message.content)
+        if not translation:
+            await interaction.followup.send(
+                "Překlad se nepodařil, zkuste to prosím znovu.", ephemeral=True
+            )
+            return
+
+        safe_translation = self._sanitize_output(translation)
+        await interaction.followup.send(
+            f"Překlad do {language}: {safe_translation}",
+            ephemeral=True,
+            allowed_mentions=self._safe_allowed_mentions,
+        )
+
     @commands.hybrid_command(name="translate")
     async def translate_command(
         self, ctx: commands.Context, language: str, *, text: str
@@ -260,17 +296,30 @@ class TranslationRevealView(discord.ui.View):
 
         safe_translation = self._sanitize_output(translation)
 
-        recipient = self.bot.get_user(payload.user_id)
-        if recipient is None:
-            try:
-                recipient = await self.bot.fetch_user(payload.user_id)
-            except (discord.NotFound, discord.HTTPException) as error:
-                logger.warning("Unable to resolve reacting user %s: %s", payload.user_id, error)
-                return
+        try:
+            await message.reply(
+                f"Překlad: {safe_translation}",
+                mention_author=False,
+                allowed_mentions=self._safe_allowed_mentions,
+            )
+        except discord.HTTPException as error:
+            logger.warning(
+                "Failed to send reaction translation for message %s: %s",
+                message.id,
+                error,
+            )
 
-        view = TranslationRevealView(
-            translation=f"Překlad: {safe_translation}", recipient_id=recipient.id
-        )
+    @app_commands.context_menu(name="Přeložit do češtiny")
+    async def translate_to_czech(
+        self, interaction: discord.Interaction, message: discord.Message
+    ) -> None:
+        await self._respond_with_translation(interaction, "Czech", message)
+
+    @app_commands.context_menu(name="Translate to English")
+    async def translate_to_english(
+        self, interaction: discord.Interaction, message: discord.Message
+    ) -> None:
+        await self._respond_with_translation(interaction, "English", message)
 
         try:
             await message.reply(
