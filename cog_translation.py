@@ -331,7 +331,18 @@ async def setup(bot: commands.Bot):
             )
             return
 
-        await target_cog._respond_with_translation(interaction, language, message)
+        responder = getattr(target_cog, "_respond_with_translation", None)
+        if not callable(responder):
+            logger.warning(
+                "Translation responder missing for %s context menu", language
+            )
+            await interaction.response.send_message(
+                "Překlad není dostupný, zkuste to prosím znovu později.",
+                ephemeral=True,
+            )
+            return
+
+        await responder(interaction, language, message)
 
     async def translate_to_czech(
         interaction: discord.Interaction, message: discord.Message
