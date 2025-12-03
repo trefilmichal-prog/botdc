@@ -24,6 +24,9 @@ class MyBot(commands.Bot):
         intents.message_content = True
 
         super().__init__(command_prefix="!", intents=intents)
+        self._command_cooldown = commands.CooldownMapping.from_cooldown(
+            5, 10, commands.BucketType.user
+        )
 
     async def setup_hook(self):
         # načteme cogy (moduly)
@@ -48,6 +51,22 @@ class MyBot(commands.Bot):
 
     async def on_ready(self):
         logger.info("Přihlášen jako %s (ID: %s)", self.user, self.user.id)
+
+    async def on_message(self, message: discord.Message):
+        if message.author.bot:
+            return
+
+        bucket = self._command_cooldown.get_bucket(message)
+        retry_after = bucket.update_rate_limit()
+        if retry_after:
+            logger.info(
+                "Uživatel %s překročil limit příkazů, čeká %.1fs",
+                message.author.id,
+                retry_after,
+            )
+            return
+
+        await self.process_commands(message)
 
 
 if __name__ == "__main__":
