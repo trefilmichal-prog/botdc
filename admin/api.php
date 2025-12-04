@@ -8,6 +8,11 @@ if(!isset($_SESSION['login'])) {
     exit;
 }
 
+if($_SERVER['REQUEST_METHOD'] === 'GET') {
+    echo json_encode(array('ok' => true, 'message' => 'API běží. Použijte POST s "ajax=update_rebirth".'));
+    exit;
+}
+
 if($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(array('ok' => false, 'message' => 'Metoda není podporována. Použijte POST.'));
