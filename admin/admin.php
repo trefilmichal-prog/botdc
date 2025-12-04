@@ -359,6 +359,10 @@ function derive_warn_count_from_roles($roles, $warnRole1, $warnRole2, $warnRole3
 }
 
 function parse_rebirth_to_number($value) {
+    if($value === null) {
+        return null;
+    }
+
     $value = trim($value);
     if($value === '') {
         return null;
