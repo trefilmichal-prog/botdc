@@ -48,6 +48,7 @@ $guildId = $guildIdStored ? $guildIdStored : $guildIdEnv;
 
 $notices = array();
 $errors = array();
+$rebirthStatuses = array();
 $page = isset($_GET['page']) ? $_GET['page'] : 'credentials';
 $allowedPages = array('credentials', 'token', 'guild', 'members');
 if(!in_array($page, $allowedPages)) {
@@ -533,52 +534,42 @@ function kick_member($guildId, $userId, $token, $rolesToRemove) {
     return array(true, $finalMsg);
 }
 
-if(isset($_POST['ajax']) && $_POST['ajax'] === 'update_rebirth') {
-    header('Content-Type: application/json');
-
+if(isset($_POST['update_rebirth'])) {
     $userId = isset($_POST['user_id']) ? trim($_POST['user_id']) : '';
     $rebirthInput = isset($_POST['rebirths']) ? $_POST['rebirths'] : null;
     $displayName = isset($_POST['display_name']) ? trim($_POST['display_name']) : '';
 
     if($userId === '') {
-        http_response_code(400);
-        echo json_encode(array('ok' => false, 'message' => 'Chybí ID uživatele.'));
-        exit;
+        $errors[] = 'Chybí ID uživatele.';
+        $rebirthStatuses[$userId] = array('text' => 'Chybí ID uživatele.', 'error' => true);
+    } else {
+        $rebirths = trim($rebirthInput);
+        $previousValue = null;
+
+        $existingStmt = $db->prepare("SELECT rebirths FROM member_rebirths WHERE user_id = ?");
+        $existingStmt->execute(array($userId));
+        $existingRow = $existingStmt->fetch(PDO::FETCH_ASSOC);
+        if($existingRow) {
+            $previousValue = $existingRow['rebirths'];
+        }
+
+        if($rebirths === '') {
+            $errors[] = 'Zadejte hodnotu rebirthu.';
+            $rebirthStatuses[$userId] = array('text' => 'Zadejte hodnotu rebirthu.', 'error' => true);
+        } elseif(mb_strlen($rebirths) > 255) {
+            $errors[] = 'Hodnota rebirthu je příliš dlouhá (max. 255 znaků).';
+            $rebirthStatuses[$userId] = array('text' => 'Hodnota rebirthu je příliš dlouhá (max. 255 znaků).', 'error' => true);
+        } else {
+            $storedAt = save_member_rebirths($db, $userId, $displayName !== '' ? $displayName : $userId, $rebirths);
+            $delta = describe_rebirth_delta($previousValue, $rebirths);
+
+            $deltaText = $delta ? " ({$delta})" : '';
+            $message = "Rebirthy pro {$userId} byly uloženy: {$storedAt}{$deltaText}";
+
+            $notices[] = $message;
+            $rebirthStatuses[$userId] = array('text' => $message, 'error' => false);
+        }
     }
-
-    $rebirths = trim($rebirthInput);
-    $previousValue = null;
-
-    $existingStmt = $db->prepare("SELECT rebirths FROM member_rebirths WHERE user_id = ?");
-    $existingStmt->execute(array($userId));
-    $existingRow = $existingStmt->fetch(PDO::FETCH_ASSOC);
-    if($existingRow) {
-        $previousValue = $existingRow['rebirths'];
-    }
-
-    if($rebirths === '') {
-        http_response_code(400);
-        echo json_encode(array('ok' => false, 'message' => 'Zadejte hodnotu rebirthu.'));
-        exit;
-    }
-
-    if(mb_strlen($rebirths) > 255) {
-        http_response_code(400);
-        echo json_encode(array('ok' => false, 'message' => 'Hodnota rebirthu je příliš dlouhá (max. 255 znaků).'));
-        exit;
-    }
-
-    $storedAt = save_member_rebirths($db, $userId, $displayName !== '' ? $displayName : $userId, $rebirths);
-    $delta = describe_rebirth_delta($previousValue, $rebirths);
-
-    echo json_encode(array(
-        'ok' => true,
-        'message' => 'Rebirthy byly uloženy.',
-        'updated_at' => $storedAt,
-        'rebirths' => $rebirths,
-        'delta' => $delta
-    ));
-    exit;
 }
 
 if(isset($_POST['update_credentials'])) {
@@ -986,12 +977,21 @@ if(isset($_POST['kick_user'])) {
                                         <td><?php echo htmlspecialchars($member['display']); ?></td>
                                         <td><?php echo htmlspecialchars($member['role']); ?></td>
                                         <td>
-                                            <form class="rebirth-form" data-user-id="<?php echo htmlspecialchars($member['id']); ?>" data-display-name="<?php echo htmlspecialchars($member['display']); ?>">
+                                            <?php
+                                                $rebirthStatusKey = $member['id'];
+                                                $rebirthStatus = isset($rebirthStatuses[$rebirthStatusKey]) ? $rebirthStatuses[$rebirthStatusKey] : null;
+                                                $statusText = $rebirthStatus ? $rebirthStatus['text'] : 'Naposledy: ' . $rebirthUpdated;
+                                                $statusClass = 'rebirth-status' . ($rebirthStatus && $rebirthStatus['error'] ? ' error' : '');
+                                            ?>
+                                            <form class="rebirth-form" method="POST" action="?page=members">
+                                                <input type="hidden" name="update_rebirth" value="1">
+                                                <input type="hidden" name="user_id" value="<?php echo htmlspecialchars($member['id']); ?>">
+                                                <input type="hidden" name="display_name" value="<?php echo htmlspecialchars($member['display']); ?>">
                                                 <div class="rebirth-inline">
                                                     <input type="text" name="rebirths" value="<?php echo htmlspecialchars($rebirthValue); ?>" placeholder="Zapište rebirth">
                                                     <button type="submit" class="rebirth-submit" style="width:auto;padding:8px 12px;">Uložit</button>
                                                 </div>
-                                                <div class="rebirth-status">Naposledy: <?php echo htmlspecialchars($rebirthUpdated); ?></div>
+                                                <div class="<?php echo $statusClass; ?>"><?php echo htmlspecialchars($statusText); ?></div>
                                             </form>
                                         </td>
                                         <td>
@@ -1030,78 +1030,5 @@ if(isset($_POST['kick_user'])) {
             <?php endif; ?>
         <?php endif; ?>
     </div>
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            document.querySelectorAll('.rebirth-form').forEach((form) => {
-                form.addEventListener('submit', async (event) => {
-                    event.preventDefault();
-
-                    const userId = form.dataset.userId;
-                    const displayName = form.dataset.displayName;
-                    const input = form.querySelector('input[name="rebirths"]');
-                    const statusEl = form.querySelector('.rebirth-status');
-                    const button = form.querySelector('.rebirth-submit');
-
-                    if(!input || !statusEl || !button) {
-                        return;
-                    }
-
-                    statusEl.classList.remove('error');
-                    const value = input.value.trim();
-
-                    button.disabled = true;
-                    statusEl.textContent = 'Ukládám...';
-
-                    try {
-                        const response = await fetch('api.php', {
-                            method: 'POST',
-                            headers: { 'X-Requested-With': 'XMLHttpRequest' },
-                            body: new URLSearchParams({
-                                ajax: 'update_rebirth',
-                                user_id: userId,
-                                display_name: displayName,
-                                rebirths: value
-                            })
-                        });
-
-                        const rawText = await response.text();
-                        const trimmed = rawText.trim();
-                        let data = null;
-
-                        if(trimmed !== '') {
-                            try {
-                                data = JSON.parse(trimmed);
-                            } catch (_) {
-                                // Parsing failed; rely on HTTP status handling below.
-                            }
-                        }
-
-                        if(!data || typeof data !== 'object') {
-                            const fallbackMessage = !response.ok
-                                ? `Server vrátil neplatnou odpověď (HTTP ${response.status}).`
-                                : (trimmed !== '' ? trimmed : 'Server nevrátil platnou JSON odpověď.');
-
-                            throw new Error(fallbackMessage);
-                        }
-
-                        if(!response.ok || data.ok !== true) {
-                            throw new Error(
-                                data.message || `Požadavek selhal (HTTP ${response.status}).`
-                            );
-                        }
-
-                        const delta = data.delta;
-                        const deltaText = delta ? ` (${delta})` : '';
-                        statusEl.textContent = `Uloženo: ${data.updated_at}${deltaText}`;
-                    } catch (err) {
-                        statusEl.textContent = err.message;
-                        statusEl.classList.add('error');
-                    } finally {
-                        button.disabled = false;
-                    }
-                });
-            });
-        });
-    </script>
 </body>
 </html>
