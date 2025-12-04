@@ -19,7 +19,7 @@ $db->exec("CREATE TABLE IF NOT EXISTS warnings (
 $db->exec("CREATE TABLE IF NOT EXISTS member_rebirths (
     user_id TEXT PRIMARY KEY,
     display_name TEXT,
-    rebirths INTEGER NOT NULL DEFAULT 0,
+    rebirths TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL
 )");
 
@@ -358,6 +358,96 @@ function derive_warn_count_from_roles($roles, $warnRole1, $warnRole2, $warnRole3
     return $warnCount;
 }
 
+function parse_rebirth_to_number($value) {
+    $value = trim($value);
+    if($value === '') {
+        return null;
+    }
+
+    $suffixes = array(
+        'k' => 3,
+        'm' => 6,
+        'b' => 9,
+        't' => 12,
+        'qa' => 15,
+        'qi' => 18,
+        'sx' => 21,
+        'sp' => 24,
+        'oc' => 27,
+        'no' => 30,
+        'dc' => 33
+    );
+
+    if(!preg_match('/^\s*([0-9]+(?:[.,][0-9]+)?)\s*([a-zA-Z]{0,2})\s*$/', $value, $matches)) {
+        return null;
+    }
+
+    $numericPart = str_replace(',', '.', $matches[1]);
+    $suffix = strtolower($matches[2]);
+
+    if($suffix === '') {
+        return (float)$numericPart;
+    }
+
+    if(!array_key_exists($suffix, $suffixes)) {
+        return null;
+    }
+
+    $exponent = $suffixes[$suffix];
+    return (float)$numericPart * pow(10, $exponent);
+}
+
+function format_rebirth_number($number) {
+    $suffixes = array(
+        'dc' => 1e33,
+        'no' => 1e30,
+        'oc' => 1e27,
+        'sp' => 1e24,
+        'sx' => 1e21,
+        'qi' => 1e18,
+        'qa' => 1e15,
+        't' => 1e12,
+        'b' => 1e9,
+        'm' => 1e6,
+        'k' => 1e3
+    );
+
+    $abs = abs($number);
+    foreach($suffixes as $suffix => $threshold) {
+        if($abs >= $threshold) {
+            $value = $number / $threshold;
+            $formatted = number_format($value, 2, '.', '');
+            $formatted = rtrim(rtrim($formatted, '0'), '.');
+            return $formatted . $suffix;
+        }
+    }
+
+    if($number == (int)$number) {
+        return (string)(int)$number;
+    }
+
+    $formatted = number_format($number, 2, '.', '');
+    return rtrim(rtrim($formatted, '0'), '.');
+}
+
+function describe_rebirth_delta($previous, $current) {
+    $prevNumeric = parse_rebirth_to_number($previous);
+    $currNumeric = parse_rebirth_to_number($current);
+
+    if($prevNumeric === null || $currNumeric === null) {
+        return null;
+    }
+
+    $delta = $currNumeric - $prevNumeric;
+
+    if(abs($delta) < 0.0001) {
+        return 'beze změny';
+    }
+
+    $sign = $delta > 0 ? '+' : '';
+    return $sign . format_rebirth_number($delta);
+}
+
 function sync_warning_record_with_roles($db, $userId, $warnCount) {
     $stmt = $db->prepare("SELECT warn_count, last_warned_at FROM warnings WHERE user_id = ?");
     $stmt->execute(array($userId));
@@ -452,27 +542,37 @@ if(isset($_POST['ajax']) && $_POST['ajax'] === 'update_rebirth') {
         exit;
     }
 
-    if($rebirthInput === null || $rebirthInput === '') {
+    $rebirths = trim($rebirthInput);
+    $previousValue = null;
+
+    $existingStmt = $db->prepare("SELECT rebirths FROM member_rebirths WHERE user_id = ?");
+    $existingStmt->execute(array($userId));
+    $existingRow = $existingStmt->fetch(PDO::FETCH_ASSOC);
+    if($existingRow) {
+        $previousValue = $existingRow['rebirths'];
+    }
+
+    if($rebirths === '') {
         http_response_code(400);
-        echo json_encode(array('ok' => false, 'message' => 'Zadejte počet rebirthů.'));
+        echo json_encode(array('ok' => false, 'message' => 'Zadejte hodnotu rebirthu.'));
         exit;
     }
 
-    $rebirths = filter_var($rebirthInput, FILTER_VALIDATE_INT);
-
-    if($rebirths === false || $rebirths < 0) {
+    if(mb_strlen($rebirths) > 255) {
         http_response_code(400);
-        echo json_encode(array('ok' => false, 'message' => 'Počet rebirthů musí být nezáporné číslo.'));
+        echo json_encode(array('ok' => false, 'message' => 'Hodnota rebirthu je příliš dlouhá (max. 255 znaků).'));
         exit;
     }
 
     $storedAt = save_member_rebirths($db, $userId, $displayName !== '' ? $displayName : $userId, $rebirths);
+    $delta = describe_rebirth_delta($previousValue, $rebirths);
 
     echo json_encode(array(
         'ok' => true,
         'message' => 'Rebirthy byly uloženy.',
         'updated_at' => $storedAt,
-        'rebirths' => $rebirths
+        'rebirths' => $rebirths,
+        'delta' => $delta
     ));
     exit;
 }
@@ -745,8 +845,8 @@ if(isset($_POST['kick_user'])) {
             gap: 8px;
             align-items: center;
         }
-        .rebirth-inline input[type="number"] {
-            max-width: 120px;
+        .rebirth-inline input[type="text"] {
+            max-width: 180px;
         }
         .rebirth-status {
             margin-top: 6px;
@@ -884,7 +984,7 @@ if(isset($_POST['kick_user'])) {
                                         <td>
                                             <form class="rebirth-form" data-user-id="<?php echo htmlspecialchars($member['id']); ?>" data-display-name="<?php echo htmlspecialchars($member['display']); ?>">
                                                 <div class="rebirth-inline">
-                                                    <input type="number" name="rebirths" min="0" step="1" value="<?php echo htmlspecialchars($rebirthValue); ?>" placeholder="0">
+                                                    <input type="text" name="rebirths" value="<?php echo htmlspecialchars($rebirthValue); ?>" placeholder="Zapište rebirth">
                                                     <button type="submit" class="rebirth-submit" style="width:auto;padding:8px 12px;">Uložit</button>
                                                 </div>
                                                 <div class="rebirth-status">Naposledy: <?php echo htmlspecialchars($rebirthUpdated); ?></div>
@@ -966,7 +1066,9 @@ if(isset($_POST['kick_user'])) {
                             throw new Error(data.message || 'Nepodařilo se uložit rebirthy.');
                         }
 
-                        statusEl.textContent = `Uloženo: ${data.updated_at}`;
+                        const delta = data.delta;
+                        const deltaText = delta ? ` (${delta})` : '';
+                        statusEl.textContent = `Uloženo: ${data.updated_at}${deltaText}`;
                     } catch (err) {
                         statusEl.textContent = err.message;
                         statusEl.classList.add('error');
