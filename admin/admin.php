@@ -1060,7 +1060,19 @@ if(isset($_POST['kick_user'])) {
                             })
                         });
 
-                        const data = await response.json();
+                        const responseClone = response.clone();
+                        let data = null;
+
+                        try {
+                            data = await response.json();
+                        } catch (err) {
+                            const fallbackText = (await responseClone.text()).trim();
+                            throw new Error(
+                                fallbackText !== ''
+                                    ? fallbackText
+                                    : 'Server nevrátil platnou JSON odpověď.'
+                            );
+                        }
 
                         if(!response.ok || !data.ok) {
                             throw new Error(data.message || 'Nepodařilo se uložit rebirthy.');
