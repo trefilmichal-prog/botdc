@@ -106,7 +106,9 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
         try:
             return ZoneInfo("Europe/Prague")
         except ZoneInfoNotFoundError:
-            self.log.warning("Time zone 'Europe/Prague' nenalezena, používám UTC+1.")
+            self.log.warning(
+                "Časové pásmo 'Europe/Prague' nenalezeno, používám pevný offset UTC+1."
+            )
             return timezone(timedelta(hours=1))
 
     def _get_state_zone(self) -> timezone:
@@ -114,9 +116,22 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
             return ZoneInfo(self.state_timezone_name)
         except ZoneInfoNotFoundError:
             self.log.warning(
-                "Neplatná time zone '%s', používám UTC.", self.state_timezone_name
+                "Neplatné časové pásmo '%s', obnovuji výchozí %s.",
+                self.state_timezone_name,
+                TIME_STATUS_STATE_TIMEZONE,
             )
-            return timezone.utc
+
+            self.state_timezone_name = TIME_STATUS_STATE_TIMEZONE
+            set_setting("time_status_state_timezone", self.state_timezone_name)
+
+            try:
+                return ZoneInfo(self.state_timezone_name)
+            except ZoneInfoNotFoundError:
+                self.log.warning(
+                    "Výchozí časové pásmo '%s' není dostupné, používám UTC.",
+                    self.state_timezone_name,
+                )
+                return timezone.utc
 
     @staticmethod
     def _get_english_daypart(hour: int) -> str:
