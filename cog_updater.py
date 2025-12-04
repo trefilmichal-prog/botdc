@@ -16,25 +16,41 @@ class AutoUpdater(commands.Cog):
         self.repo_path = Path(__file__).resolve().parent
 
     async def _run_git_command(self, *args: str) -> tuple[int, str, str]:
-        process = await asyncio.create_subprocess_exec(
-            "git",
-            *args,
-            cwd=str(self.repo_path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await process.communicate()
-        return process.returncode, stdout.decode().strip(), stderr.decode().strip()
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "git",
+                *args,
+                cwd=str(self.repo_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await process.communicate()
+            return process.returncode, stdout.decode().strip(), stderr.decode().strip()
+        except FileNotFoundError as exc:  # pragma: no cover - defensive guard
+            error = f"Nelze spustit git: {exc}"
+            self.logger.exception(error)
+            return 1, "", error
 
-    async def _ensure_clean_worktree(self) -> bool:
-        """Return True if the worktree has no local changes."""
+    async def _ensure_clean_worktree(self) -> tuple[bool, str | None]:
+        """Return (is_clean, error_msg)."""
+
+        if not (self.repo_path / ".git").exists():
+            msg = "Tento adresář není Git repozitář."
+            self.logger.error(msg)
+            return False, msg
 
         returncode, stdout, stderr = await self._run_git_command("status", "--porcelain")
         if returncode != 0:
-            self.logger.error("Nepodařilo se načíst stav repozitáře: %s", stderr or stdout)
-            return False
+            error_msg = stderr or stdout or "Neznámá chyba při načítání stavu repozitáře."
+            self.logger.error("Nepodařilo se načíst stav repozitáře: %s", error_msg)
+            return False, error_msg
 
-        return stdout == ""
+        if stdout:
+            return False, (
+                "V repozitáři jsou neuložené změny. Nejprve je potvrďte nebo zahoďte."
+            )
+
+        return True, None
 
     @app_commands.command(
         name="updatebot", description="Aktualizuje bota z Git repozitáře."
@@ -52,11 +68,10 @@ class AutoUpdater(commands.Cog):
     ):
         await interaction.response.defer(ephemeral=True, thinking=True)
 
-        if not await self._ensure_clean_worktree():
+        clean, error_msg = await self._ensure_clean_worktree()
+        if not clean:
             await interaction.followup.send(
-                "❌ Aktualizaci nelze provést, protože v repozitáři jsou neuložené změny."
-                " Nejprve je potvrďte nebo zahoďte.",
-                ephemeral=True,
+                f"❌ Aktualizaci nelze provést: {error_msg}", ephemeral=True
             )
             return
 
