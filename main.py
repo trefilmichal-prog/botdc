@@ -1,3 +1,4 @@
+import importlib.util
 import logging
 
 import discord
@@ -72,6 +73,12 @@ class MyBot(commands.Bot):
 
 
 if __name__ == "__main__":
+    if importlib.util.find_spec("tzdata") is None:
+        logger.critical(
+            "Chybí balíček tzdata. Spusťte 'pip install -r requirements.txt' před startem."
+        )
+        raise SystemExit(1)
+
     init_db()
     bot = MyBot()
     bot.run(TOKEN)
