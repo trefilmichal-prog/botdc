@@ -20,6 +20,8 @@ class AutoUpdater(commands.Cog):
         self.bot = bot
         self.logger = logging.getLogger("botdc.updater")
         self.repo_path = Path(__file__).resolve().parent
+        self.default_repo_url = "https://github.com/trefilmichal-prog/botdc.git"
+        self.default_branch = "main"
 
     async def _download_archive(self, url: str, destination: Path) -> None:
         await asyncio.to_thread(self._download_archive_sync, url, destination)
@@ -128,19 +130,27 @@ class AutoUpdater(commands.Cog):
         description="Aktualizuje bota z Git repozitáře nebo ZIP archivu.",
     )
     @app_commands.describe(
-        repo_url="URL repozitáře pro pull (např. https://github.com/user/repo.git)",
+        repo_url=(
+            "URL repozitáře pro aktualizaci (výchozí:"
+            " https://github.com/trefilmichal-prog/botdc.git)"
+        ),
         branch="Větev, která se má použít (výchozí: main)",
-        via_archive="Aktualizovat stažením ZIP archivu místo použití Gitu.",
+        via_archive=(
+            "Aktualizovat stažením ZIP archivu místo použití Gitu (výchozí: ano)."
+        ),
     )
     @app_commands.default_permissions(administrator=True)
     async def update_bot(
         self,
         interaction: discord.Interaction,
-        repo_url: str,
+        repo_url: str | None = None,
         branch: str = "main",
-        via_archive: bool = False,
+        via_archive: bool = True,
     ):
         await interaction.response.defer(ephemeral=True, thinking=True)
+
+        repo_url = repo_url or self.default_repo_url
+        branch = branch or self.default_branch
 
         if via_archive:
             success, message = await self._update_from_archive(repo_url, branch)
