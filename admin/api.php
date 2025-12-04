@@ -1,15 +1,50 @@
 <?php
 session_start();
-header('Content-Type: application/json');
 
 if(!isset($_SESSION['login'])) {
+    header('Content-Type: application/json');
     http_response_code(401);
     echo json_encode(array('ok' => false, 'message' => 'Neautorizovaný přístup. Přihlaste se prosím.'));
     exit;
 }
 
 if($_SERVER['REQUEST_METHOD'] === 'GET') {
-    echo json_encode(array('ok' => true, 'message' => 'API běží. Použijte POST s "ajax=update_rebirth".'));
+    header('Content-Type: text/html; charset=utf-8');
+    ?>
+    <!doctype html>
+    <html lang="cs">
+    <head>
+        <meta charset="utf-8">
+        <title>Rebirth formulář</title>
+    </head>
+    <body>
+        <h1>Uložení rebirthů</h1>
+        <form method="POST">
+            <input type="hidden" name="ajax" value="update_rebirth">
+
+            <label>
+                ID uživatele:<br>
+                <input type="text" name="user_id" required>
+            </label>
+            <br><br>
+
+            <label>
+                Zobrazované jméno (nepovinné):<br>
+                <input type="text" name="display_name">
+            </label>
+            <br><br>
+
+            <label>
+                Rebirthy:<br>
+                <input type="text" name="rebirths" required>
+            </label>
+            <br><br>
+
+            <button type="submit">Uložit</button>
+        </form>
+    </body>
+    </html>
+    <?php
     exit;
 }
 
@@ -18,6 +53,8 @@ if($_SERVER['REQUEST_METHOD'] !== 'POST') {
     echo json_encode(array('ok' => false, 'message' => 'Metoda není podporována. Použijte POST.'));
     exit;
 }
+
+header('Content-Type: application/json');
 
 $action = isset($_POST['ajax']) ? $_POST['ajax'] : '';
 if($action !== 'update_rebirth') {
