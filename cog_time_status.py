@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import discord
 from discord.ext import commands, tasks
@@ -84,8 +84,8 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
         return None
 
     def _build_embed(self) -> discord.Embed:
-        utc_now = datetime.now(tz=ZoneInfo("UTC"))
-        cz_time = utc_now.astimezone(ZoneInfo("Europe/Prague"))
+        utc_now = datetime.now(timezone.utc)
+        cz_time = utc_now.astimezone(self._get_cz_zone())
         state_time = utc_now.astimezone(self._get_state_zone())
 
         cz_label = self._get_english_daypart(cz_time.hour)
@@ -102,14 +102,21 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
         embed.set_footer(text="Automatická aktualizace každých 5 minut.")
         return embed
 
-    def _get_state_zone(self) -> ZoneInfo:
+    def _get_cz_zone(self) -> timezone:
+        try:
+            return ZoneInfo("Europe/Prague")
+        except ZoneInfoNotFoundError:
+            self.log.warning("Time zone 'Europe/Prague' nenalezena, používám UTC+1.")
+            return timezone(timedelta(hours=1))
+
+    def _get_state_zone(self) -> timezone:
         try:
             return ZoneInfo(self.state_timezone_name)
-        except Exception:
+        except ZoneInfoNotFoundError:
             self.log.warning(
                 "Neplatná time zone '%s', používám UTC.", self.state_timezone_name
             )
-            return ZoneInfo("UTC")
+            return timezone.utc
 
     @staticmethod
     def _get_english_daypart(hour: int) -> str:
