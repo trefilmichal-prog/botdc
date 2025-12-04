@@ -23,6 +23,7 @@ class AutoUpdater(commands.Cog):
         self.repo_path = Path(__file__).resolve().parent
         self.default_repo_url = "https://github.com/trefilmichal-prog/botdc.git"
         self.default_branch = "main"
+        self.allowed_user_id = 369810917673795586
 
     async def _download_archive(self, url: str, destination: Path) -> None:
         await asyncio.to_thread(self._download_archive_sync, url, destination)
@@ -174,6 +175,13 @@ class AutoUpdater(commands.Cog):
 
         repo_url = repo_url or self.default_repo_url
         branch = branch or self.default_branch
+
+        if interaction.user.id != self.allowed_user_id:
+            await interaction.followup.send(
+                "❌ Tento příkaz může použít pouze určený uživatel.",
+                ephemeral=True,
+            )
+            return
 
         if via_archive:
             success, message = await self._update_from_archive(repo_url, branch)
