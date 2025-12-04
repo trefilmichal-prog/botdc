@@ -49,10 +49,15 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
         set_setting("time_status_state_timezone", self.state_timezone_name)
 
         message = await self._fetch_message(channel)
+        if message is None:
+            message = await self._find_existing_message(channel)
+
         embed = self._build_embed()
 
         if message:
             await message.edit(embed=embed)
+            set_setting("time_status_message_id", str(message.id))
+            set_setting("time_status_channel_id", str(channel.id))
         else:
             message = await channel.send(embed=embed)
             set_setting("time_status_message_id", str(message.id))
@@ -81,6 +86,27 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
                     return await channel.fetch_message(message_id)
                 except (discord.NotFound, discord.Forbidden):
                     return None
+        return None
+
+    async def _find_existing_message(
+        self, channel: discord.TextChannel
+    ) -> discord.Message | None:
+        """
+        Najde existující status embed bota v daném kanálu, aby se nevytvářely duplikáty.
+        """
+
+        bot_user = self.bot.user
+        if bot_user is None:
+            return None
+
+        async for message in channel.history(limit=50):
+            if message.author.id != bot_user.id:
+                continue
+            if not message.embeds:
+                continue
+            if message.embeds[0].title == "Časový přehled":
+                return message
+
         return None
 
     def _build_embed(self) -> discord.Embed:
