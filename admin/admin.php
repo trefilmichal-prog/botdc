@@ -21,7 +21,7 @@ $db->exec("CREATE TABLE IF NOT EXISTS member_rebirths (
     user_id TEXT PRIMARY KEY,
     display_name TEXT,
     rebirths TEXT NOT NULL DEFAULT '',
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 )");
 
 function ensure_member_rebirths_schema($db) {
@@ -36,7 +36,25 @@ function ensure_member_rebirths_schema($db) {
     }
 
     if(!$hasUpdatedAt) {
-        $db->exec("ALTER TABLE member_rebirths ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))");
+        $db->beginTransaction();
+        try {
+            $db->exec("CREATE TABLE IF NOT EXISTS member_rebirths_new (
+                user_id TEXT PRIMARY KEY,
+                display_name TEXT,
+                rebirths TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )");
+
+            $db->exec("INSERT INTO member_rebirths_new (user_id, display_name, rebirths, updated_at)
+                SELECT user_id, display_name, rebirths, datetime('now') FROM member_rebirths");
+            $db->exec("DROP TABLE member_rebirths");
+            $db->exec("ALTER TABLE member_rebirths_new RENAME TO member_rebirths");
+            $db->commit();
+        } catch(PDOException $e) {
+            $db->rollBack();
+            throw $e;
+        }
+    } else {
         $db->exec("UPDATE member_rebirths SET updated_at = datetime('now') WHERE updated_at IS NULL OR updated_at = ''");
     }
 }
