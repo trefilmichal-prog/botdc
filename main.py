@@ -46,6 +46,7 @@ class MyBot(commands.Bot):
         await self.load_extension("cog_admin_tasks")
         await self.load_extension("cog_translation")
         await self.load_extension("cog_time_status")
+        await self.load_extension("cog_updater")
 
         # sync slash commandů
         await self.tree.sync()
