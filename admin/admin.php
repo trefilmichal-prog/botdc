@@ -23,6 +23,24 @@ $db->exec("CREATE TABLE IF NOT EXISTS member_rebirths (
     updated_at TEXT NOT NULL
 )");
 
+function ensure_member_rebirths_schema($db) {
+    $stmt = $db->query("PRAGMA table_info(member_rebirths)");
+    $hasUpdatedAt = false;
+
+    while($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        if(isset($row['name']) && $row['name'] === 'updated_at') {
+            $hasUpdatedAt = true;
+            break;
+        }
+    }
+
+    if(!$hasUpdatedAt) {
+        $db->exec("ALTER TABLE member_rebirths ADD COLUMN updated_at TEXT DEFAULT ''");
+        $db->exec("UPDATE member_rebirths SET updated_at = COALESCE(updated_at, datetime('now'))");
+    }
+}
+ensure_member_rebirths_schema($db);
+
 // Discord guild/role configuration
 $clans = array(
     'clan1' => array(
