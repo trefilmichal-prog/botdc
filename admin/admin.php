@@ -442,14 +442,14 @@ function kick_member($guildId, $userId, $token, $rolesToRemove) {
 
 if(isset($_POST['update_rebirth'])) {
     $userId = isset($_POST['user_id']) ? trim($_POST['user_id']) : '';
-    $rebirthInput = isset($_POST['rebirths']) ? $_POST['rebirths'] : null;
+    $rebirthInput = isset($_POST['rebirths']) ? $_POST['rebirths'] : '';
     $displayName = isset($_POST['display_name']) ? trim($_POST['display_name']) : '';
 
     if($userId === '') {
         $errors[] = 'Chybí ID uživatele.';
         $rebirthStatuses[$userId] = array('text' => 'Chybí ID uživatele.', 'error' => true);
     } else {
-        $rebirths = trim($rebirthInput);
+        $rebirths = is_string($rebirthInput) ? trim($rebirthInput) : '';
 
         if($rebirths === '') {
             $errors[] = 'Zadejte hodnotu rebirthu.';
