@@ -1060,10 +1060,29 @@ if(isset($_POST['kick_user'])) {
                             })
                         });
 
-                        const data = await response.json();
+                        const rawText = await response.text();
+                        let data = null;
 
-                        if(!response.ok || !data.ok) {
-                            throw new Error(data.message || 'Nepodařilo se uložit rebirthy.');
+                        if(rawText.trim() !== '') {
+                            try {
+                                data = JSON.parse(rawText);
+                            } catch (_) {
+                                // If parsing fails, we fall back to the raw text below.
+                            }
+                        }
+
+                        if(!data || typeof data !== 'object') {
+                            throw new Error(
+                                rawText.trim() !== ''
+                                    ? rawText.trim()
+                                    : `Server vrátil neplatnou odpověď (HTTP ${response.status}).`
+                            );
+                        }
+
+                        if(!response.ok || data.ok !== true) {
+                            throw new Error(
+                                data.message || `Požadavek selhal (HTTP ${response.status}).`
+                            );
                         }
 
                         const delta = data.delta;
