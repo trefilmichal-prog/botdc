@@ -10,6 +10,13 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
 OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))
 
+# Přehled času – cílová místnost a výchozí americká oblast
+TIME_STATUS_CHANNEL_ID = 1445973251019898961
+TIME_STATUS_STATE_NAME = os.getenv("TIME_STATUS_STATE_NAME", "New York")
+TIME_STATUS_STATE_TIMEZONE = os.getenv(
+    "TIME_STATUS_STATE_TIMEZONE", "America/New_York"
+)
+
 # Odkazy na obrázky pro clan embed
 CLAN_BOOSTS_IMAGE_URL = "https://ezrz.eu/dcbot/stats.jpg"
 CLAN_BANNER_IMAGE_URL = "https://ezrz.eu/dcbot/baner2.jpg"
