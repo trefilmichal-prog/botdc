@@ -1,6 +1,11 @@
 import asyncio
 import logging
+import os
 import shutil
+import sys
+import tempfile
+import urllib.request
+import zipfile
 from pathlib import Path
 
 import discord
@@ -9,12 +14,21 @@ from discord.ext import commands
 
 
 class AutoUpdater(commands.Cog):
-    """Discord command for updating the bot from a Git repository."""
+    """Discord command for updating the bot from Git or a ZIP archive."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.logger = logging.getLogger("botdc.updater")
         self.repo_path = Path(__file__).resolve().parent
+
+    async def _download_archive(self, url: str, destination: Path) -> None:
+        await asyncio.to_thread(self._download_archive_sync, url, destination)
+
+    @staticmethod
+    def _download_archive_sync(url: str, destination: Path) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with urllib.request.urlopen(url) as response:
+            destination.write_bytes(response.read())
 
     async def _run_git_command(self, *args: str) -> tuple[int, str, str]:
         git_executable = shutil.which("git")
@@ -59,12 +73,64 @@ class AutoUpdater(commands.Cog):
 
         return True, None
 
+    async def _update_from_archive(self, repo_url: str, branch: str) -> tuple[bool, str]:
+        """Download ZIP archive from GitHub and replace local files."""
+
+        base_url = repo_url[:-4] if repo_url.endswith(".git") else repo_url
+        archive_url = f"{base_url}/archive/refs/heads/{branch}.zip"
+        self.logger.info("Stahuji archiv z %s", archive_url)
+
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmpdir_path = Path(tmpdir)
+                archive_path = tmpdir_path / "repo.zip"
+                await self._download_archive(archive_url, archive_path)
+
+                with zipfile.ZipFile(archive_path) as archive:
+                    archive.extractall(tmpdir_path)
+
+                extracted_dirs = [p for p in tmpdir_path.iterdir() if p.is_dir()]
+                if not extracted_dirs:
+                    return False, "Archiv neobsahuje žádná data."
+
+                extracted_root = extracted_dirs[0]
+
+                for item in self.repo_path.iterdir():
+                    if item.name == ".git":
+                        continue
+                    if item.is_dir():
+                        shutil.rmtree(item)
+                    else:
+                        item.unlink()
+
+                for item in extracted_root.iterdir():
+                    target = self.repo_path / item.name
+                    if item.is_dir():
+                        shutil.copytree(item, target, dirs_exist_ok=True)
+                    else:
+                        shutil.copy2(item, target)
+
+        except Exception as exc:  # pragma: no cover - defensive guard
+            self.logger.exception("Aktualizace z archivu selhala: %s", exc)
+            return False, f"Aktualizace z archivu selhala: {exc}"
+
+        return True, "Aktualizace z archivu dokončena."
+
+    async def _restart_bot(self) -> None:
+        """Restart the current bot process."""
+
+        await asyncio.sleep(1)
+        python = sys.executable
+        os.execl(python, python, *sys.argv)
+
     @app_commands.command(
-        name="updatebot", description="Aktualizuje bota z Git repozitáře."
+        name="updatebot",
+        description="Aktualizuje bota z Git repozitáře nebo ZIP archivu.",
     )
     @app_commands.describe(
         repo_url="URL repozitáře pro pull (např. https://github.com/user/repo.git)",
         branch="Větev, která se má použít (výchozí: main)",
+        via_archive="Aktualizovat stažením ZIP archivu místo použití Gitu.",
     )
     @app_commands.default_permissions(administrator=True)
     async def update_bot(
@@ -72,8 +138,23 @@ class AutoUpdater(commands.Cog):
         interaction: discord.Interaction,
         repo_url: str,
         branch: str = "main",
+        via_archive: bool = False,
     ):
         await interaction.response.defer(ephemeral=True, thinking=True)
+
+        if via_archive:
+            success, message = await self._update_from_archive(repo_url, branch)
+            if not success:
+                await interaction.followup.send(f"❌ {message}", ephemeral=True)
+                return
+
+            await interaction.followup.send(
+                "✅ Bot byl úspěšně aktualizován ze staženého archivu.\n"
+                "🔄 Restart bota probíhá, může trvat několik sekund...",
+                ephemeral=True,
+            )
+            await self._restart_bot()
+            return
 
         clean, error_msg = await self._ensure_clean_worktree()
         if not clean:
@@ -118,9 +199,11 @@ class AutoUpdater(commands.Cog):
         )
         await interaction.followup.send(
             "✅ Bot byl úspěšně aktualizován.\n"
-            f"Výstup: ```\n{fetch_out or reset_out}\n```",
+            f"Výstup: ```\n{fetch_out or reset_out}\n```\n"
+            "🔄 Restart bota probíhá, může trvat několik sekund...",
             ephemeral=True,
         )
+        await self._restart_bot()
 
 
 async def setup(bot: commands.Bot):
