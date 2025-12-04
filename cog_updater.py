@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import os
 import shutil
+import sys
 import tempfile
 import urllib.request
 import zipfile
@@ -114,6 +116,13 @@ class AutoUpdater(commands.Cog):
 
         return True, "Aktualizace z archivu dokončena."
 
+    async def _restart_bot(self) -> None:
+        """Restart the current bot process."""
+
+        await asyncio.sleep(1)
+        python = sys.executable
+        os.execl(python, python, *sys.argv)
+
     @app_commands.command(
         name="updatebot",
         description="Aktualizuje bota z Git repozitáře nebo ZIP archivu.",
@@ -140,9 +149,11 @@ class AutoUpdater(commands.Cog):
                 return
 
             await interaction.followup.send(
-                "✅ Bot byl úspěšně aktualizován ze staženého archivu.",
+                "✅ Bot byl úspěšně aktualizován ze staženého archivu.\n"
+                "🔄 Restart bota probíhá, může trvat několik sekund...",
                 ephemeral=True,
             )
+            await self._restart_bot()
             return
 
         clean, error_msg = await self._ensure_clean_worktree()
@@ -188,9 +199,11 @@ class AutoUpdater(commands.Cog):
         )
         await interaction.followup.send(
             "✅ Bot byl úspěšně aktualizován.\n"
-            f"Výstup: ```\n{fetch_out or reset_out}\n```",
+            f"Výstup: ```\n{fetch_out or reset_out}\n```\n"
+            "🔄 Restart bota probíhá, může trvat několik sekund...",
             ephemeral=True,
         )
+        await self._restart_bot()
 
 
 async def setup(bot: commands.Bot):
