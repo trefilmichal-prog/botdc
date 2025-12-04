@@ -15,6 +15,14 @@ $db->exec("CREATE TABLE IF NOT EXISTS warnings (
     last_warned_at TEXT NOT NULL
 )");
 
+// Track manual rebirth counts for members
+$db->exec("CREATE TABLE IF NOT EXISTS member_rebirths (
+    user_id TEXT PRIMARY KEY,
+    display_name TEXT,
+    rebirths TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL
+)");
+
 // Discord guild/role configuration
 $clans = array(
     'clan1' => array(
@@ -385,6 +393,30 @@ function get_warning_map($db) {
     return $result;
 }
 
+function save_member_rebirths($db, $userId, $displayName, $rebirths) {
+    $now = date('Y-m-d H:i:s');
+    $stmt = $db->prepare("INSERT INTO member_rebirths (user_id, display_name, rebirths, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET display_name = excluded.display_name, rebirths = excluded.rebirths, updated_at = excluded.updated_at");
+    $stmt->execute(array($userId, $displayName, $rebirths, $now));
+
+    return $now;
+}
+
+function get_rebirth_map($db) {
+    $stmt = $db->query("SELECT user_id, display_name, rebirths, updated_at FROM member_rebirths");
+    $map = array();
+
+    while($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $map[$row['user_id']] = array(
+            'display_name' => $row['display_name'],
+            'rebirths' => $row['rebirths'],
+            'updated_at' => $row['updated_at']
+        );
+    }
+
+    return $map;
+}
+
 function kick_member($guildId, $userId, $token, $rolesToRemove) {
     $roles = get_member_roles($guildId, $userId, $token);
     if($roles === null) {
@@ -405,6 +437,44 @@ function kick_member($guildId, $userId, $token, $rolesToRemove) {
     $finalMsg = $dmOk ? "Člen byl odebrán z klanu. {$status} Soukromá zpráva byla odeslána." : "Člen byl odebrán z klanu. {$status} Soukromou zprávu se nepodařilo odeslat: {$dmMsg}";
 
     return array(true, $finalMsg);
+}
+
+if(isset($_POST['ajax']) && $_POST['ajax'] === 'update_rebirth') {
+    header('Content-Type: application/json');
+
+    $userId = isset($_POST['user_id']) ? trim($_POST['user_id']) : '';
+    $rebirthInput = isset($_POST['rebirths']) ? $_POST['rebirths'] : null;
+    $displayName = isset($_POST['display_name']) ? trim($_POST['display_name']) : '';
+
+    if($userId === '') {
+        http_response_code(400);
+        echo json_encode(array('ok' => false, 'message' => 'Chybí ID uživatele.'));
+        exit;
+    }
+
+    $rebirths = trim($rebirthInput);
+
+    if($rebirths === '') {
+        http_response_code(400);
+        echo json_encode(array('ok' => false, 'message' => 'Zadejte hodnotu rebirthu.'));
+        exit;
+    }
+
+    if(mb_strlen($rebirths) > 255) {
+        http_response_code(400);
+        echo json_encode(array('ok' => false, 'message' => 'Hodnota rebirthu je příliš dlouhá (max. 255 znaků).'));
+        exit;
+    }
+
+    $storedAt = save_member_rebirths($db, $userId, $displayName !== '' ? $displayName : $userId, $rebirths);
+
+    echo json_encode(array(
+        'ok' => true,
+        'message' => 'Rebirthy byly uloženy.',
+        'updated_at' => $storedAt,
+        'rebirths' => $rebirths
+    ));
+    exit;
 }
 
 if(isset($_POST['update_credentials'])) {
@@ -553,7 +623,7 @@ if(isset($_POST['kick_user'])) {
             color: #cbd5f5;
             font-size: 14px;
         }
-        input[type="text"], input[type="password"] {
+        input[type="text"], input[type="password"], input[type="number"] {
             width: 100%;
             padding: 10px 12px;
             border-radius: 8px;
@@ -670,6 +740,20 @@ if(isset($_POST['kick_user'])) {
             color:#94a3b8;
             line-height:1.4;
         }
+        .rebirth-inline {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .rebirth-inline input[type="text"] {
+            max-width: 180px;
+        }
+        .rebirth-status {
+            margin-top: 6px;
+            font-size: 12px;
+            color: #cbd5f5;
+        }
+        .rebirth-status.error { color: #fecaca; }
     </style>
     <nav class="nav-bar">
         <div class="nav-grid">
@@ -755,6 +839,7 @@ if(isset($_POST['kick_user'])) {
                     $members = fetch_guild_members($guildId, $discordToken);
                 ?>
                 <?php $warningMap = get_warning_map($db); ?>
+                <?php $rebirthMap = get_rebirth_map($db); ?>
                 <?php foreach($clans as $clanKey => $clanData): ?>
                     <?php $roleMembers = filter_members_by_clan($members, $clanData); ?>
                     <div class="card" style="margin-top: 16px;">
@@ -763,7 +848,7 @@ if(isset($_POST['kick_user'])) {
                             <p>Nebyli nalezeni žádní členové s touto rolí.</p>
                         <?php else: ?>
                             <table>
-                                <tr><th>#</th><th>Přezdívka</th><th>Role</th><th>Varování</th><th>Akce</th></tr>
+                                <tr><th>#</th><th>Přezdívka</th><th>Role</th><th>Rebirthy</th><th>Varování</th><th>Akce</th></tr>
                                 <?php foreach($roleMembers as $index => $member): ?>
                                     <?php
                                         $targetClanKey = null;
@@ -774,6 +859,8 @@ if(isset($_POST['kick_user'])) {
                                                 break;
                                             }
                                         }
+                                        $rebirthValue = isset($rebirthMap[$member['id']]) ? $rebirthMap[$member['id']]['rebirths'] : '';
+                                        $rebirthUpdated = isset($rebirthMap[$member['id']]) ? $rebirthMap[$member['id']]['updated_at'] : '—';
                                         $warnCount = derive_warn_count_from_roles($member['roles'], $warnRole1, $warnRole2, $warnRole3);
                                         if($warnCount === 0 && isset($warningMap[$member['id']])) {
                                             sync_warning_record_with_roles($db, $member['id'], $warnCount);
@@ -794,6 +881,15 @@ if(isset($_POST['kick_user'])) {
                                         <td><?php echo $index + 1; ?></td>
                                         <td><?php echo htmlspecialchars($member['display']); ?></td>
                                         <td><?php echo htmlspecialchars($member['role']); ?></td>
+                                        <td>
+                                            <form class="rebirth-form" data-user-id="<?php echo htmlspecialchars($member['id']); ?>" data-display-name="<?php echo htmlspecialchars($member['display']); ?>">
+                                                <div class="rebirth-inline">
+                                                    <input type="text" name="rebirths" value="<?php echo htmlspecialchars($rebirthValue); ?>" placeholder="Zapište rebirth">
+                                                    <button type="submit" class="rebirth-submit" style="width:auto;padding:8px 12px;">Uložit</button>
+                                                </div>
+                                                <div class="rebirth-status">Naposledy: <?php echo htmlspecialchars($rebirthUpdated); ?></div>
+                                            </form>
+                                        </td>
                                         <td>
                                             <div style="display:flex;flex-direction:column;gap:4px;">
                                                 <span class="pill" style="background:rgba(251,191,36,0.15);border-color:rgba(251,191,36,0.35);color:#fcd34d;width:max-content;">Počet: <?php echo htmlspecialchars($warnCount); ?></span>
@@ -830,5 +926,56 @@ if(isset($_POST['kick_user'])) {
             <?php endif; ?>
         <?php endif; ?>
     </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('.rebirth-form').forEach((form) => {
+                form.addEventListener('submit', async (event) => {
+                    event.preventDefault();
+
+                    const userId = form.dataset.userId;
+                    const displayName = form.dataset.displayName;
+                    const input = form.querySelector('input[name="rebirths"]');
+                    const statusEl = form.querySelector('.rebirth-status');
+                    const button = form.querySelector('.rebirth-submit');
+
+                    if(!input || !statusEl || !button) {
+                        return;
+                    }
+
+                    statusEl.classList.remove('error');
+                    const value = input.value.trim();
+
+                    button.disabled = true;
+                    statusEl.textContent = 'Ukládám...';
+
+                    try {
+                        const response = await fetch('admin.php', {
+                            method: 'POST',
+                            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                            body: new URLSearchParams({
+                                ajax: 'update_rebirth',
+                                user_id: userId,
+                                display_name: displayName,
+                                rebirths: value
+                            })
+                        });
+
+                        const data = await response.json();
+
+                        if(!response.ok || !data.ok) {
+                            throw new Error(data.message || 'Nepodařilo se uložit rebirthy.');
+                        }
+
+                        statusEl.textContent = `Uloženo: ${data.updated_at}`;
+                    } catch (err) {
+                        statusEl.textContent = err.message;
+                        statusEl.classList.add('error');
+                    } finally {
+                        button.disabled = false;
+                    }
+                });
+            });
+        });
+    </script>
 </body>
 </html>
