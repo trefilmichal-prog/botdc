@@ -112,9 +112,11 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
             return timezone(timedelta(hours=1))
 
     def _get_state_zone(self) -> timezone:
-        try:
-            return ZoneInfo(self.state_timezone_name)
-        except ZoneInfoNotFoundError:
+        zone = self._try_load_zone(self.state_timezone_name)
+        if zone:
+            return zone
+
+        if self.state_timezone_name != TIME_STATUS_STATE_TIMEZONE:
             self.log.warning(
                 "Neplatné časové pásmo '%s', obnovuji výchozí %s.",
                 self.state_timezone_name,
@@ -124,14 +126,22 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
             self.state_timezone_name = TIME_STATUS_STATE_TIMEZONE
             set_setting("time_status_state_timezone", self.state_timezone_name)
 
-            try:
-                return ZoneInfo(self.state_timezone_name)
-            except ZoneInfoNotFoundError:
-                self.log.warning(
-                    "Výchozí časové pásmo '%s' není dostupné, používám UTC.",
-                    self.state_timezone_name,
-                )
-                return timezone.utc
+            zone = self._try_load_zone(self.state_timezone_name)
+            if zone:
+                return zone
+
+        self.log.warning(
+            "Časové pásmo '%s' není dostupné ani jako výchozí, používám UTC.",
+            self.state_timezone_name,
+        )
+        return timezone.utc
+
+    @staticmethod
+    def _try_load_zone(zone_name: str) -> timezone | None:
+        try:
+            return ZoneInfo(zone_name)
+        except ZoneInfoNotFoundError:
+            return None
 
     @staticmethod
     def _get_english_daypart(hour: int) -> str:
