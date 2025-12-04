@@ -20,6 +20,7 @@ from db import (
     update_user_stats,
     get_setting,
     set_setting,
+    get_pending_shop_sales_for_seller,
 )
 
 SHOP_MANAGER_ROLE_ID = 1_440_268_327_892_025_438
@@ -196,6 +197,46 @@ class ShopCog(commands.Cog, name="ShopCog"):
             "Souhrn nevyřízených objednávek byl odeslán do tvých DM.",
             ephemeral=True,
         )
+
+    @app_commands.command(
+        name="see_sold_shop",
+        description="Ukáže ti nevyřízené objednávky tvých prodaných položek.",
+    )
+    async def see_sold_shop_cmd(self, interaction: discord.Interaction):
+        sales = get_pending_shop_sales_for_seller(interaction.user.id)
+        if not sales:
+            await interaction.response.send_message(
+                "Nemáš žádné nehotové trady z tvých prodejů v shopu.",
+                ephemeral=True,
+            )
+            return
+
+        guild = interaction.guild or self._find_user_guild(interaction.user)
+
+        def format_buyer(buyer_id: int) -> str:
+            if guild:
+                member = guild.get_member(buyer_id)
+                if member is not None:
+                    return f"{member.mention} ({member.display_name})"
+            return f"<@{buyer_id}>"
+
+        embed = discord.Embed(
+            title="Nevyřízené objednávky tvých položek",
+            color=0x00CCFF,
+        )
+
+        lines = []
+        for sale in sales:
+            buyer_text = format_buyer(sale["buyer_id"])
+            lines.append(
+                f"**{sale['title']}** – {sale['price_coins']} coinů\n"
+                f"Kupující: {buyer_text}"
+            )
+
+        embed.description = "\n\n".join(lines)
+        embed.set_footer(text=f"Celkem čeká: {len(sales)} objednávek")
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 class BuyButton(discord.ui.Button):

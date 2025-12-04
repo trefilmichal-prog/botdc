@@ -891,6 +891,34 @@ def complete_shop_purchases_for_user(buyer_id: int) -> int:
     return int(rowcount)
 
 
+def get_pending_shop_sales_for_seller(seller_id: int) -> List[Dict[str, Any]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT sp.id, sp.item_id, sp.buyer_id, sp.price_coins, sp.created_at, si.title
+        FROM shop_purchases sp
+        JOIN shop_items si ON sp.item_id = si.id
+        WHERE sp.seller_id = ? AND sp.completed = 0
+        ORDER BY sp.created_at ASC
+        """,
+        (seller_id,),
+    )
+    rows = c.fetchall()
+    conn.close()
+    return [
+        {
+            "id": int(r[0]),
+            "item_id": int(r[1]),
+            "buyer_id": int(r[2]),
+            "price_coins": int(r[3]),
+            "created_at": r[4],
+            "title": r[5],
+        }
+        for r in rows
+    ]
+
+
 # ---------- CLAN APPLICATIONS ----------
 
 def _row_to_clan_application(row) -> Dict[str, Any]:
