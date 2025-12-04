@@ -1049,7 +1049,7 @@ if(isset($_POST['kick_user'])) {
                     statusEl.textContent = 'Ukládám...';
 
                     try {
-                        const response = await fetch('admin.php', {
+                        const response = await fetch('api.php', {
                             method: 'POST',
                             headers: { 'X-Requested-With': 'XMLHttpRequest' },
                             body: new URLSearchParams({
@@ -1060,10 +1060,30 @@ if(isset($_POST['kick_user'])) {
                             })
                         });
 
-                        const data = await response.json();
+                        const rawText = await response.text();
+                        const trimmed = rawText.trim();
+                        let data = null;
 
-                        if(!response.ok || !data.ok) {
-                            throw new Error(data.message || 'Nepodařilo se uložit rebirthy.');
+                        if(trimmed !== '') {
+                            try {
+                                data = JSON.parse(trimmed);
+                            } catch (_) {
+                                // Parsing failed; rely on HTTP status handling below.
+                            }
+                        }
+
+                        if(!data || typeof data !== 'object') {
+                            const fallbackMessage = !response.ok
+                                ? `Server vrátil neplatnou odpověď (HTTP ${response.status}).`
+                                : (trimmed !== '' ? trimmed : 'Server nevrátil platnou JSON odpověď.');
+
+                            throw new Error(fallbackMessage);
+                        }
+
+                        if(!response.ok || data.ok !== true) {
+                            throw new Error(
+                                data.message || `Požadavek selhal (HTTP ${response.status}).`
+                            );
                         }
 
                         const delta = data.delta;
