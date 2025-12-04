@@ -1061,22 +1061,23 @@ if(isset($_POST['kick_user'])) {
                         });
 
                         const rawText = await response.text();
+                        const trimmed = rawText.trim();
                         let data = null;
 
-                        if(rawText.trim() !== '') {
+                        if(trimmed !== '') {
                             try {
-                                data = JSON.parse(rawText);
+                                data = JSON.parse(trimmed);
                             } catch (_) {
-                                // If parsing fails, we fall back to the raw text below.
+                                // Parsing failed; rely on HTTP status handling below.
                             }
                         }
 
                         if(!data || typeof data !== 'object') {
-                            throw new Error(
-                                rawText.trim() !== ''
-                                    ? rawText.trim()
-                                    : `Server vrátil neplatnou odpověď (HTTP ${response.status}).`
-                            );
+                            const fallbackMessage = !response.ok
+                                ? `Server vrátil neplatnou odpověď (HTTP ${response.status}).`
+                                : (trimmed !== '' ? trimmed : 'Server nevrátil platnou JSON odpověď.');
+
+                            throw new Error(fallbackMessage);
                         }
 
                         if(!response.ok || data.ok !== true) {
