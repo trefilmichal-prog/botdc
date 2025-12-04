@@ -4,6 +4,7 @@ if(!isset($_SESSION['login'])) { header("Location: index.php"); exit; }
 
 
 $db = new PDO('sqlite:database.sqlite');
+$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
 // Ensure settings table exists for storing credentials/token/guild ID
 $db->exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)");
@@ -20,8 +21,44 @@ $db->exec("CREATE TABLE IF NOT EXISTS member_rebirths (
     user_id TEXT PRIMARY KEY,
     display_name TEXT,
     rebirths TEXT NOT NULL DEFAULT '',
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 )");
+
+function ensure_member_rebirths_schema($db) {
+    $stmt = $db->query("PRAGMA table_info(member_rebirths)");
+    $hasUpdatedAt = false;
+
+    while($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        if(isset($row['name']) && $row['name'] === 'updated_at') {
+            $hasUpdatedAt = true;
+            break;
+        }
+    }
+
+    if(!$hasUpdatedAt) {
+        $db->beginTransaction();
+        try {
+            $db->exec("CREATE TABLE IF NOT EXISTS member_rebirths_new (
+                user_id TEXT PRIMARY KEY,
+                display_name TEXT,
+                rebirths TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )");
+
+            $db->exec("INSERT INTO member_rebirths_new (user_id, display_name, rebirths, updated_at)
+                SELECT user_id, display_name, rebirths, datetime('now') FROM member_rebirths");
+            $db->exec("DROP TABLE member_rebirths");
+            $db->exec("ALTER TABLE member_rebirths_new RENAME TO member_rebirths");
+            $db->commit();
+        } catch(PDOException $e) {
+            $db->rollBack();
+            throw $e;
+        }
+    } else {
+        $db->exec("UPDATE member_rebirths SET updated_at = datetime('now') WHERE updated_at IS NULL OR updated_at = ''");
+    }
+}
+ensure_member_rebirths_schema($db);
 
 // Discord guild/role configuration
 $clans = array(
@@ -396,13 +433,21 @@ function get_warning_map($db) {
 
 function save_member_rebirths($db, $userId, $displayName, $rebirths) {
     $now = date('Y-m-d H:i:s');
-    $stmt = $db->prepare("INSERT INTO member_rebirths (user_id, display_name, rebirths, updated_at) VALUES (?, ?, ?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET display_name = excluded.display_name, rebirths = excluded.rebirths, updated_at = excluded.updated_at");
-    $stmt->execute(array($userId, $displayName, $rebirths, $now));
+    try {
+        $stmt = $db->prepare("INSERT INTO member_rebirths (user_id, display_name, rebirths, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET display_name = excluded.display_name, rebirths = excluded.rebirths, updated_at = excluded.updated_at");
+        $stmt->execute(array($userId, $displayName, $rebirths, $now));
+    } catch(PDOException $e) {
+        if(stripos($e->getMessage(), 'no such column: updated_at') !== false) {
+            ensure_member_rebirths_schema($db);
+            $stmt = $db->prepare("INSERT INTO member_rebirths (user_id, display_name, rebirths, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET display_name = excluded.display_name, rebirths = excluded.rebirths, updated_at = excluded.updated_at");
+            $stmt->execute(array($userId, $displayName, $rebirths, $now));
+        } else {
+            throw $e;
+        }
+    }
 
     return $now;
 }
-
 function get_rebirth_map($db) {
     $stmt = $db->query("SELECT user_id, display_name, rebirths, updated_at FROM member_rebirths");
     $map = array();
