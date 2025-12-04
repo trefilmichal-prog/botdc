@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 import os
 import shutil
@@ -97,20 +98,42 @@ class AutoUpdater(commands.Cog):
 
                 extracted_root = extracted_dirs[0]
 
+                backup_path = tmpdir_path / "backup"
+                backup_path.mkdir(parents=True, exist_ok=True)
+
+                # Záloha aktuálních souborů (kromě .git) pro případ, že kopírování selže.
                 for item in self.repo_path.iterdir():
                     if item.name == ".git":
                         continue
-                    if item.is_dir():
-                        shutil.rmtree(item)
-                    else:
-                        item.unlink()
+                    shutil.move(item, backup_path / item.name)
 
-                for item in extracted_root.iterdir():
-                    target = self.repo_path / item.name
-                    if item.is_dir():
-                        shutil.copytree(item, target, dirs_exist_ok=True)
-                    else:
-                        shutil.copy2(item, target)
+                try:
+                    for item in extracted_root.iterdir():
+                        target = self.repo_path / item.name
+                        if item.is_dir():
+                            shutil.copytree(item, target, dirs_exist_ok=True)
+                        else:
+                            target.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(item, target)
+                except Exception as exc:  # pragma: no cover - defensive guard
+                    self.logger.exception(
+                        "Aktualizace z archivu selhala, obnovuji zálohu: %s", exc
+                    )
+
+                    # Odstraníme případné rozpracované soubory a obnovíme zálohu.
+                    for item in self.repo_path.iterdir():
+                        if item.name == ".git":
+                            continue
+                        if item.is_dir():
+                            shutil.rmtree(item, ignore_errors=True)
+                        else:
+                            with contextlib.suppress(FileNotFoundError):
+                                item.unlink()
+
+                    for item in backup_path.iterdir():
+                        shutil.move(item, self.repo_path / item.name)
+
+                    return False, f"Aktualizace z archivu selhala: {exc}"
 
         except Exception as exc:  # pragma: no cover - defensive guard
             self.logger.exception("Aktualizace z archivu selhala: %s", exc)
