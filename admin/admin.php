@@ -359,100 +359,6 @@ function derive_warn_count_from_roles($roles, $warnRole1, $warnRole2, $warnRole3
     return $warnCount;
 }
 
-function parse_rebirth_to_number($value) {
-    if($value === null) {
-        return null;
-    }
-
-    $value = trim($value);
-    if($value === '') {
-        return null;
-    }
-
-    $suffixes = array(
-        'k' => 3,
-        'm' => 6,
-        'b' => 9,
-        't' => 12,
-        'qa' => 15,
-        'qi' => 18,
-        'sx' => 21,
-        'sp' => 24,
-        'oc' => 27,
-        'no' => 30,
-        'dc' => 33
-    );
-
-    if(!preg_match('/^\s*([0-9]+(?:[.,][0-9]+)?)\s*([a-zA-Z]{0,2})\s*$/', $value, $matches)) {
-        return null;
-    }
-
-    $numericPart = str_replace(',', '.', $matches[1]);
-    $suffix = strtolower($matches[2]);
-
-    if($suffix === '') {
-        return (float)$numericPart;
-    }
-
-    if(!array_key_exists($suffix, $suffixes)) {
-        return null;
-    }
-
-    $exponent = $suffixes[$suffix];
-    return (float)$numericPart * pow(10, $exponent);
-}
-
-function format_rebirth_number($number) {
-    $suffixes = array(
-        'dc' => 1e33,
-        'no' => 1e30,
-        'oc' => 1e27,
-        'sp' => 1e24,
-        'sx' => 1e21,
-        'qi' => 1e18,
-        'qa' => 1e15,
-        't' => 1e12,
-        'b' => 1e9,
-        'm' => 1e6,
-        'k' => 1e3
-    );
-
-    $abs = abs($number);
-    foreach($suffixes as $suffix => $threshold) {
-        if($abs >= $threshold) {
-            $value = $number / $threshold;
-            $formatted = number_format($value, 2, '.', '');
-            $formatted = rtrim(rtrim($formatted, '0'), '.');
-            return $formatted . $suffix;
-        }
-    }
-
-    if($number == (int)$number) {
-        return (string)(int)$number;
-    }
-
-    $formatted = number_format($number, 2, '.', '');
-    return rtrim(rtrim($formatted, '0'), '.');
-}
-
-function describe_rebirth_delta($previous, $current) {
-    $prevNumeric = parse_rebirth_to_number($previous);
-    $currNumeric = parse_rebirth_to_number($current);
-
-    if($prevNumeric === null || $currNumeric === null) {
-        return null;
-    }
-
-    $delta = $currNumeric - $prevNumeric;
-
-    if(abs($delta) < 0.0001) {
-        return 'beze změny';
-    }
-
-    $sign = $delta > 0 ? '+' : '';
-    return $sign . format_rebirth_number($delta);
-}
-
 function sync_warning_record_with_roles($db, $userId, $warnCount) {
     $stmt = $db->prepare("SELECT warn_count, last_warned_at FROM warnings WHERE user_id = ?");
     $stmt->execute(array($userId));
@@ -544,14 +450,6 @@ if(isset($_POST['update_rebirth'])) {
         $rebirthStatuses[$userId] = array('text' => 'Chybí ID uživatele.', 'error' => true);
     } else {
         $rebirths = trim($rebirthInput);
-        $previousValue = null;
-
-        $existingStmt = $db->prepare("SELECT rebirths FROM member_rebirths WHERE user_id = ?");
-        $existingStmt->execute(array($userId));
-        $existingRow = $existingStmt->fetch(PDO::FETCH_ASSOC);
-        if($existingRow) {
-            $previousValue = $existingRow['rebirths'];
-        }
 
         if($rebirths === '') {
             $errors[] = 'Zadejte hodnotu rebirthu.';
@@ -561,10 +459,7 @@ if(isset($_POST['update_rebirth'])) {
             $rebirthStatuses[$userId] = array('text' => 'Hodnota rebirthu je příliš dlouhá (max. 255 znaků).', 'error' => true);
         } else {
             $storedAt = save_member_rebirths($db, $userId, $displayName !== '' ? $displayName : $userId, $rebirths);
-            $delta = describe_rebirth_delta($previousValue, $rebirths);
-
-            $deltaText = $delta ? " ({$delta})" : '';
-            $message = "Rebirthy pro {$userId} byly uloženy: {$storedAt}{$deltaText}";
+            $message = "Rebirthy pro {$userId} byly uloženy jako text v {$storedAt}.";
 
             $notices[] = $message;
             $rebirthStatuses[$userId] = array('text' => $message, 'error' => false);
