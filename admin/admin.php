@@ -4,6 +4,7 @@ if(!isset($_SESSION['login'])) { header("Location: index.php"); exit; }
 
 
 $db = new PDO('sqlite:database.sqlite');
+$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
 // Ensure settings table exists for storing credentials/token/guild ID
 $db->exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)");
@@ -35,8 +36,8 @@ function ensure_member_rebirths_schema($db) {
     }
 
     if(!$hasUpdatedAt) {
-        $db->exec("ALTER TABLE member_rebirths ADD COLUMN updated_at TEXT DEFAULT ''");
-        $db->exec("UPDATE member_rebirths SET updated_at = COALESCE(updated_at, datetime('now'))");
+        $db->exec("ALTER TABLE member_rebirths ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))");
+        $db->exec("UPDATE member_rebirths SET updated_at = datetime('now') WHERE updated_at IS NULL OR updated_at = ''");
     }
 }
 ensure_member_rebirths_schema($db);
@@ -414,13 +415,21 @@ function get_warning_map($db) {
 
 function save_member_rebirths($db, $userId, $displayName, $rebirths) {
     $now = date('Y-m-d H:i:s');
-    $stmt = $db->prepare("INSERT INTO member_rebirths (user_id, display_name, rebirths, updated_at) VALUES (?, ?, ?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET display_name = excluded.display_name, rebirths = excluded.rebirths, updated_at = excluded.updated_at");
-    $stmt->execute(array($userId, $displayName, $rebirths, $now));
+    try {
+        $stmt = $db->prepare("INSERT INTO member_rebirths (user_id, display_name, rebirths, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET display_name = excluded.display_name, rebirths = excluded.rebirths, updated_at = excluded.updated_at");
+        $stmt->execute(array($userId, $displayName, $rebirths, $now));
+    } catch(PDOException $e) {
+        if(stripos($e->getMessage(), 'no such column: updated_at') !== false) {
+            ensure_member_rebirths_schema($db);
+            $stmt = $db->prepare("INSERT INTO member_rebirths (user_id, display_name, rebirths, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET display_name = excluded.display_name, rebirths = excluded.rebirths, updated_at = excluded.updated_at");
+            $stmt->execute(array($userId, $displayName, $rebirths, $now));
+        } else {
+            throw $e;
+        }
+    }
 
     return $now;
 }
-
 function get_rebirth_map($db) {
     $stmt = $db->query("SELECT user_id, display_name, rebirths, updated_at FROM member_rebirths");
     $map = array();
