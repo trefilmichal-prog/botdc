@@ -76,6 +76,16 @@ def init_db():
         """
     )
 
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sp_panels (
+            message_id INTEGER PRIMARY KEY,
+            guild_id INTEGER NOT NULL,
+            channel_id INTEGER NOT NULL
+        )
+        """
+    )
+
     # Timery
     c.execute(
         """
@@ -427,6 +437,58 @@ def get_all_leaderboard_panels() -> list[tuple[int, int, int]]:
     rows = c.fetchall()
     conn.close()
     return [(int(g), int(ch), int(msg)) for g, ch, msg in rows]
+
+
+# ---------- SP PANELY ----------
+
+
+def add_sp_panel(guild_id: int, channel_id: int, message_id: int):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO sp_panels (message_id, guild_id, channel_id)
+        VALUES (?, ?, ?)
+        ON CONFLICT(message_id) DO UPDATE SET
+            guild_id = excluded.guild_id,
+            channel_id = excluded.channel_id
+        """,
+        (message_id, guild_id, channel_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def remove_sp_panel(message_id: int):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM sp_panels WHERE message_id = ?", (message_id,))
+    conn.commit()
+    conn.close()
+
+
+def get_all_sp_panels() -> list[tuple[int, int, int]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT guild_id, channel_id, message_id FROM sp_panels")
+    rows = c.fetchall()
+    conn.close()
+    return [(int(g), int(ch), int(msg)) for g, ch, msg in rows]
+
+
+def get_sp_panel_for_guild(guild_id: int) -> Optional[tuple[int, int, int]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "SELECT guild_id, channel_id, message_id FROM sp_panels WHERE guild_id = ?",
+        (guild_id,),
+    )
+    row = c.fetchone()
+    conn.close()
+    if row is None:
+        return None
+    guild_id_val, channel_id, message_id = row
+    return (int(guild_id_val), int(channel_id), int(message_id))
 
 
 # ---------- DŘEVO ----------
