@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import shutil
 from pathlib import Path
 
 import discord
@@ -16,9 +17,15 @@ class AutoUpdater(commands.Cog):
         self.repo_path = Path(__file__).resolve().parent
 
     async def _run_git_command(self, *args: str) -> tuple[int, str, str]:
+        git_executable = shutil.which("git")
+        if not git_executable:
+            error = "Git není nainstalován nebo není v PATH."
+            self.logger.error(error)
+            return 1, "", error
+
         try:
             process = await asyncio.create_subprocess_exec(
-                "git",
+                git_executable,
                 *args,
                 cwd=str(self.repo_path),
                 stdout=asyncio.subprocess.PIPE,
