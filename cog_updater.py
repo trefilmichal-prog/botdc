@@ -26,6 +26,16 @@ class AutoUpdater(commands.Cog):
         stdout, stderr = await process.communicate()
         return process.returncode, stdout.decode().strip(), stderr.decode().strip()
 
+    async def _ensure_clean_worktree(self) -> bool:
+        """Return True if the worktree has no local changes."""
+
+        returncode, stdout, stderr = await self._run_git_command("status", "--porcelain")
+        if returncode != 0:
+            self.logger.error("Nepodařilo se načíst stav repozitáře: %s", stderr or stdout)
+            return False
+
+        return stdout == ""
+
     @app_commands.command(
         name="updatebot", description="Aktualizuje bota z Git repozitáře."
     )
@@ -42,26 +52,51 @@ class AutoUpdater(commands.Cog):
     ):
         await interaction.response.defer(ephemeral=True, thinking=True)
 
-        returncode, stdout, stderr = await self._run_git_command(
-            "pull", repo_url, branch
-        )
+        if not await self._ensure_clean_worktree():
+            await interaction.followup.send(
+                "❌ Aktualizaci nelze provést, protože v repozitáři jsou neuložené změny."
+                " Nejprve je potvrďte nebo zahoďte.",
+                ephemeral=True,
+            )
+            return
 
-        if returncode != 0:
+        fetch_code, fetch_out, fetch_err = await self._run_git_command(
+            "fetch", repo_url, branch
+        )
+        if fetch_code != 0:
             message = (
-                "❌ Aktualizace selhala. Zkontrolujte URL/branch a stav repozitáře.\n"
-                f"Výstup: ```\n{stderr or stdout}\n```"
+                "❌ Stažení změn selhalo. Zkontrolujte URL/branch a dostupnost repozitáře.\n"
+                f"Výstup: ```\n{fetch_err or fetch_out}\n```"
             )
             await interaction.followup.send(message, ephemeral=True)
             self.logger.error(
-                "Git pull selhal s kódem %s: %s", returncode, stderr or stdout
+                "Git fetch selhal s kódem %s: %s", fetch_code, fetch_err or fetch_out
+            )
+            return
+
+        reset_code, reset_out, reset_err = await self._run_git_command(
+            "checkout",
+            "-B",
+            branch,
+            "FETCH_HEAD",
+        )
+        if reset_code != 0:
+            message = (
+                "❌ Přepnutí na požadovanou větev selhalo.\n"
+                f"Výstup: ```\n{reset_err or reset_out}\n```"
+            )
+            await interaction.followup.send(message, ephemeral=True)
+            self.logger.error(
+                "Git checkout selhal s kódem %s: %s", reset_code, reset_err or reset_out
             )
             return
 
         self.logger.info(
-            "Bot aktualizován z %s (%s): %s", repo_url, branch, stdout
+            "Bot aktualizován z %s (%s): %s", repo_url, branch, fetch_out or reset_out
         )
         await interaction.followup.send(
-            "✅ Bot byl úspěšně aktualizován.\n" f"Výstup: ```\n{stdout}\n```",
+            "✅ Bot byl úspěšně aktualizován.\n"
+            f"Výstup: ```\n{fetch_out or reset_out}\n```",
             ephemeral=True,
         )
 
