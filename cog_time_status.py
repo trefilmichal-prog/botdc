@@ -103,16 +103,17 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
         return embed
 
     def _get_cz_zone(self) -> timezone:
-        try:
-            return ZoneInfo("Europe/Prague")
-        except ZoneInfoNotFoundError:
-            self.log.warning(
-                "Časové pásmo 'Europe/Prague' nenalezeno, používám pevný offset UTC+1."
-            )
-            return timezone(timedelta(hours=1))
+        zone = self._load_zone("Europe/Prague")
+        if zone:
+            return zone
+
+        self.log.warning(
+            "Časové pásmo 'Europe/Prague' nenalezeno, používám pevný offset UTC+1."
+        )
+        return timezone(timedelta(hours=1))
 
     def _get_state_zone(self) -> timezone:
-        zone = self._try_load_zone(self.state_timezone_name)
+        zone = self._load_zone(self.state_timezone_name)
         if zone:
             return zone
 
@@ -126,7 +127,7 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
             self.state_timezone_name = TIME_STATUS_STATE_TIMEZONE
             set_setting("time_status_state_timezone", self.state_timezone_name)
 
-            zone = self._try_load_zone(self.state_timezone_name)
+            zone = self._load_zone(self.state_timezone_name)
             if zone:
                 return zone
 
@@ -136,12 +137,22 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
         )
         return timezone.utc
 
-    @staticmethod
-    def _try_load_zone(zone_name: str) -> timezone | None:
+    def _load_zone(self, zone_name: str) -> timezone | None:
         try:
             return ZoneInfo(zone_name)
         except ZoneInfoNotFoundError:
-            return None
+            try:
+                import tzdata  # type: ignore # noqa: F401
+            except ModuleNotFoundError:
+                self.log.warning(
+                    "Chybí balíček tzdata – nelze načíst časové pásmo '%s'.", zone_name
+                )
+                return None
+
+            try:
+                return ZoneInfo(zone_name)
+            except ZoneInfoNotFoundError:
+                return None
 
     @staticmethod
     def _get_english_daypart(hour: int) -> str:
