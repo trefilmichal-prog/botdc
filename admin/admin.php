@@ -1049,7 +1049,7 @@ if(isset($_POST['kick_user'])) {
                     statusEl.textContent = 'Ukládám...';
 
                     try {
-                        const response = await fetch('admin.php', {
+                        const response = await fetch('api.php', {
                             method: 'POST',
                             headers: { 'X-Requested-With': 'XMLHttpRequest' },
                             body: new URLSearchParams({
