@@ -23,6 +23,9 @@ class AdminTasks(commands.Cog):
     def _format_channel_reference(
         self, channel: Optional[discord.abc.GuildChannel] = None
     ) -> str:
+        if not ADMIN_TASK_CHANNEL_ID:
+            return "(nenastaveno)"
+
         if isinstance(channel, discord.abc.GuildChannel):
             return f"#{channel.name} (ID {channel.id})"
 
@@ -91,6 +94,14 @@ class AdminTasks(commands.Cog):
             self._channel_status = status
 
     async def _get_admin_channel(self) -> Optional[discord.TextChannel]:
+        if not ADMIN_TASK_CHANNEL_ID:
+            self._update_channel_status(
+                "not_configured",
+                self.logger.info,
+                "Admin task channel ID není nastaven; odesílání admin úkolů je vypnuto",
+            )
+            return None
+
         channel = self.bot.get_channel(ADMIN_TASK_CHANNEL_ID)
         if channel is not None:
             if isinstance(channel, discord.TextChannel):
