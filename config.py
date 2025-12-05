@@ -1,5 +1,8 @@
 import os
 
+# Absolutní cesta ke kořenovému adresáři projektu
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # Token bota z environment proměnné
 TOKEN = os.getenv("DISCORD_TOKEN")
 if not TOKEN:
@@ -22,7 +25,7 @@ CLAN_BOOSTS_IMAGE_URL = "https://ezrz.eu/dcbot/stats.jpg"
 CLAN_BANNER_IMAGE_URL = "https://ezrz.eu/dcbot/baner2.jpg"
 
 # Cesta k SQLite databázi
-DB_PATH = "wood_needs.db"
+DB_PATH = os.path.join(BASE_DIR, "wood_needs.db")
 
 # Admin panel – cesta k SQLite databázi a výstupní roomka
 # Admin úkoly nyní sdílí hlavní databázi, aby se používala pouze wood_needs.db
