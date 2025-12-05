@@ -16,6 +16,7 @@ class AdminTasks(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.logger = logging.getLogger("botdc.admin_tasks")
+        self._channel_status: Optional[str] = None
         self._ensure_schema()
         self.poll_admin_tasks.start()
 
@@ -74,35 +75,56 @@ class AdminTasks(commands.Cog):
         conn.commit()
         conn.close()
 
+    def _update_channel_status(
+        self, status: str, log_method, message: str, *args
+    ) -> None:
+        if status != self._channel_status:
+            log_method(message, *args)
+            self._channel_status = status
+
     async def _get_admin_channel(self) -> Optional[discord.TextChannel]:
         channel = self.bot.get_channel(ADMIN_TASK_CHANNEL_ID)
         if channel is not None:
             if isinstance(channel, discord.TextChannel):
+                self._channel_status = "ok"
                 return channel
 
-            self.logger.warning(
-                "Admin task channel %s is not a text channel", ADMIN_TASK_CHANNEL_ID
+            self._update_channel_status(
+                "not_text",
+                self.logger.warning,
+                "Admin task channel %s is not a text channel",
+                ADMIN_TASK_CHANNEL_ID,
             )
             return None
 
         try:
             fetched = await self.bot.fetch_channel(ADMIN_TASK_CHANNEL_ID)
         except (discord.Forbidden, discord.NotFound):
-            self.logger.warning(
-                "Admin task channel %s is not accessible", ADMIN_TASK_CHANNEL_ID
+            self._update_channel_status(
+                "not_accessible",
+                self.logger.warning,
+                "Admin task channel %s is not accessible",
+                ADMIN_TASK_CHANNEL_ID,
             )
             return None
         except discord.HTTPException:
-            self.logger.exception(
-                "Failed to fetch admin task channel %s", ADMIN_TASK_CHANNEL_ID
+            self._update_channel_status(
+                "fetch_failed",
+                self.logger.exception,
+                "Failed to fetch admin task channel %s",
+                ADMIN_TASK_CHANNEL_ID,
             )
             return None
 
         if isinstance(fetched, discord.TextChannel):
+            self._channel_status = "ok"
             return fetched
 
-        self.logger.warning(
-            "Admin task channel %s is not a text channel", ADMIN_TASK_CHANNEL_ID
+        self._update_channel_status(
+            "not_text",
+            self.logger.warning,
+            "Admin task channel %s is not a text channel",
+            ADMIN_TASK_CHANNEL_ID,
         )
         return None
 
