@@ -342,6 +342,90 @@ class Clan2ApplicationsCog(commands.Cog, name="Clan2ApplicationsCog"):
         )
 
     @app_commands.command(
+        name="sync_clan2_ticket_perms",
+        description="Přidá clan2 admin roli do všech ticketů (přístup/úpravy).",
+    )
+    @app_commands.checks.has_permissions(manage_channels=True)
+    async def sync_clan2_ticket_perms_cmd(self, interaction: discord.Interaction):
+        guild = interaction.guild
+
+        if guild is None:
+            await interaction.response.send_message(
+                "Příkaz lze použít pouze na serveru.",
+                ephemeral=True,
+            )
+            return
+
+        if not CLAN2_ADMIN_ROLE_ID:
+            await interaction.response.send_message(
+                "ID clan2 admin role není nastaveno v konfiguraci.",
+                ephemeral=True,
+            )
+            return
+
+        admin_role = guild.get_role(CLAN2_ADMIN_ROLE_ID)
+        if admin_role is None:
+            await interaction.response.send_message(
+                "Clan2 admin role nebyla nalezena.",
+                ephemeral=True,
+            )
+            return
+
+        category_ids = [
+            CLAN_TICKET_CATEGORY_ID,
+            CLAN2_ACCEPTED_TICKET_CATEGORY_ID,
+            CLAN_VACATION_TICKET_CATEGORY_ID,
+        ]
+
+        categories = [
+            guild.get_channel(cat_id)
+            for cat_id in category_ids
+            if cat_id
+        ]
+
+        target_channels: list[discord.TextChannel] = []
+        for category in categories:
+            if isinstance(category, discord.CategoryChannel):
+                target_channels.extend(
+                    ch for ch in category.channels if isinstance(ch, discord.TextChannel)
+                )
+
+        updated = 0
+        skipped = 0
+        failed = 0
+
+        for channel in target_channels:
+            overwrites = dict(channel.overwrites)
+            before_overwrites = dict(overwrites)
+            self._add_clan2_admin_overwrite(overwrites, guild)
+
+            if overwrites == before_overwrites:
+                skipped += 1
+                continue
+
+            success = await self.safe_channel_edit(
+                channel,
+                overwrites=overwrites,
+                reason="Doplnění přístupu pro clan2 admin roli",
+            )
+            if success:
+                updated += 1
+            else:
+                failed += 1
+
+        await interaction.response.send_message(
+            (
+                "Hotovo. Aktualizováno: {updated}, již obsahuje roli: {skipped}, "
+                "chyby: {failed}."
+            ).format(
+                updated=updated,
+                skipped=skipped,
+                failed=failed,
+            ),
+            ephemeral=True,
+        )
+
+    @app_commands.command(
         name="pair_clan2_ticket",
         description=(
             "Spáruje ticket z jiného bota s členem klanu podle roblox nicku v názvu."
