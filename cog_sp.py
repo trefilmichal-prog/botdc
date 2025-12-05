@@ -10,7 +10,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from config import ADMIN_TASK_DB_PATH, REBIRTH_API_TOKEN, REBIRTH_DATA_URL
+from config import ADMIN_TASK_DB_PATH, REBIRTH_DATA_URL
 from db import (
     add_sp_panel,
     get_all_sp_panels,
@@ -125,8 +125,6 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
 
         try:
             request = urllib.request.Request(REBIRTH_DATA_URL)
-            if REBIRTH_API_TOKEN:
-                request.add_header("X-API-Token", REBIRTH_API_TOKEN)
 
             with urllib.request.urlopen(request, timeout=10) as response:
                 if response.status != 200:
