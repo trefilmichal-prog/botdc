@@ -1,5 +1,7 @@
 import importlib.util
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import discord
 from discord.ext import commands
@@ -8,11 +10,23 @@ from config import TOKEN
 from db import init_db
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+
+class PragueTimeFormatter(logging.Formatter):
+    def formatTime(self, record, datefmt=None):
+        dt = datetime.fromtimestamp(record.created, tz=ZoneInfo("Europe/Prague"))
+        if datefmt:
+            return dt.strftime(datefmt)
+        return dt.isoformat()
+
+
+handler = logging.StreamHandler()
+handler.setFormatter(
+    PragueTimeFormatter(
+        "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        "%Y-%m-%d %H:%M:%S",
+    )
 )
+logging.basicConfig(level=logging.INFO, handlers=[handler])
 logger = logging.getLogger("botdc")
 
 
