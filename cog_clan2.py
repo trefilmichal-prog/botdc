@@ -345,7 +345,8 @@ class Clan2ApplicationsCog(commands.Cog, name="Clan2ApplicationsCog"):
         name="sync_clan2_ticket_perms",
         description="Přidá clan2 admin roli do všech ticketů (přístup/úpravy).",
     )
-    @app_commands.checks.has_permissions(manage_channels=True)
+    @app_commands.check(clan2_admin_permission_check)
+    @app_commands.default_permissions(manage_channels=True)
     async def sync_clan2_ticket_perms_cmd(self, interaction: discord.Interaction):
         guild = interaction.guild
 
