@@ -192,7 +192,7 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
             mention = f"<@{user_id}>"
             timestamp = updated_at if updated_at else "neuvedeno"
             lines.append(
-                f"**{idx}.** {display_name} ({mention}) – {rebirths} | aktualizováno {timestamp}"
+                f"**{idx}.** {display_name} ({mention}) – {rebirths} | {timestamp}"
             )
 
         embed.description = "\n".join(lines[:25])
