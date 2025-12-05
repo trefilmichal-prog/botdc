@@ -171,7 +171,7 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
         rows = self._fetch_rebirth_rows()
         embed = discord.Embed(
             title="Rebirth tabulka z webu",
-            description="Aktualizace každých 10 minut",
+            description="Aktualizace každých 5 minut",
             color=discord.Color.gold(),
         )
 
@@ -225,7 +225,7 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
 
     @app_commands.command(
         name="setup_sp",
-        description="Propojí embed s webovou tabulkou rebirthů (aktualizace každých 10 minut)",
+        description="Propojí embed s webovou tabulkou rebirthů (aktualizace každých 5 minut)",
     )
     @app_commands.default_permissions(manage_channels=True)
     async def setup_sp(self, interaction: discord.Interaction, channel: discord.TextChannel):
@@ -276,7 +276,7 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
             except discord.HTTPException:
                 continue
 
-    @tasks.loop(minutes=10)
+    @tasks.loop(minutes=5)
     async def refresh_loop(self):
         try:
             await self.refresh_sp_panels()
