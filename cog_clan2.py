@@ -15,6 +15,7 @@ from config import (
     CLAN2_ACCEPTED_TICKET_CATEGORY_ID,
     CLAN_VACATION_TICKET_CATEGORY_ID,
     TICKET_VIEWER_ROLE_ID,
+    CLAN2_ADMIN_ROLE_ID,
 )
 from i18n import DEFAULT_LOCALE, get_interaction_locale, normalize_locale, t
 from db import (
@@ -27,6 +28,34 @@ from db import (
     set_clan_application_status,
     mark_clan_application_deleted,
 )
+
+
+def has_clan2_admin_access(member: discord.Member) -> bool:
+    perms = member.guild_permissions
+    if perms.administrator or perms.manage_guild or perms.manage_roles:
+        return True
+
+    if CLAN2_ADMIN_ROLE_ID:
+        admin_role = member.guild.get_role(CLAN2_ADMIN_ROLE_ID)
+        if admin_role in member.roles:
+            return True
+
+    if TICKET_VIEWER_ROLE_ID:
+        role = member.guild.get_role(TICKET_VIEWER_ROLE_ID)
+        if role in member.roles:
+            return True
+
+    return False
+
+
+async def clan2_admin_permission_check(
+    interaction: discord.Interaction,
+) -> bool:
+    user = interaction.user
+    if isinstance(user, discord.Member) and has_clan2_admin_access(user):
+        return True
+
+    raise app_commands.CheckFailure("Nemáš oprávnění pro správu clan ticketů.")
 
 
 class Clan2ApplicationsCog(commands.Cog, name="Clan2ApplicationsCog"):
@@ -183,7 +212,7 @@ class Clan2ApplicationsCog(commands.Cog, name="Clan2ApplicationsCog"):
         name="clan2_panel",
         description="Zobrazí admin panel se seznamem členů klanu (Warn / Kick).",
     )
-    @app_commands.checks.has_permissions(manage_roles=True)
+    @app_commands.check(clan2_admin_permission_check)
     async def clan2_panel_cmd(self, interaction: discord.Interaction):
         locale = get_interaction_locale(interaction)
         guild = interaction.guild
@@ -867,16 +896,7 @@ class Clan2AdminView(discord.ui.View):
         return app
 
     def _is_admin(self, user: discord.Member) -> bool:
-        perms = user.guild_permissions
-        if perms.administrator or perms.manage_guild or perms.manage_roles:
-            return True
-
-        if TICKET_VIEWER_ROLE_ID:
-            role = user.guild.get_role(TICKET_VIEWER_ROLE_ID)
-            if role in user.roles:
-                return True
-
-        return False
+        return has_clan2_admin_access(user)
 
     @discord.ui.button(
         label="Přijmout",
@@ -1101,14 +1121,8 @@ class DeleteRejectedTicketView(discord.ui.View):
         self.add_item(delete_button)
 
     def _can_manage(self, member: discord.Member) -> bool:
-        perms = member.guild_permissions
-        if perms.administrator or perms.manage_guild or perms.manage_roles:
+        if has_clan2_admin_access(member):
             return True
-
-        if TICKET_VIEWER_ROLE_ID:
-            role = member.guild.get_role(TICKET_VIEWER_ROLE_ID)
-            if role in member.roles:
-                return True
 
         return member.id == self.app_user_id
 
@@ -1219,10 +1233,7 @@ class Clan2AdminPanelView(discord.ui.View):
             return
 
         user = interaction.user
-        if not isinstance(user, discord.Member) or not (
-            user.guild_permissions.administrator
-            or user.guild_permissions.manage_roles
-        ):
+        if not isinstance(user, discord.Member) or not has_clan2_admin_access(user):
             await interaction.response.send_message(
                 "Tento panel může používat pouze admin (nebo člen s Manage Roles).",
                 ephemeral=True,
@@ -1274,10 +1285,7 @@ class Clan2AdminPanelView(discord.ui.View):
         user = interaction.user
         if guild is None or not isinstance(user, discord.Member):
             return "Tento panel lze použít pouze na serveru."
-        if not (
-            user.guild_permissions.administrator
-            or user.guild_permissions.manage_roles
-        ):
+        if not has_clan2_admin_access(user):
             return "Tento panel může používat pouze admin (nebo člen s Manage Roles)."
         return None
 
