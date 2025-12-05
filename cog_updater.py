@@ -9,6 +9,8 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+from config import DB_PATH
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -24,6 +26,7 @@ class AutoUpdater(commands.Cog):
         self.default_repo_url = "https://github.com/trefilmichal-prog/botdc.git"
         self.default_branch = "main"
         self.allowed_user_id = 369810917673795586
+        self.preserved_paths = {Path(DB_PATH).resolve()}
 
     async def _download_archive(self, url: str, destination: Path) -> None:
         await asyncio.to_thread(self._download_archive_sync, url, destination)
@@ -104,13 +107,15 @@ class AutoUpdater(commands.Cog):
 
                 # Záloha aktuálních souborů (kromě .git) pro případ, že kopírování selže.
                 for item in self.repo_path.iterdir():
-                    if item.name == ".git":
+                    if item.name == ".git" or item.resolve() in self.preserved_paths:
                         continue
                     shutil.move(item, backup_path / item.name)
 
                 try:
                     for item in extracted_root.iterdir():
                         target = self.repo_path / item.name
+                        if target.resolve() in self.preserved_paths:
+                            continue
                         if item.is_dir():
                             shutil.copytree(item, target, dirs_exist_ok=True)
                         else:
