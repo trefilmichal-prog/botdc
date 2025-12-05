@@ -86,6 +86,22 @@ class AdminTasks(commands.Cog):
         conn.commit()
         conn.close()
 
+    def _clear_tasks(self) -> None:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM tasks")
+        conn.commit()
+        conn.close()
+
+    def _disable_polling(self, message: str, *args) -> None:
+        """Stop polling and clear queued tasks when the target channel is invalid."""
+
+        self._clear_tasks()
+        if self.poll_admin_tasks.is_running():
+            self.poll_admin_tasks.cancel()
+
+        self._update_channel_status("disabled", self.logger.warning, message, *args)
+
     def _update_channel_status(
         self, status: str, log_method, message: str, *args
     ) -> None:
@@ -124,10 +140,8 @@ class AdminTasks(commands.Cog):
         try:
             fetched = await self.bot.fetch_channel(ADMIN_TASK_CHANNEL_ID)
         except (discord.Forbidden, discord.NotFound):
-            self._update_channel_status(
-                "not_accessible",
-                self.logger.warning,
-                "Admin task channel %s is not accessible; check the channel ID and bot permissions",
+            self._disable_polling(
+                "Admin task channel %s is not accessible; clearing tasks and disabling admin panel",
                 self._format_channel_reference(),
             )
             return None
