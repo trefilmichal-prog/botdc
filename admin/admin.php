@@ -26,16 +26,25 @@ $db->exec("CREATE TABLE IF NOT EXISTS member_rebirths (
 
 function ensure_member_rebirths_schema($db) {
     $stmt = $db->query("PRAGMA table_info(member_rebirths)");
+    $hasUserId = false;
+    $hasDisplayName = false;
+    $hasRebirths = false;
     $hasUpdatedAt = false;
 
     while($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-        if(isset($row['name']) && $row['name'] === 'updated_at') {
-            $hasUpdatedAt = true;
-            break;
+        if(!isset($row['name'])) {
+            continue;
         }
+
+        if($row['name'] === 'user_id') { $hasUserId = true; }
+        if($row['name'] === 'display_name') { $hasDisplayName = true; }
+        if($row['name'] === 'rebirths') { $hasRebirths = true; }
+        if($row['name'] === 'updated_at') { $hasUpdatedAt = true; }
     }
 
-    if(!$hasUpdatedAt) {
+    $needsMigration = !$hasUserId || !$hasDisplayName || !$hasRebirths || !$hasUpdatedAt;
+
+    if($needsMigration) {
         $db->beginTransaction();
         try {
             $db->exec("CREATE TABLE IF NOT EXISTS member_rebirths_new (
@@ -45,9 +54,16 @@ function ensure_member_rebirths_schema($db) {
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             )");
 
-            $db->exec("INSERT INTO member_rebirths_new (user_id, display_name, rebirths, updated_at)
-                SELECT user_id, display_name, rebirths, datetime('now') FROM member_rebirths");
-            $db->exec("DROP TABLE member_rebirths");
+            if($hasUserId) {
+                $displayExpr = $hasDisplayName ? 'display_name' : 'user_id';
+                $rebirthExpr = $hasRebirths ? 'rebirths' : "''";
+                $updatedExpr = $hasUpdatedAt ? 'updated_at' : "datetime('now')";
+
+                $db->exec("INSERT INTO member_rebirths_new (user_id, display_name, rebirths, updated_at)
+                    SELECT user_id, {$displayExpr} AS display_name, {$rebirthExpr} AS rebirths, {$updatedExpr} AS updated_at FROM member_rebirths");
+            }
+
+            $db->exec("DROP TABLE IF EXISTS member_rebirths");
             $db->exec("ALTER TABLE member_rebirths_new RENAME TO member_rebirths");
             $db->commit();
         } catch(PDOException $e) {
@@ -56,6 +72,7 @@ function ensure_member_rebirths_schema($db) {
         }
     } else {
         $db->exec("UPDATE member_rebirths SET updated_at = datetime('now') WHERE updated_at IS NULL OR updated_at = ''");
+        $db->exec("UPDATE member_rebirths SET display_name = user_id WHERE display_name IS NULL OR display_name = ''");
     }
 }
 ensure_member_rebirths_schema($db);
