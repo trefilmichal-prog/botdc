@@ -52,6 +52,22 @@ class Clan2ApplicationsCog(commands.Cog, name="Clan2ApplicationsCog"):
         safe_base = safe_base.lower().replace(" ", "-")
         return safe_base
 
+    def _find_matching_members(
+        self, member_role: Optional[discord.Role], channel_name: str
+    ) -> list[discord.Member]:
+        if member_role is None:
+            return []
+
+        normalized_channel = channel_name.lower()
+        candidates: list[discord.Member] = []
+
+        for member in member_role.members:
+            normalized_nick = self._normalize_ticket_base(member.display_name)
+            if normalized_nick and normalized_nick in normalized_channel:
+                candidates.append(member)
+
+        return candidates
+
     def build_ticket_name(self, base: str, status: str = "open") -> str:
         emoji_map = {
             "accepted": "🟢",
@@ -306,14 +322,8 @@ class Clan2ApplicationsCog(commands.Cog, name="Clan2ApplicationsCog"):
             )
             return
 
-        channel_name = channel.name.lower()
-        candidates: list[discord.Member] = []
         locale = get_interaction_locale(interaction)
-
-        for member in member_role.members:
-            normalized_nick = self._normalize_ticket_base(member.display_name)
-            if normalized_nick and normalized_nick in channel_name:
-                candidates.append(member)
+        candidates = self._find_matching_members(member_role, channel.name)
 
         if not candidates:
             await interaction.response.send_message(
@@ -343,6 +353,85 @@ class Clan2ApplicationsCog(commands.Cog, name="Clan2ApplicationsCog"):
             f"Ticket byl spárován s hráčem {target.mention} "
             f"(roblox nick: {target.display_name}).",
             ephemeral=False,
+        )
+
+    @app_commands.command(
+        name="pair_all2",
+        description=(
+            "Spáruje všechny tickety v této kategorii s členy klanu podle roblox nicku v názvu."
+        ),
+    )
+    @app_commands.checks.has_permissions(manage_channels=True)
+    async def pair_all_clan2_tickets_cmd(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        channel = interaction.channel
+
+        if guild is None or not isinstance(channel, discord.TextChannel):
+            await interaction.response.send_message(
+                "Tento příkaz lze použít pouze v textovém kanálu na serveru.",
+                ephemeral=True,
+            )
+            return
+
+        member_role = guild.get_role(CLAN2_MEMBER_ROLE_ID) if CLAN2_MEMBER_ROLE_ID else None
+        if member_role is None:
+            await interaction.response.send_message(
+                "Role pro členy klanu nebyla nalezena.", ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        locale = get_interaction_locale(interaction)
+        category = channel.category
+
+        if category is not None:
+            channels = [
+                ch for ch in category.channels if isinstance(ch, discord.TextChannel)
+            ]
+        else:
+            channels = list(guild.text_channels)
+
+        paired = 0
+        already_paired = 0
+        ambiguous = 0
+        missing = 0
+
+        for target_channel in channels:
+            if get_open_application_by_channel(target_channel.id) is not None:
+                already_paired += 1
+                continue
+
+            candidates = self._find_matching_members(member_role, target_channel.name)
+
+            if not candidates:
+                missing += 1
+                continue
+
+            if len(candidates) > 1:
+                ambiguous += 1
+                continue
+
+            target_member = candidates[0]
+
+            app_id = create_clan_application(
+                guild.id, target_channel.id, target_member.id, locale=str(locale.value)
+            )
+            update_clan_application_form(app_id, target_member.display_name, "", "")
+
+            paired += 1
+
+        await interaction.followup.send(
+            (
+                "Hotovo. Spárováno: {paired}, již spárované: {already_paired}, "
+                "nerozpoznáno: {missing}, více kandidátů: {ambiguous}."
+            ).format(
+                paired=paired,
+                already_paired=already_paired,
+                missing=missing,
+                ambiguous=ambiguous,
+            ),
+            ephemeral=True,
         )
 
     def register_admin_panel(self, message: discord.Message):
