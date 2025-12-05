@@ -193,14 +193,11 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
 
         sorted_rows = sorted(rows, key=sort_key)
         lines = []
-        for idx, (user_id, display_name, rebirths, updated_at) in enumerate(
+        for idx, (_, display_name, rebirths, updated_at) in enumerate(
             sorted_rows, start=1
         ):
-            mention = f"<@{user_id}>"
             timestamp = updated_at if updated_at else "neuvedeno"
-            lines.append(
-                f"**{idx}.** {display_name} ({mention}) – {rebirths} | {timestamp}"
-            )
+            lines.append(f"**{idx}.** {display_name} – {rebirths} | {timestamp}")
 
         embed.description = "\n".join(lines[:25])
         if len(lines) > 25:
