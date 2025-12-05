@@ -490,6 +490,11 @@ if(isset($_POST['update_rebirth'])) {
     $rebirthInput = isset($_POST['rebirths']) ? $_POST['rebirths'] : '';
     $displayName = isset($_POST['display_name']) ? trim($_POST['display_name']) : '';
 
+    // mb_strlen is not always available; fall back to strlen to avoid fatal errors
+    $stringLength = function(string $value) {
+        return function_exists('mb_strlen') ? mb_strlen($value) : strlen($value);
+    };
+
     if($userId === '') {
         $errors[] = 'Chybí ID uživatele.';
         $rebirthStatuses[$userId] = array('text' => 'Chybí ID uživatele.', 'error' => true);
@@ -499,7 +504,7 @@ if(isset($_POST['update_rebirth'])) {
         if($rebirths === '') {
             $errors[] = 'Zadejte hodnotu rebirthu.';
             $rebirthStatuses[$userId] = array('text' => 'Zadejte hodnotu rebirthu.', 'error' => true);
-        } elseif(mb_strlen($rebirths) > 255) {
+        } elseif($stringLength($rebirths) > 255) {
             $errors[] = 'Hodnota rebirthu je příliš dlouhá (max. 255 znaků).';
             $rebirthStatuses[$userId] = array('text' => 'Hodnota rebirthu je příliš dlouhá (max. 255 znaků).', 'error' => true);
         } else {
