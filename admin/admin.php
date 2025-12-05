@@ -442,7 +442,10 @@ function save_member_rebirths($db, $userId, $displayName, $rebirths) {
             $insert->execute(array($userId, $displayName, $rebirths, $now));
         }
     } catch(PDOException $e) {
-        if(stripos($e->getMessage(), 'no such column: updated_at') !== false) {
+        $message = $e->getMessage();
+        $needsSchema = stripos($message, 'no such column: updated_at') !== false || stripos($message, 'no such table: member_rebirths') !== false;
+
+        if($needsSchema) {
             ensure_member_rebirths_schema($db);
             $stmt = $db->prepare("UPDATE member_rebirths SET display_name = ?, rebirths = ?, updated_at = ? WHERE user_id = ?");
             $stmt->execute(array($displayName, $rebirths, $now, $userId));
@@ -518,11 +521,17 @@ if(isset($_POST['update_rebirth'])) {
             $errors[] = 'Hodnota rebirthu je příliš dlouhá (max. 255 znaků).';
             $rebirthStatuses[$userId] = array('text' => 'Hodnota rebirthu je příliš dlouhá (max. 255 znaků).', 'error' => true);
         } else {
-            $storedAt = save_member_rebirths($db, $userId, $displayName !== '' ? $displayName : $userId, $rebirths);
-            $message = "Rebirthy pro {$userId} byly uloženy jako text v {$storedAt}.";
+            try {
+                $storedAt = save_member_rebirths($db, $userId, $displayName !== '' ? $displayName : $userId, $rebirths);
+                $message = "Rebirthy pro {$userId} byly uloženy jako text v {$storedAt}.";
 
-            $notices[] = $message;
-            $rebirthStatuses[$userId] = array('text' => $message, 'error' => false);
+                $notices[] = $message;
+                $rebirthStatuses[$userId] = array('text' => $message, 'error' => false);
+            } catch(PDOException $e) {
+                $errorMessage = 'Nepodařilo se uložit rebirthy: ' . $e->getMessage();
+                $errors[] = $errorMessage;
+                $rebirthStatuses[$userId] = array('text' => $errorMessage, 'error' => true);
+            }
         }
     }
 }
