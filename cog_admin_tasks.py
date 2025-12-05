@@ -20,6 +20,14 @@ class AdminTasks(commands.Cog):
         self._ensure_schema()
         self.poll_admin_tasks.start()
 
+    def _format_channel_reference(
+        self, channel: Optional[discord.abc.GuildChannel] = None
+    ) -> str:
+        if isinstance(channel, discord.abc.GuildChannel):
+            return f"#{channel.name} (ID {channel.id})"
+
+        return f"<#{ADMIN_TASK_CHANNEL_ID}> (ID {ADMIN_TASK_CHANNEL_ID})"
+
     def cog_unload(self):
         self.poll_admin_tasks.cancel()
 
@@ -90,7 +98,7 @@ class AdminTasks(commands.Cog):
                     "ok",
                     self.logger.info,
                     "Admin task channel %s is accessible",
-                    ADMIN_TASK_CHANNEL_ID,
+                    self._format_channel_reference(channel),
                 )
                 return channel
 
@@ -98,7 +106,7 @@ class AdminTasks(commands.Cog):
                 "not_text",
                 self.logger.warning,
                 "Admin task channel %s is not a text channel",
-                ADMIN_TASK_CHANNEL_ID,
+                self._format_channel_reference(channel),
             )
             return None
 
@@ -109,7 +117,7 @@ class AdminTasks(commands.Cog):
                 "not_accessible",
                 self.logger.warning,
                 "Admin task channel %s is not accessible; check the channel ID and bot permissions",
-                ADMIN_TASK_CHANNEL_ID,
+                self._format_channel_reference(),
             )
             return None
         except discord.HTTPException:
@@ -117,7 +125,7 @@ class AdminTasks(commands.Cog):
                 "fetch_failed",
                 self.logger.exception,
                 "Failed to fetch admin task channel %s",
-                ADMIN_TASK_CHANNEL_ID,
+                self._format_channel_reference(),
             )
             return None
 
@@ -126,7 +134,7 @@ class AdminTasks(commands.Cog):
                 "ok",
                 self.logger.info,
                 "Admin task channel %s is accessible",
-                ADMIN_TASK_CHANNEL_ID,
+                self._format_channel_reference(fetched),
             )
             return fetched
 
@@ -134,7 +142,7 @@ class AdminTasks(commands.Cog):
             "not_text",
             self.logger.warning,
             "Admin task channel %s is not a text channel",
-            ADMIN_TASK_CHANNEL_ID,
+            self._format_channel_reference(fetched),
         )
         return None
 
