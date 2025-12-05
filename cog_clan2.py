@@ -109,6 +109,23 @@ class Clan2ApplicationsCog(commands.Cog, name="Clan2ApplicationsCog"):
         name = f"{emoji}{prefix}-{normalized}"
         return name[:90]
 
+    def _add_clan2_admin_overwrite(
+        self, overwrites: dict[discord.abc.Snowflake, discord.PermissionOverwrite], guild: discord.Guild
+    ) -> None:
+        if not CLAN2_ADMIN_ROLE_ID:
+            return
+
+        role = guild.get_role(CLAN2_ADMIN_ROLE_ID)
+        if role is None:
+            return
+
+        overwrites[role] = discord.PermissionOverwrite(
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True,
+            manage_channels=True,
+        )
+
     async def remove_clan_ticket_for_member(
         self,
         guild: discord.Guild,
@@ -286,6 +303,16 @@ class Clan2ApplicationsCog(commands.Cog, name="Clan2ApplicationsCog"):
             if selected_app is not None:
                 base = self._get_ticket_base_from_app(selected_app, guild)
                 await self.rename_ticket_channel(channel, base, "accepted")
+
+            overwrites = dict(channel.overwrites)
+            self._add_clan2_admin_overwrite(overwrites, guild)
+
+            if overwrites != channel.overwrites:
+                await self.safe_channel_edit(
+                    channel,
+                    overwrites=overwrites,
+                    reason="Aktualizace přístupu pro clan2 admin roli",
+                )
 
             if channel.category_id == target_category.id:
                 already_ok += 1
@@ -751,6 +778,8 @@ class Clan2ApplicationModal(discord.ui.Modal):
                 read_message_history=True,
             ),
         }
+
+        self.cog._add_clan2_admin_overwrite(overwrites, guild)
 
         if TICKET_VIEWER_ROLE_ID:
             ticket_viewer_role = guild.get_role(TICKET_VIEWER_ROLE_ID)
