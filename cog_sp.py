@@ -1,5 +1,8 @@
+import json
 import re
 import sqlite3
+import urllib.error
+import urllib.request
 from datetime import datetime
 from typing import List, Optional, Tuple
 
@@ -7,7 +10,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from config import ADMIN_TASK_DB_PATH
+from config import ADMIN_TASK_DB_PATH, REBIRTH_API_TOKEN, REBIRTH_DATA_URL
 from db import (
     add_sp_panel,
     get_all_sp_panels,
@@ -87,6 +90,52 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
         return base_value * (10 ** exponent)
 
     def _fetch_rebirth_rows(self) -> List[RebirthRow]:
+        remote_rows = self._fetch_remote_rebirth_rows()
+        if remote_rows is not None:
+            return remote_rows
+
+        return self._fetch_rebirth_rows_from_db()
+
+    def _fetch_remote_rebirth_rows(self) -> Optional[List[RebirthRow]]:
+        if not REBIRTH_DATA_URL:
+            return None
+
+        try:
+            request = urllib.request.Request(REBIRTH_DATA_URL)
+            if REBIRTH_API_TOKEN:
+                request.add_header("X-API-Token", REBIRTH_API_TOKEN)
+
+            with urllib.request.urlopen(request, timeout=10) as response:
+                if response.status != 200:
+                    return None
+
+                payload = json.loads(response.read().decode("utf-8"))
+
+        except (urllib.error.URLError, json.JSONDecodeError):
+            return None
+
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, list):
+            return None
+
+        rows: List[RebirthRow] = []
+        for row in data:
+            if not isinstance(row, dict):
+                continue
+
+            user_id = str(row.get("user_id", "")).strip()
+            display_name = str(row.get("display_name", "")).strip()
+            rebirths = str(row.get("rebirths", "")).strip()
+            updated_at = str(row.get("updated_at", "")).strip()
+
+            if not user_id:
+                continue
+
+            rows.append((user_id, display_name, rebirths, updated_at))
+
+        return rows
+
+    def _fetch_rebirth_rows_from_db(self) -> List[RebirthRow]:
         self._ensure_rebirth_table()
         conn = self._get_admin_connection()
         cursor = conn.cursor()
