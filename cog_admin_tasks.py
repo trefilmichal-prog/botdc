@@ -2,6 +2,7 @@ import json
 import logging
 import sqlite3
 from datetime import datetime
+from typing import Optional
 
 import discord
 from discord.ext import commands, tasks
@@ -73,15 +74,43 @@ class AdminTasks(commands.Cog):
         conn.commit()
         conn.close()
 
+    async def _get_admin_channel(self) -> Optional[discord.TextChannel]:
+        channel = self.bot.get_channel(ADMIN_TASK_CHANNEL_ID)
+        if channel is not None:
+            if isinstance(channel, discord.TextChannel):
+                return channel
+
+            self.logger.warning(
+                "Admin task channel %s is not a text channel", ADMIN_TASK_CHANNEL_ID
+            )
+            return None
+
+        try:
+            fetched = await self.bot.fetch_channel(ADMIN_TASK_CHANNEL_ID)
+        except (discord.Forbidden, discord.NotFound):
+            self.logger.warning(
+                "Admin task channel %s is not accessible", ADMIN_TASK_CHANNEL_ID
+            )
+            return None
+        except discord.HTTPException:
+            self.logger.exception(
+                "Failed to fetch admin task channel %s", ADMIN_TASK_CHANNEL_ID
+            )
+            return None
+
+        if isinstance(fetched, discord.TextChannel):
+            return fetched
+
+        self.logger.warning(
+            "Admin task channel %s is not a text channel", ADMIN_TASK_CHANNEL_ID
+        )
+        return None
+
     @tasks.loop(seconds=30)
     async def poll_admin_tasks(self):
         await self.bot.wait_until_ready()
-        channel = self.bot.get_channel(ADMIN_TASK_CHANNEL_ID)
-        if channel is None or not isinstance(channel, discord.TextChannel):
-            self.logger.warning(
-                "Admin task channel %s is not available or is not a text channel",
-                ADMIN_TASK_CHANNEL_ID,
-            )
+        channel = await self._get_admin_channel()
+        if channel is None:
             return
 
         for task_id, action, params, created_at in self._fetch_unprocessed_tasks():
