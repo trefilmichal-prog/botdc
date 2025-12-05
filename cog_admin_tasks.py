@@ -86,7 +86,12 @@ class AdminTasks(commands.Cog):
         channel = self.bot.get_channel(ADMIN_TASK_CHANNEL_ID)
         if channel is not None:
             if isinstance(channel, discord.TextChannel):
-                self._channel_status = "ok"
+                self._update_channel_status(
+                    "ok",
+                    self.logger.info,
+                    "Admin task channel %s is accessible",
+                    ADMIN_TASK_CHANNEL_ID,
+                )
                 return channel
 
             self._update_channel_status(
@@ -103,7 +108,7 @@ class AdminTasks(commands.Cog):
             self._update_channel_status(
                 "not_accessible",
                 self.logger.warning,
-                "Admin task channel %s is not accessible",
+                "Admin task channel %s is not accessible; check the channel ID and bot permissions",
                 ADMIN_TASK_CHANNEL_ID,
             )
             return None
@@ -117,7 +122,12 @@ class AdminTasks(commands.Cog):
             return None
 
         if isinstance(fetched, discord.TextChannel):
-            self._channel_status = "ok"
+            self._update_channel_status(
+                "ok",
+                self.logger.info,
+                "Admin task channel %s is accessible",
+                ADMIN_TASK_CHANNEL_ID,
+            )
             return fetched
 
         self._update_channel_status(
