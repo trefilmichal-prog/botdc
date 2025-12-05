@@ -92,9 +92,25 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
     def _fetch_rebirth_rows(self) -> List[RebirthRow]:
         remote_rows = self._fetch_remote_rebirth_rows()
         if remote_rows is not None:
+            self._save_rebirth_rows_to_db(remote_rows)
             return remote_rows
 
         return self._fetch_rebirth_rows_from_db()
+
+    def _save_rebirth_rows_to_db(self, rows: List[RebirthRow]) -> None:
+        self._ensure_rebirth_table()
+        conn = self._get_admin_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM member_rebirths")
+        cursor.executemany(
+            """
+            INSERT INTO member_rebirths (user_id, display_name, rebirths, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            rows,
+        )
+        conn.commit()
+        conn.close()
 
     def _fetch_remote_rebirth_rows(self) -> Optional[List[RebirthRow]]:
         if not REBIRTH_DATA_URL:
