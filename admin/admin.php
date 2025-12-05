@@ -434,13 +434,23 @@ function get_warning_map($db) {
 function save_member_rebirths($db, $userId, $displayName, $rebirths) {
     $now = date('Y-m-d H:i:s');
     try {
-        $stmt = $db->prepare("INSERT INTO member_rebirths (user_id, display_name, rebirths, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET display_name = excluded.display_name, rebirths = excluded.rebirths, updated_at = excluded.updated_at");
-        $stmt->execute(array($userId, $displayName, $rebirths, $now));
+        $stmt = $db->prepare("UPDATE member_rebirths SET display_name = ?, rebirths = ?, updated_at = ? WHERE user_id = ?");
+        $stmt->execute(array($displayName, $rebirths, $now, $userId));
+
+        if($stmt->rowCount() === 0) {
+            $insert = $db->prepare("INSERT INTO member_rebirths (user_id, display_name, rebirths, updated_at) VALUES (?, ?, ?, ?)");
+            $insert->execute(array($userId, $displayName, $rebirths, $now));
+        }
     } catch(PDOException $e) {
         if(stripos($e->getMessage(), 'no such column: updated_at') !== false) {
             ensure_member_rebirths_schema($db);
-            $stmt = $db->prepare("INSERT INTO member_rebirths (user_id, display_name, rebirths, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET display_name = excluded.display_name, rebirths = excluded.rebirths, updated_at = excluded.updated_at");
-            $stmt->execute(array($userId, $displayName, $rebirths, $now));
+            $stmt = $db->prepare("UPDATE member_rebirths SET display_name = ?, rebirths = ?, updated_at = ? WHERE user_id = ?");
+            $stmt->execute(array($displayName, $rebirths, $now, $userId));
+
+            if($stmt->rowCount() === 0) {
+                $insert = $db->prepare("INSERT INTO member_rebirths (user_id, display_name, rebirths, updated_at) VALUES (?, ?, ?, ?)");
+                $insert->execute(array($userId, $displayName, $rebirths, $now));
+            }
         } else {
             throw $e;
         }
