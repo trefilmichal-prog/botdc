@@ -91,11 +91,18 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
 
     def _fetch_rebirth_rows(self) -> List[RebirthRow]:
         remote_rows = self._fetch_remote_rebirth_rows()
-        if remote_rows is not None:
+        if remote_rows is None:
+            return self._fetch_rebirth_rows_from_db()
+
+        if remote_rows:
             self._save_rebirth_rows_to_db(remote_rows)
             return remote_rows
 
-        return self._fetch_rebirth_rows_from_db()
+        cached_rows = self._fetch_rebirth_rows_from_db()
+        if cached_rows:
+            return cached_rows
+
+        return []
 
     def _save_rebirth_rows_to_db(self, rows: List[RebirthRow]) -> None:
         self._ensure_rebirth_table()
