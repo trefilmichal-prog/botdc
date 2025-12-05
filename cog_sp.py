@@ -27,6 +27,13 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
         self.bot = bot
         self.refresh_loop.start()
 
+    @commands.Cog.listener()
+    async def on_ready(self):
+        if not self.refresh_loop.is_running():
+            self.refresh_loop.start()
+
+        await self.refresh_sp_panels()
+
     def cog_unload(self):
         self.refresh_loop.cancel()
 
