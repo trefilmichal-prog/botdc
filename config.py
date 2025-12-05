@@ -25,7 +25,8 @@ CLAN_BANNER_IMAGE_URL = "https://ezrz.eu/dcbot/baner2.jpg"
 DB_PATH = "wood_needs.db"
 
 # Admin panel – cesta k SQLite databázi a výstupní roomka
-ADMIN_TASK_DB_PATH = "admin/database.sqlite"
+# Admin úkoly nyní sdílí hlavní databázi, aby se používala pouze wood_needs.db
+ADMIN_TASK_DB_PATH = DB_PATH
 ADMIN_TASK_CHANNEL_ID = 1443867919015481489
 REBIRTH_DATA_URL = os.getenv(
     "REBIRTH_DATA_URL", "https://ezrz.eu/dcbot/admin.php?rebirths_json=1"
