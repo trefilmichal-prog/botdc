@@ -371,6 +371,8 @@ class Clan2ApplicationsCog(commands.Cog, name="Clan2ApplicationsCog"):
             )
             return
 
+        await interaction.response.defer(ephemeral=True)
+
         category_ids = [
             CLAN_TICKET_CATEGORY_ID,
             CLAN2_ACCEPTED_TICKET_CATEGORY_ID,
@@ -413,7 +415,7 @@ class Clan2ApplicationsCog(commands.Cog, name="Clan2ApplicationsCog"):
             else:
                 failed += 1
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             (
                 "Hotovo. Aktualizováno: {updated}, již obsahuje roli: {skipped}, "
                 "chyby: {failed}."
