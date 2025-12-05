@@ -1,7 +1,30 @@
 <?php
 session_start();
-if(!isset($_SESSION['login'])) { header("Location: index.php"); exit; }
 
+function output_rebirth_json($db) {
+    header('Content-Type: application/json; charset=utf-8');
+
+    $apiToken = getenv('REBIRTH_API_TOKEN');
+    $providedToken = isset($_GET['token']) ? $_GET['token'] : null;
+    if(!$providedToken && isset($_SERVER['HTTP_X_API_TOKEN'])) {
+        $providedToken = $_SERVER['HTTP_X_API_TOKEN'];
+    }
+
+    if($apiToken && $providedToken !== $apiToken) {
+        http_response_code(403);
+        echo json_encode(array('error' => 'Invalid token'));
+        exit;
+    }
+
+    $stmt = $db->query("SELECT user_id, display_name, rebirths, updated_at FROM member_rebirths");
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    echo json_encode(array(
+        'count' => count($rows),
+        'data' => $rows
+    ));
+    exit;
+}
 
 $db = new PDO('sqlite:database.sqlite');
 $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -76,6 +99,12 @@ function ensure_member_rebirths_schema($db) {
     }
 }
 ensure_member_rebirths_schema($db);
+
+if(isset($_GET['rebirths_json'])) {
+    output_rebirth_json($db);
+}
+
+if(!isset($_SESSION['login'])) { header("Location: index.php"); exit; }
 
 // Discord guild/role configuration
 $clans = array(
