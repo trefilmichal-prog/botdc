@@ -229,7 +229,7 @@ class ShopCog(commands.Cog, name="ShopCog"):
         for sale in sales:
             buyer_text = format_buyer(sale["buyer_id"])
             lines.append(
-                f"**{sale['title']}** – {sale['price_coins']} coinů\n"
+                f"**{sale['title']}** – {sale['price_coins']} coinů ({sale['quantity']} ks)\n"
                 f"Kupující: {buyer_text}"
             )
 
@@ -237,6 +237,180 @@ class ShopCog(commands.Cog, name="ShopCog"):
         embed.set_footer(text=f"Celkem čeká: {len(sales)} objednávek")
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class PurchaseQuantityModal(discord.ui.Modal):
+    def __init__(
+        self,
+        cog: ShopCog,
+        item_id: int,
+        item_title: str,
+        price_coins: int,
+        parent_view: Optional[discord.ui.View] = None,
+        parent_message: Optional[discord.Message] = None,
+    ):
+        super().__init__(title=f"Koupit: {item_title}")
+        self.cog = cog
+        self.item_id = item_id
+        self.price_coins = price_coins
+        self.parent_view = parent_view
+        self.parent_message = parent_message
+        self.add_item(
+            discord.ui.TextInput(
+                label="Počet kusů",
+                placeholder="1",
+                default="1",
+                min_length=1,
+                max_length=5,
+            )
+        )
+
+    @property
+    def quantity_input(self) -> discord.ui.TextInput:
+        return self.children[0]  # type: ignore[return-value]
+
+    async def on_submit(self, interaction: discord.Interaction):
+        user = interaction.user
+        raw_value = str(self.quantity_input.value).strip()
+        try:
+            quantity = int(raw_value)
+        except ValueError:
+            await interaction.response.send_message(
+                "Zadej prosím platný počet kusů (celé číslo).",
+                ephemeral=True,
+            )
+            return
+
+        if quantity <= 0:
+            await interaction.response.send_message(
+                "Počet kusů musí být alespoň 1.",
+                ephemeral=True,
+            )
+            return
+
+        item = get_shop_item(self.item_id)
+        if item is None or item["is_active"] == 0 or item["stock"] <= 0:
+            await interaction.response.send_message(
+                "Tato položka už není dostupná (vyprodáno nebo odstraněno).",
+                ephemeral=True,
+            )
+            return
+
+        if quantity > item["stock"]:
+            await interaction.response.send_message(
+                f"Nelze koupit {quantity} ks – skladem je pouze {item['stock']} ks.",
+                ephemeral=True,
+            )
+            return
+
+        buyer_id = user.id
+        coins, exp, level, _last, _messages = get_or_create_user_stats(buyer_id)
+
+        price_per_piece = item["price_coins"]
+        total_price = price_per_piece * quantity
+        if coins < total_price:
+            await interaction.response.send_message(
+                f"Nemáš dost coinů. Potřebuješ **{total_price}**, máš **{coins}**.",
+                ephemeral=True,
+            )
+            return
+
+        success, remaining_stock = decrement_shop_item_stock(self.item_id, quantity)
+        if not success:
+            await interaction.response.send_message(
+                "Tuto položku už někdo těsně před tebou koupil – je vyprodána.",
+                ephemeral=True,
+            )
+            return
+
+        new_coins = coins - total_price
+        update_user_stats(buyer_id, coins=new_coins)
+
+        title = item["title"]
+        seller_id = item["seller_id"]
+
+        purchase_id = create_shop_purchase(
+            item_id=self.item_id,
+            buyer_id=buyer_id,
+            seller_id=seller_id,
+            price_coins=total_price,
+            quantity=quantity,
+        )
+
+        buyer_display_name: str
+        if isinstance(user, discord.Member):
+            buyer_display_name = user.display_name
+        elif interaction.guild is not None:
+            member = interaction.guild.get_member(user.id)
+            buyer_display_name = (
+                member.display_name if member is not None else user.global_name or user.name
+            )
+        else:
+            buyer_display_name = user.global_name or user.name
+
+        seller_display = f"<@{seller_id}>"
+        seller_user = self.cog.bot.get_user(seller_id)
+        if seller_user is not None:
+            seller_display = seller_user.mention
+        else:
+            for guild in self.cog.bot.guilds:
+                member = guild.get_member(seller_id)
+                if member is not None:
+                    seller_user = member
+                    seller_display = member.mention
+                    break
+
+        try:
+            if seller_user is not None:
+                seller_view = PurchaseCompleteView(
+                    self.cog, purchase_id=purchase_id, seller_id=seller_id
+                )
+                await seller_user.send(
+                    f"🛒 Položka **{title}** byla právě koupena uživatelem {user.mention} "
+                    f"({buyer_display_name}) za **{total_price}** coinů ({quantity} ks). "
+                    f"Zbývající kusy: **{remaining_stock}**.\n"
+                    "Klikni na **Hotovo**, až objednávku vyřídíš.",
+                    view=seller_view,
+                )
+        except discord.Forbidden:
+            pass
+
+        try:
+            await user.send(
+                f"✅ Koupil jsi si položku **{title}** ({quantity} ks) za **{total_price}** coinů.\n"
+                f"Prodejce: {seller_display}\n"
+                f"Zůstatek: **{new_coins}** coinů."
+            )
+        except discord.Forbidden:
+            pass
+
+        message = self.parent_message or interaction.message
+        view = self.parent_view
+        if message and view:
+            if remaining_stock <= 0:
+                try:
+                    await message.delete()
+                except discord.Forbidden:
+                    for child in view.children:
+                        child.disabled = True
+                    embed = message.embeds[0] if message.embeds else discord.Embed()
+                    embed = embed.copy()
+                    embed.description = f"**{title}** – vyprodáno."
+                    await message.edit(embed=embed, view=view)
+            else:
+                embed = message.embeds[0] if message.embeds else discord.Embed()
+                embed = embed.copy()
+                embed.title = title
+                embed.description = (
+                    f"Cena: **{price_per_piece}** coinů\n"
+                    f"Skladem: **{remaining_stock}** ks"
+                )
+                await message.edit(embed=embed, view=view)
+
+        await interaction.response.send_message(
+            f"Koupil jsi **{quantity}× {title}** za **{total_price}** coinů.",
+            ephemeral=True,
+        )
 
 
 class BuyButton(discord.ui.Button):
@@ -267,116 +441,15 @@ class BuyButton(discord.ui.Button):
             )
             return
 
-        buyer_id = user.id
-        coins, exp, level, _last, _messages = get_or_create_user_stats(buyer_id)
-
-        price = item["price_coins"]
-        if coins < price:
-            await interaction.response.send_message(
-                f"Nemáš dost coinů. Potřebuješ **{price}**, máš **{coins}**.",
-                ephemeral=True,
-            )
-            return
-
-        # Nejprve zkusíme odečíst sklad (aby dva nekoupili poslední kus)
-        success, remaining_stock = decrement_shop_item_stock(self.item_id)
-        if not success:
-            await interaction.response.send_message(
-                "Tuto položku už někdo těsně před tebou koupil – je vyprodána.",
-                ephemeral=True,
-            )
-            return
-
-        # Odečtení coinů kupujícímu
-        new_coins = coins - price
-        update_user_stats(buyer_id, coins=new_coins)
-
-        title = item["title"]
-        seller_id = item["seller_id"]
-
-        purchase_id = create_shop_purchase(
-            item_id=self.item_id,
-            buyer_id=buyer_id,
-            seller_id=seller_id,
-            price_coins=price,
+        modal = PurchaseQuantityModal(
+            self.cog,
+            self.item_id,
+            item["title"],
+            item["price_coins"],
+            parent_view=self.view,
+            parent_message=interaction.message,
         )
-
-        buyer_display_name: str
-        if isinstance(user, discord.Member):
-            buyer_display_name = user.display_name
-        elif interaction.guild is not None:
-            member = interaction.guild.get_member(user.id)
-            buyer_display_name = member.display_name if member is not None else user.global_name or user.name
-        else:
-            buyer_display_name = user.global_name or user.name
-
-        # DM prodejci
-        seller_display = f"<@{seller_id}>"
-        seller_user = self.cog.bot.get_user(seller_id)
-        if seller_user is not None:
-            seller_display = seller_user.mention
-        else:
-            for guild in self.cog.bot.guilds:
-                member = guild.get_member(seller_id)
-                if member is not None:
-                    seller_user = member
-                    seller_display = member.mention
-                    break
-
-        try:
-            if seller_user is not None:
-                seller_view = PurchaseCompleteView(
-                    self.cog, purchase_id=purchase_id, seller_id=seller_id
-                )
-                await seller_user.send(
-                    f"🛒 Položka **{title}** byla právě koupena uživatelem {user.mention} "
-                    f"({buyer_display_name}) za **{price}** coinů. Zbývající kusy: "
-                    f"**{remaining_stock}**.\nKlikni na **Hotovo**, až objednávku vyřídíš.",
-                    view=seller_view,
-                )
-        except discord.Forbidden:
-            pass
-
-        # DM kupujícímu
-        try:
-            await user.send(
-                f"✅ Koupil jsi si položku **{title}** za **{price}** coinů.\n"
-                f"Prodejce: {seller_display}\n"
-                f"Zůstatek: **{new_coins}** coinů."
-            )
-        except discord.Forbidden:
-            pass
-
-        # Aktualizace zprávy v shopu
-        message = interaction.message
-        if message:
-            if remaining_stock <= 0:
-                # Vyprodáno – pokus o smazání zprávy
-                try:
-                    await message.delete()
-                except discord.Forbidden:
-                    # fallback – vypneme tlačítko a upravíme embed
-                    for child in self.view.children:
-                        child.disabled = True
-                    embed = message.embeds[0] if message.embeds else discord.Embed()
-                    embed = embed.copy()
-                    embed.description = f"**{title}** – vyprodáno."
-                    await message.edit(embed=embed, view=self.view)
-            else:
-                # jen aktualizace skladu v embedu
-                embed = message.embeds[0] if message.embeds else discord.Embed()
-                embed = embed.copy()
-                embed.title = title
-                embed.description = (
-                    f"Cena: **{price}** coinů\n"
-                    f"Skladem: **{remaining_stock}** ks"
-                )
-                await message.edit(embed=embed, view=self.view)
-
-        await interaction.response.send_message(
-            f"Koupil jsi **{title}** za **{price}** coinů.",
-            ephemeral=True,
-        )
+        await interaction.response.send_modal(modal)
 
 
 class ShopItemView(discord.ui.View):

@@ -170,10 +170,18 @@ def init_db():
             seller_id INTEGER NOT NULL,
             price_coins INTEGER NOT NULL,
             created_at TEXT NOT NULL,
-            completed INTEGER NOT NULL DEFAULT 0
+            completed INTEGER NOT NULL DEFAULT 0,
+            quantity INTEGER NOT NULL DEFAULT 1
         )
         """
     )
+
+    c.execute("PRAGMA table_info(shop_purchases)")
+    shop_purchases_columns = [row[1] for row in c.fetchall()]
+    if "quantity" not in shop_purchases_columns:
+        c.execute(
+            "ALTER TABLE shop_purchases ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1"
+        )
 
     # CLAN – přihlášky do klanu
     c.execute(
@@ -850,7 +858,7 @@ def get_shop_item(item_id: int) -> Optional[Dict[str, Any]]:
     }
 
 
-def decrement_shop_item_stock(item_id: int) -> Tuple[bool, int]:
+def decrement_shop_item_stock(item_id: int, amount: int = 1) -> Tuple[bool, int]:
     conn = get_connection()
     c = conn.cursor()
     c.execute("SELECT stock, is_active FROM shop_items WHERE id = ?", (item_id,))
@@ -861,11 +869,15 @@ def decrement_shop_item_stock(item_id: int) -> Tuple[bool, int]:
 
     stock = int(row[0])
     is_active = int(row[1])
-    if is_active == 0 or stock <= 0:
+    if amount <= 0:
+        conn.close()
+        return False, stock
+
+    if is_active == 0 or stock <= 0 or stock < amount:
         conn.close()
         return False, max(stock, 0)
 
-    new_stock = stock - 1
+    new_stock = stock - amount
     new_active = 1 if new_stock > 0 else 0
     c.execute(
         "UPDATE shop_items SET stock = ?, is_active = ? WHERE id = ?",
@@ -892,17 +904,17 @@ def get_active_shop_item_ids() -> List[int]:
 
 
 def create_shop_purchase(
-    item_id: int, buyer_id: int, seller_id: int, price_coins: int
+    item_id: int, buyer_id: int, seller_id: int, price_coins: int, quantity: int = 1
 ) -> int:
     now_str = datetime.utcnow().isoformat()
     conn = get_connection()
     c = conn.cursor()
     c.execute(
         """
-        INSERT INTO shop_purchases (item_id, buyer_id, seller_id, price_coins, created_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO shop_purchases (item_id, buyer_id, seller_id, price_coins, created_at, quantity)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (item_id, buyer_id, seller_id, price_coins, now_str),
+        (item_id, buyer_id, seller_id, price_coins, now_str, quantity),
     )
     conn.commit()
     purchase_id = c.lastrowid
@@ -915,7 +927,7 @@ def get_pending_shop_purchases_grouped() -> List[Dict[str, Any]]:
     c = conn.cursor()
     c.execute(
         """
-        SELECT buyer_id, COUNT(*) AS cnt
+        SELECT buyer_id, SUM(quantity) AS cnt
         FROM shop_purchases
         WHERE completed = 0
         GROUP BY buyer_id
@@ -958,7 +970,7 @@ def get_pending_shop_sales_for_seller(seller_id: int) -> List[Dict[str, Any]]:
     c = conn.cursor()
     c.execute(
         """
-        SELECT sp.id, sp.item_id, sp.buyer_id, sp.price_coins, sp.created_at, si.title
+        SELECT sp.id, sp.item_id, sp.buyer_id, sp.price_coins, sp.created_at, si.title, sp.quantity
         FROM shop_purchases sp
         JOIN shop_items si ON sp.item_id = si.id
         WHERE sp.seller_id = ? AND sp.completed = 0
@@ -976,6 +988,7 @@ def get_pending_shop_sales_for_seller(seller_id: int) -> List[Dict[str, Any]]:
             "price_coins": int(r[3]),
             "created_at": r[4],
             "title": r[5],
+            "quantity": int(r[6]),
         }
         for r in rows
     ]
