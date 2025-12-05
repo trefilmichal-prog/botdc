@@ -521,7 +521,8 @@ if(isset($_POST['update_rebirth'])) {
     $displayName = isset($_POST['display_name']) ? trim($_POST['display_name']) : '';
 
     // mb_strlen is not always available; fall back to strlen to avoid fatal errors
-    $stringLength = function(string $value) {
+    // Avoid scalar type hints to keep compatibility with older PHP versions.
+    $stringLength = function($value) {
         return function_exists('mb_strlen') ? mb_strlen($value) : strlen($value);
     };
 
