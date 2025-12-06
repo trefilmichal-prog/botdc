@@ -68,9 +68,11 @@ class Clan2ApplicationsCog(commands.Cog, name="Clan2ApplicationsCog"):
         self.bot = bot
         self.ticket_clan_label = "HR2T"
 
-        # persistentní view – admin view v ticketech
+        # persistentní view – panel pro přihlášky a admin view v ticketech
+        self.apply_panel_view = Clan2ApplyPanelView(self, DEFAULT_LOCALE)
         self.admin_view = Clan2AdminView(self, DEFAULT_LOCALE)
 
+        self.bot.add_view(self.apply_panel_view)
         self.bot.add_view(self.admin_view)
 
         # seznam admin panelů: guild_id -> [(channel_id, message_id), ...]
