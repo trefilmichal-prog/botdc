@@ -133,6 +133,24 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
             existing_rows[user_id] = (rebirths, previous_rebirths)
 
         cursor.execute("DELETE FROM member_rebirths")
+        def resolve_previous(
+            user_id: str, rebirths: str, provided_previous: str
+        ) -> str:
+            existing_rebirths, existing_previous = existing_rows.get(
+                user_id, ("", "")
+            )
+
+            if provided_previous:
+                return provided_previous
+
+            if not existing_rebirths:
+                return ""
+
+            if rebirths != existing_rebirths:
+                return existing_rebirths
+
+            return existing_previous
+
         cursor.executemany(
             """
             INSERT INTO member_rebirths (
@@ -149,7 +167,7 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
                     user_id,
                     display_name,
                     rebirths,
-                    previous_rebirths or existing_rows.get(user_id, ("", ""))[0],
+                    resolve_previous(user_id, rebirths, previous_rebirths),
                     updated_at,
                 )
                 for user_id, display_name, rebirths, previous_rebirths, updated_at in rows
