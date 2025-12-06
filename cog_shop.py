@@ -107,7 +107,7 @@ class ShopCog(commands.Cog, name="ShopCog"):
         name="addshopitem",
         description="Přidá položku do shopu (screen, cena, počet kusů).",
     )
-    @app_commands.default_permissions()
+    @app_commands.check(_can_manage_shop)
     @app_commands.describe(
         title="Název položky",
         price_coins="Cena v coinech",

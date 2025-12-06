@@ -168,7 +168,7 @@ class AutoUpdater(commands.Cog):
             "Aktualizovat stažením ZIP archivu místo použití Gitu (výchozí: ano)."
         ),
     )
-    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def update_bot(
         self,
         interaction: discord.Interaction,
