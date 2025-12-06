@@ -106,6 +106,7 @@ class ShopCog(commands.Cog, name="ShopCog"):
     @app_commands.command(
         name="addshopitem",
         description="Přidá položku do shopu (screen, cena, počet kusů).",
+        default_permissions=discord.Permissions(),
     )
     @app_commands.describe(
         title="Název položky",
