@@ -20,6 +20,7 @@ from config import (
     CLAN_BOOSTS_IMAGE_URL,
     CLAN_BANNER_IMAGE_URL,
     TICKET_VIEWER_ROLE_ID,
+    SETUP_MANAGER_ROLE_ID,
 )
 from i18n import DEFAULT_LOCALE, get_interaction_locale, normalize_locale, t
 
@@ -208,6 +209,7 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         description="Vytvoří panel pro přihlášky do klanu v tomto kanálu (admin).",
     )
     @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.checks.has_role(SETUP_MANAGER_ROLE_ID)
     async def setup_clan_panel_cmd(self, interaction: discord.Interaction):
         locale = get_interaction_locale(interaction)
         channel = interaction.channel

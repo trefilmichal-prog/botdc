@@ -8,6 +8,7 @@ from discord.ext import commands
 from discord.ext import tasks
 from discord import app_commands
 
+from config import SETUP_MANAGER_ROLE_ID
 from db import (
     get_all_timers,
     create_or_update_timer,
@@ -143,6 +144,7 @@ class TimersCog(commands.Cog, name="TimersCog"):
         description="Vloží do této místnosti panel s tlačítky časovačů (admin).",
     )
     @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.checks.has_role(SETUP_MANAGER_ROLE_ID)
     async def setuptimers_cmd(self, interaction: discord.Interaction):
         channel = interaction.channel
         if not isinstance(channel, discord.TextChannel):

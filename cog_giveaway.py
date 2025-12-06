@@ -10,7 +10,11 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 
-from config import GIVEAWAY_PING_ROLE_ID, DEFAULT_GIVEAWAY_DURATION_MINUTES
+from config import (
+    GIVEAWAY_PING_ROLE_ID,
+    DEFAULT_GIVEAWAY_DURATION_MINUTES,
+    SETUP_MANAGER_ROLE_ID,
+)
 from db import (
     delete_giveaway_state,
     get_setting,
@@ -310,6 +314,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
         description="Nastaví tento kanál jako roomku pro giveaway (admin).",
     )
     @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.checks.has_role(SETUP_MANAGER_ROLE_ID)
     async def setupgiveaway_cmd(self, interaction: discord.Interaction):
         channel = interaction.channel
         if not isinstance(channel, discord.TextChannel):

@@ -4,6 +4,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from config import SETUP_MANAGER_ROLE_ID
 from db import get_clan_stats_channel, set_clan_stats_channel
 
 
@@ -17,6 +18,7 @@ class ClanStatsOcrCog(commands.Cog, name="ClanStatsOcr"):
         description="Nastaví kanál, kam se budou posílat statistiky clanu.",
     )
     @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.checks.has_role(SETUP_MANAGER_ROLE_ID)
     async def setup_clan_stats_room(
         self, interaction: discord.Interaction, channel: discord.TextChannel
     ):
