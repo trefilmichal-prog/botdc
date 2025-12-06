@@ -26,6 +26,7 @@ class TimersCog(commands.Cog, name="TimersCog"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.running_timers: Dict[tuple[int, str], "asyncio.Task"] = {}
+        self._register_persistent_view()
         self.bot.loop.create_task(self.resume_timers())
 
     async def resume_timers(self):
@@ -89,6 +90,14 @@ class TimersCog(commands.Cog, name="TimersCog"):
         finally:
             self.running_timers.pop(key, None)
             delete_active_timer(user_id, timer_name)
+
+    def _register_persistent_view(self):
+        timers = get_all_timers()
+        if not timers:
+            return
+
+        view = TimersView(self, timers)
+        self.bot.add_view(view)
 
     async def update_timers_panel(self):
         channel_id_str = get_setting("timers_channel_id")
