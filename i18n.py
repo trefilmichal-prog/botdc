@@ -561,10 +561,25 @@ STRINGS: dict[str, dict[str, str]] = {
         "cs": "Profil – {name}",
         "en": "Profile – {name}",
     },
+    "profile_subtitle": {
+        "cs": "Přehled tvých statistik",
+        "en": "Overview of your stats",
+    },
     "profile_level": {"cs": "Level", "en": "Level"},
     "profile_exp": {"cs": "Exp", "en": "Exp"},
     "profile_coins": {"cs": "Coiny", "en": "Coins"},
     "profile_messages": {"cs": "Zprávy", "en": "Messages"},
+    "profile_progress": {
+        "cs": "Postup na další level",
+        "en": "Progress to next level",
+    },
+    "profile_next_level": {"cs": "Zbývá", "en": "Remaining"},
+    "profile_economy": {"cs": "Ekonomika", "en": "Economy"},
+    "profile_activity": {"cs": "Aktivita", "en": "Activity"},
+    "profile_footer": {
+        "cs": "Ukázka pouze tobě, ostatní ji nevidí.",
+        "en": "Visible only to you, others cannot see it.",
+    },
     "guild_text_only": {
         "cs": "Tento příkaz lze použít jen v textovém kanálu.",
         "en": "This command can only be used in a text channel.",
