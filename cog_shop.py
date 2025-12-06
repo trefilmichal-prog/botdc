@@ -57,6 +57,47 @@ class ShopCog(commands.Cog, name="ShopCog"):
         # persistentní view pro všechny aktivní položky v shopu
         self._register_persistent_views()
 
+    @staticmethod
+    def _format_number(value: int) -> str:
+        return f"{value:,}".replace(",", " ")
+
+    def _build_shop_item_embed(
+        self,
+        title: str,
+        price_coins: int,
+        stock: int,
+        image_url: Optional[str],
+        seller_id: int,
+    ) -> discord.Embed:
+        available = stock > 0
+        embed = discord.Embed(
+            title=f"🛍️ {title}",
+            description=(
+                "Klikni na **Koupit** a vyplň počet kusů.\n"
+                "• Platba proběhne okamžitě po potvrzení.\n"
+                "• Po vyprodání bude nabídka skryta."
+            )
+            if available
+            else "❌ Vyprodáno – položka je dočasně nedostupná.",
+            color=0x00CCFF if available else 0x6E7985,
+        )
+        embed.add_field(
+            name="Cena",
+            value=f"**{self._format_number(price_coins)}** coinů",
+            inline=True,
+        )
+        embed.add_field(
+            name="Skladem",
+            value=f"**{self._format_number(stock)} ks**",
+            inline=True,
+        )
+        embed.add_field(name="Prodejce", value=f"<@{seller_id}>", inline=False)
+
+        if image_url:
+            embed.set_image(url=image_url)
+
+        return embed
+
     def _find_user_guild(self, user: discord.abc.User) -> Optional[discord.Guild]:
         """Najde guildu, kde je uživatel členem (preferenčně s právy pro shop)."""
 
@@ -157,13 +198,13 @@ class ShopCog(commands.Cog, name="ShopCog"):
             seller_id=interaction.user.id,
         )
 
-        embed = discord.Embed(
+        embed = self._build_shop_item_embed(
             title=title,
-            description=f"Cena: **{price_coins}** coinů\nSkladem: **{stock}** ks",
-            color=0x00CCFF,
+            price_coins=int(price_coins),
+            stock=int(stock),
+            image_url=image_url,
+            seller_id=interaction.user.id,
         )
-        if image_url:
-            embed.set_image(url=image_url)
 
         view = ShopItemView(self, item_id)
         msg = await channel.send(embed=embed, view=view)
@@ -309,6 +350,7 @@ class PurchaseQuantityModal(discord.ui.Modal):
         coins, exp, level, _last, _messages = get_or_create_user_stats(buyer_id)
 
         price_per_piece = item["price_coins"]
+        image_url = item.get("image_url")
         total_price = price_per_piece * quantity
         if coins < total_price:
             await interaction.response.send_message(
@@ -395,17 +437,21 @@ class PurchaseQuantityModal(discord.ui.Modal):
                 except discord.Forbidden:
                     for child in view.children:
                         child.disabled = True
-                    embed = message.embeds[0] if message.embeds else discord.Embed()
-                    embed = embed.copy()
-                    embed.description = f"**{title}** – vyprodáno."
+                    embed = self.cog._build_shop_item_embed(
+                        title,
+                        price_per_piece,
+                        remaining_stock,
+                        image_url,
+                        seller_id,
+                    )
                     await message.edit(embed=embed, view=view)
             else:
-                embed = message.embeds[0] if message.embeds else discord.Embed()
-                embed = embed.copy()
-                embed.title = title
-                embed.description = (
-                    f"Cena: **{price_per_piece}** coinů\n"
-                    f"Skladem: **{remaining_stock}** ks"
+                embed = self.cog._build_shop_item_embed(
+                    title,
+                    price_per_piece,
+                    remaining_stock,
+                    image_url,
+                    seller_id,
                 )
                 await message.edit(embed=embed, view=view)
 
