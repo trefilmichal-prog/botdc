@@ -296,7 +296,7 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
         name="setup_sp",
         description="Propojí embed s webovou tabulkou rebirthů (aktualizace každých 5 minut)",
     )
-    @app_commands.default_permissions(manage_channels=True)
+    @app_commands.checks.has_permissions(manage_channels=True)
     @app_commands.checks.has_role(SETUP_MANAGER_ROLE_ID)
     async def setup_sp(self, interaction: discord.Interaction, channel: discord.TextChannel):
         if interaction.guild is None:

@@ -90,7 +90,7 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
         description="Odešle do vybraného kanálu přehled členů s klanovou rolí.",
     )
     @app_commands.describe(channel="Kanál, kam se má zpráva poslat.")
-    @app_commands.default_permissions(manage_channels=True)
+    @app_commands.checks.has_permissions(manage_channels=True)
     @app_commands.checks.has_role(SETUP_MANAGER_ROLE_ID)
     async def setup_clan_room(
         self, interaction: discord.Interaction, channel: discord.TextChannel
@@ -119,7 +119,7 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
         description="Odešle do vybraného kanálu žebříček coinů a zpráv.",
     )
     @app_commands.describe(channel="Kanál, kam se má žebříček poslat.")
-    @app_commands.default_permissions(manage_channels=True)
+    @app_commands.checks.has_permissions(manage_channels=True)
     @app_commands.checks.has_role(SETUP_MANAGER_ROLE_ID)
     async def setup_leaderboard_room(
         self, interaction: discord.Interaction, channel: discord.TextChannel

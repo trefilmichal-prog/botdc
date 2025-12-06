@@ -67,7 +67,7 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
         description="Vyhodí člena ze serveru a odebere jeho ticket (pokud existuje).",
     )
     @app_commands.describe(user="Uživatel, který má být vyhozen.")
-    @app_commands.default_permissions(kick_members=True)
+    @app_commands.checks.has_permissions(kick_members=True)
     async def kick_member(self, interaction: discord.Interaction, user: discord.Member):
         locale = get_interaction_locale(interaction)
         if not self._can_moderate(interaction.user, user):
@@ -111,7 +111,7 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
 
     @admin.command(name="ban", description="Zabanuje člena.")
     @app_commands.describe(user="Uživatel, který má být zabanován.", reason="Důvod banu.")
-    @app_commands.default_permissions(ban_members=True)
+    @app_commands.checks.has_permissions(ban_members=True)
     async def ban_member(
         self, interaction: discord.Interaction, user: discord.Member, reason: str | None = None
     ):
@@ -143,7 +143,7 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
         description="Upozorní hráče za neaktivitu a přidá příslušnou varovnou roli.",
     )
     @app_commands.describe(user="Hráč, který má dostat varování za neaktivitu.")
-    @app_commands.default_permissions(manage_roles=True)
+    @app_commands.checks.has_permissions(manage_roles=True)
     async def warn_player(self, interaction: discord.Interaction, user: discord.Member):
         guild = interaction.guild
         if guild is None:
@@ -232,7 +232,7 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
         duration_minutes="Délka v minutách (1-10080).",
         reason="Důvod umlčení.",
     )
-    @app_commands.default_permissions(moderate_members=True)
+    @app_commands.checks.has_permissions(moderate_members=True)
     async def mute_member(
         self,
         interaction: discord.Interaction,
@@ -270,7 +270,7 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
         user="Kterému uživateli upravit přezdívku.",
         nickname="Nová přezdívka (prázdné = smazat).",
     )
-    @app_commands.default_permissions(manage_nicknames=True)
+    @app_commands.checks.has_permissions(manage_nicknames=True)
     async def set_nickname(
         self, interaction: discord.Interaction, user: discord.Member, nickname: str | None = None
     ):
