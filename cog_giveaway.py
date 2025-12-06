@@ -187,6 +187,47 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
             f"výherci jsou zobrazeni v embedu."
         )
 
+    def _create_giveaway_embed(
+        self,
+        *,
+        title: str,
+        color: int,
+        intro_lines: list[str],
+        end_at: datetime,
+        host: discord.abc.User,
+        extra_fields: Optional[list[tuple[str, str]]] = None,
+        footer_note: str = "Počet účastníků: 0",
+        block_admins: bool = False,
+    ) -> discord.Embed:
+        embed = discord.Embed(title=title, color=color)
+
+        end_ts = int(end_at.timestamp())
+        description_lines = intro_lines + ["✅ Klikni na tlačítko níže a připoj se."]
+        embed.description = "\n".join(description_lines)
+
+        embed.add_field(name="Pořádá", value=host.mention, inline=True)
+        embed.add_field(
+            name="Končí",
+            value=f"<t:{end_ts}:R> (<t:{end_ts}:f>)",
+            inline=True,
+        )
+
+        if block_admins:
+            embed.add_field(
+                name="Omezení",
+                value="Administrátoři se do giveaway nemohou přihlásit.",
+                inline=False,
+            )
+
+        if extra_fields:
+            for name, value in extra_fields:
+                embed.add_field(name=name, value=value, inline=False)
+
+        if footer_note:
+            embed.set_footer(text=footer_note)
+
+        return embed
+
     async def finalize_giveaway(
         self,
         message: discord.Message,
@@ -446,16 +487,23 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 )
                 return
 
-            embed = discord.Embed(
+            embed = self._create_giveaway_embed(
                 title="🎁 Coin giveaway",
-                description=(
-                    f"Typ: **coins**\n"
-                    f"Celkem: **{amount}** coinů\n\n"
-                    "Klikni na tlačítko níže a připoj se.\n"
-                    "Po ukončení budou coiny **náhodně rozděleny** mezi až 3 výherce.\n"
-                    f"Giveaway se automaticky ukončí za {duration} minut."
-                ),
                 color=0xFFD700,
+                intro_lines=[
+                    f"💰 **{amount} coinů** je připraveno pro výherce.",
+                    "🥇 Coiny budou náhodně rozděleny až mezi 3 hráče.",
+                    f"⏳ Giveaway končí za {duration} minut.",
+                ],
+                extra_fields=[
+                    (
+                        "Jak se losuje",
+                        "Výhry se rozdělí rovnoměrně, prvním losovaným připadne případný zbytek coinů.",
+                    )
+                ],
+                end_at=end_at,
+                host=interaction.user,
+                block_admins=block_admins,
             )
 
             state: Dict[str, Any] = {
@@ -480,16 +528,24 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 )
                 return
 
-            embed = discord.Embed(
+            embed = self._create_giveaway_embed(
                 title="🎁 Pet giveaway",
-                description=(
-                    f"Pet: **{pet_name}**\n"
-                    f"Click hodnota: `{click_value}`\n\n"
-                    "Klikni na tlačítko níže a připoj se.\n"
-                    "Po ukončení bude **náhodně vylosován jeden výherce**.\n"
-                    f"Giveaway se automaticky ukončí za {duration} minut."
-                ),
                 color=0xFF69B4,
+                intro_lines=[
+                    f"🐾 Pet **{pet_name}** čeká na nového majitele!",
+                    f"⚡ Click hodnota: `{click_value}`.",
+                    "🥇 Náhodně bude vylosován 1 výherce.",
+                    f"⏳ Giveaway končí za {duration} minut.",
+                ],
+                extra_fields=[
+                    (
+                        "Co získáš",
+                        "Výherce obdrží peta včetně jeho click hodnoty. Pro vyzvednutí kontaktuj pořadatele.",
+                    )
+                ],
+                end_at=end_at,
+                host=interaction.user,
+                block_admins=block_admins,
             )
 
             state = {
@@ -510,15 +566,24 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
         else:
             winners_count = int(screen_winners) if screen_winners is not None else 3
 
-            embed = discord.Embed(
+            embed = self._create_giveaway_embed(
                 title="🎁 Screen giveaway",
-                description=(
-                    "Giveaway podle screenu / obrázku níže.\n\n"
-                    "Klikni na tlačítko níže a připoj se.\n"
-                    f"Po ukončení budou **náhodně vylosováni až {winners_count} výherci**.\n"
-                    f"Giveaway se automaticky ukončí za {duration} minut."
-                ),
                 color=0x00BFFF,
+                intro_lines=[
+                    "Giveaway podle screenu / obrázku níže.",
+                    "📸 Připoj se, pokud chceš být v losování.",
+                    f"🥇 Losuje se až {winners_count} výherců.",
+                    f"⏳ Giveaway končí za {duration} minut.",
+                ],
+                extra_fields=[
+                    (
+                        "Pravidla",
+                        "Výherci budou vybráni náhodně, detaily odměn najdeš na přiloženém obrázku.",
+                    )
+                ],
+                end_at=end_at,
+                host=interaction.user,
+                block_admins=block_admins,
             )
 
             state = {
