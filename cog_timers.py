@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 from typing import List, Tuple, Dict
 
@@ -25,7 +26,7 @@ from db import (
 class TimersCog(commands.Cog, name="TimersCog"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.running_timers: Dict[tuple[int, str], "asyncio.Task"] = {}
+        self.running_timers: Dict[tuple[int, str], asyncio.Task[None]] = {}
         self._register_persistent_view()
         self.bot.loop.create_task(self.resume_timers())
 
@@ -67,8 +68,6 @@ class TimersCog(commands.Cog, name="TimersCog"):
         end_at: datetime,
         key: tuple[int, str],
     ):
-        import asyncio
-
         try:
             now = datetime.utcnow()
             seconds = (end_at - now).total_seconds()
