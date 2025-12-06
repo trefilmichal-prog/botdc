@@ -19,7 +19,7 @@ from db import (
 )
 
 
-RebirthRow = Tuple[str, str, str, str]
+RebirthRow = Tuple[str, str, str, str, str]
 
 
 class RebirthPanel(commands.Cog, name="RebirthPanel"):
@@ -49,10 +49,19 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
                 user_id TEXT PRIMARY KEY,
                 display_name TEXT,
                 rebirths TEXT NOT NULL DEFAULT '',
+                previous_rebirths TEXT NOT NULL DEFAULT '',
                 updated_at TEXT NOT NULL
             )
             """
         )
+
+        cursor.execute("PRAGMA table_info(member_rebirths)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if "previous_rebirths" not in columns:
+            cursor.execute(
+                "ALTER TABLE member_rebirths ADD COLUMN previous_rebirths TEXT NOT NULL DEFAULT ''"
+            )
+
         conn.commit()
         conn.close()
 
@@ -115,13 +124,36 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
         self._ensure_rebirth_table()
         conn = self._get_admin_connection()
         cursor = conn.cursor()
+
+        existing_rows: dict[str, tuple[str, str]] = {}
+        cursor.execute(
+            "SELECT user_id, rebirths, previous_rebirths FROM member_rebirths"
+        )
+        for user_id, rebirths, previous_rebirths in cursor.fetchall():
+            existing_rows[user_id] = (rebirths, previous_rebirths)
+
         cursor.execute("DELETE FROM member_rebirths")
         cursor.executemany(
             """
-            INSERT INTO member_rebirths (user_id, display_name, rebirths, updated_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO member_rebirths (
+                user_id,
+                display_name,
+                rebirths,
+                previous_rebirths,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?)
             """,
-            rows,
+            [
+                (
+                    user_id,
+                    display_name,
+                    rebirths,
+                    previous_rebirths or existing_rows.get(user_id, ("", ""))[0],
+                    updated_at,
+                )
+                for user_id, display_name, rebirths, previous_rebirths, updated_at in rows
+            ],
         )
         conn.commit()
         conn.close()
@@ -154,12 +186,13 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
             user_id = str(row.get("user_id", "")).strip()
             display_name = str(row.get("display_name", "")).strip()
             rebirths = str(row.get("rebirths", "")).strip()
+            previous_rebirths = str(row.get("previous_rebirths", "")).strip()
             updated_at = str(row.get("updated_at", "")).strip()
 
             if not user_id:
                 continue
 
-            rows.append((user_id, display_name, rebirths, updated_at))
+            rows.append((user_id, display_name, rebirths, previous_rebirths, updated_at))
 
         return rows
 
@@ -168,7 +201,15 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
         conn = self._get_admin_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT user_id, display_name, rebirths, updated_at FROM member_rebirths"
+            """
+            SELECT
+                user_id,
+                display_name,
+                rebirths,
+                previous_rebirths,
+                updated_at
+            FROM member_rebirths
+            """
         )
         rows: List[RebirthRow] = cursor.fetchall()
         conn.close()
@@ -193,11 +234,11 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
 
         sorted_rows = sorted(rows, key=sort_key)
         lines = []
-        for idx, (_, display_name, rebirths, updated_at) in enumerate(
+        for idx, (_, display_name, rebirths, previous_rebirths, _) in enumerate(
             sorted_rows, start=1
         ):
-            timestamp = updated_at if updated_at else "neuvedeno"
-            lines.append(f"**{idx}.** {display_name} – {rebirths} | {timestamp}")
+            previous = previous_rebirths or "neuvedeno"
+            lines.append(f"**{idx}.** {display_name} – {rebirths} <- ({previous})")
 
         embed.description = "\n".join(lines[:25])
         if len(lines) > 25:
