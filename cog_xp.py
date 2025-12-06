@@ -99,6 +99,49 @@ class XpCog(commands.Cog, name="XpCog"):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @app_commands.command(
+        name="give_coins",
+        description="Přidá vybranému hráči zadaný počet coinů a pošle mu zprávu.",
+    )
+    @app_commands.describe(
+        user="Uživatel, kterému přidat coiny.",
+        amount="Počet coinů k připsání.",
+    )
+    async def give_coins(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+        amount: app_commands.Range[int, 1, 10_000_000],
+    ):
+        required_role_id = 1_440_043_301_515_559_014
+        if not any(role.id == required_role_id for role in interaction.user.roles):
+            await interaction.response.send_message(
+                "❌ Tento příkaz může použít pouze oprávněná role.", ephemeral=True
+            )
+            return
+
+        coins, _exp, _level, _last_xp_at, _messages = get_or_create_user_stats(user.id)
+        new_coins = coins + int(amount)
+        update_user_stats(user.id, coins=new_coins)
+
+        dm_sent = False
+        try:
+            await user.send(
+                f"Ahoj! Na serveru **{interaction.guild.name}** jsi právě obdržel **{amount} coinů**."
+            )
+            dm_sent = True
+        except Exception:
+            dm_sent = False
+
+        dm_status = "📩 DM odeslána." if dm_sent else "⚠️ DM se nepodařilo odeslat."
+        await interaction.response.send_message(
+            (
+                f"✅ Přidal jsi **{amount} coinů** uživateli {user.mention}.\n"
+                f"Aktuální zůstatek: **{new_coins} coinů**. {dm_status}"
+            ),
+            ephemeral=True,
+        )
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(XpCog(bot))
