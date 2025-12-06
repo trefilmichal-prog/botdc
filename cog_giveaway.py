@@ -14,6 +14,7 @@ from config import GIVEAWAY_PING_ROLE_ID, DEFAULT_GIVEAWAY_DURATION_MINUTES
 from db import (
     delete_giveaway_state,
     get_setting,
+    get_active_giveaway,
     load_active_giveaways,
     save_giveaway_state,
     set_setting,
@@ -88,6 +89,42 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 await message.edit(view=view)
 
             self.bot.loop.create_task(self.schedule_giveaway_auto_end(message_id))
+
+    async def restore_single_giveaway(self, message: Optional[discord.Message]):
+        if message is None:
+            return None
+
+        if message.id in self.active_giveaways:
+            return self.active_giveaways[message.id]
+
+        state = get_active_giveaway(message.id)
+        if state is None:
+            return None
+
+        try:
+            state["type"] = GiveawayType(state["type"])
+        except Exception:
+            delete_giveaway_state(message.id)
+            return None
+
+        channel = message.channel
+        if not isinstance(channel, discord.TextChannel):
+            delete_giveaway_state(message.id)
+            return None
+
+        self.active_giveaways[message.id] = state
+        view = GiveawayView(self)
+
+        participants: set[int] = state.get("participants", set())
+        if message.embeds:
+            embed = message.embeds[0].copy()
+            embed.set_footer(text=f"Počet účastníků: {len(participants)}")
+            await message.edit(embed=embed, view=view)
+        else:
+            await message.edit(view=view)
+
+        self.bot.loop.create_task(self.schedule_giveaway_auto_end(message.id))
+        return state
 
     async def schedule_giveaway_auto_end(self, message_id: int):
         state = self.active_giveaways.get(message_id)
@@ -526,6 +563,8 @@ class GiveawayView(discord.ui.View):
             return
 
         state = self.cog.active_giveaways.get(message.id)
+        if state is None:
+            state = await self.cog.restore_single_giveaway(message)
         if not state or state.get("ended"):
             await interaction.response.send_message(
                 "Tato giveaway už není aktivní.",
@@ -590,6 +629,8 @@ class GiveawayView(discord.ui.View):
             return
 
         state = self.cog.active_giveaways.get(message.id)
+        if state is None:
+            state = await self.cog.restore_single_giveaway(message)
         if not state or state.get("ended"):
             await interaction.response.send_message(
                 "Tato giveaway už není aktivní.",

@@ -367,6 +367,58 @@ def load_active_giveaways() -> List[Tuple[int, Dict[str, Any]]]:
     return giveaways
 
 
+def get_active_giveaway(message_id: int) -> Optional[Dict[str, Any]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT message_id, channel_id, type, host_id, amount, pet_name, click_value,
+               image_url, winners_count, duration_minutes, end_at, participants_json
+        FROM active_giveaways
+        WHERE message_id = ?
+        """,
+        (message_id,),
+    )
+    row = c.fetchone()
+    conn.close()
+
+    if row is None:
+        return None
+
+    (
+        _message_id,
+        channel_id,
+        gtype,
+        host_id,
+        amount,
+        pet_name,
+        click_value,
+        image_url,
+        winners_count,
+        duration_minutes,
+        end_at_str,
+        participants_json,
+    ) = row
+
+    participants = set(json.loads(participants_json)) if participants_json else set()
+    end_at = datetime.fromisoformat(end_at_str) if end_at_str else None
+
+    return {
+        "channel_id": channel_id,
+        "type": gtype,
+        "host_id": host_id,
+        "amount": amount,
+        "pet_name": pet_name,
+        "click_value": click_value,
+        "image_url": image_url,
+        "winners_count": winners_count,
+        "duration": duration_minutes,
+        "end_at": end_at,
+        "participants": participants,
+        "ended": False,
+    }
+
+
 def delete_giveaway_state(message_id: int):
     conn = get_connection()
     c = conn.cursor()
