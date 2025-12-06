@@ -51,6 +51,21 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
 
     # ---------- INTERNÍ HELPERY ----------
 
+    async def _get_text_channel(self, channel_id: Optional[int]) -> Optional[discord.TextChannel]:
+        if channel_id is None:
+            return None
+
+        channel = self.bot.get_channel(channel_id)
+        if isinstance(channel, discord.TextChannel):
+            return channel
+
+        try:
+            fetched_channel = await self.bot.fetch_channel(channel_id)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return None
+
+        return fetched_channel if isinstance(fetched_channel, discord.TextChannel) else None
+
     async def restore_active_giveaways(self):
         if self._restored:
             return
@@ -70,8 +85,8 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 delete_giveaway_state(message_id)
                 continue
 
-            channel = self.bot.get_channel(channel_id)
-            if not isinstance(channel, discord.TextChannel):
+            channel = await self._get_text_channel(channel_id)
+            if channel is None:
                 delete_giveaway_state(message_id)
                 continue
 
@@ -151,11 +166,8 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
             return
 
         channel_id = state.get("channel_id")
-        if channel_id is None:
-            return
-
-        channel = self.bot.get_channel(channel_id)
-        if not isinstance(channel, discord.TextChannel):
+        channel = await self._get_text_channel(channel_id)
+        if channel is None:
             delete_giveaway_state(message_id)
             self.active_giveaways.pop(message_id, None)
             return
