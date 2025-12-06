@@ -55,7 +55,6 @@ class MyBot(commands.Bot):
         await self.load_extension("cog_clan_stats")
         await self.load_extension("cog_basic")
         await self.load_extension("cog_leaderboard")
-        await self.load_extension("cog_warn")
         await self.load_extension("cog_prophecy")
         await self.load_extension("cog_logging")
         await self.load_extension("cog_admin_tasks")
