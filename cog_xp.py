@@ -62,14 +62,40 @@ class XpCog(commands.Cog, name="XpCog"):
         target = user or interaction.user
         coins, exp, level, _, message_count = get_or_create_user_stats(target.id)
 
+        level_exp_base = (level - 1) * XP_PER_LEVEL
+        xp_into_level = max(0, exp - level_exp_base)
+        xp_for_next = XP_PER_LEVEL
+        xp_remaining = max(0, xp_for_next - xp_into_level)
+        progress_fraction = min(1.0, xp_into_level / xp_for_next if xp_for_next else 0)
+        filled_blocks = round(progress_fraction * 10)
+        progress_bar = "▰" * filled_blocks + "▱" * (10 - filled_blocks)
+        progress_percent = int(progress_fraction * 100)
+
+        embed_color = target.color if target.color.value else 0x00DD88
+
         embed = discord.Embed(
             title=t("profile_title", locale, name=target.display_name),
-            color=0x00DD88,
+            description=t("profile_subtitle", locale),
+            color=embed_color,
+        )
+        embed.set_thumbnail(url=target.display_avatar.url)
+        embed.add_field(
+            name=t("profile_progress", locale),
+            value=(
+                f"{progress_bar} **{progress_percent}%**\n"
+                f"{xp_into_level:,}/{xp_for_next:,} XP ({t('profile_next_level', locale)}: {xp_remaining:,} XP)"
+            ),
+            inline=False,
         )
         embed.add_field(name=t("profile_level", locale), value=str(level), inline=True)
-        embed.add_field(name=t("profile_exp", locale), value=str(exp), inline=True)
-        embed.add_field(name=t("profile_coins", locale), value=str(coins), inline=True)
-        embed.add_field(name=t("profile_messages", locale), value=str(message_count), inline=True)
+        embed.add_field(name=t("profile_exp", locale), value=f"{exp:,} XP", inline=True)
+        embed.add_field(name=t("profile_economy", locale), value=f"💰 {coins:,}", inline=True)
+        embed.add_field(
+            name=t("profile_activity", locale),
+            value=f"💬 {message_count:,} {t('profile_messages', locale).lower()}",
+            inline=True,
+        )
+        embed.set_footer(text=t("profile_footer", locale))
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
