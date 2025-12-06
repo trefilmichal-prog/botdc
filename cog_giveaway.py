@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Dict, Any, Optional, List
 
@@ -38,6 +38,16 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
         self.active_giveaways: Dict[int, Dict[str, Any]] = {}
 
         self._restored = False
+
+    @staticmethod
+    def _ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
+        if dt is None:
+            return None
+
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+
+        return dt.astimezone(timezone.utc)
 
         # persistentní view pro giveaway tlačítka
         self.bot.add_view(GiveawayView(self))
@@ -85,6 +95,8 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 delete_giveaway_state(message_id)
                 continue
 
+            state["end_at"] = self._ensure_utc(state.get("end_at"))
+
             channel = await self._get_text_channel(channel_id)
             if channel is None:
                 delete_giveaway_state(message_id)
@@ -126,6 +138,8 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
             delete_giveaway_state(message.id)
             return None
 
+        state["end_at"] = self._ensure_utc(state.get("end_at"))
+
         channel = message.channel
         if not isinstance(channel, discord.TextChannel):
             delete_giveaway_state(message.id)
@@ -154,7 +168,8 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
         if end_at is None:
             return
 
-        delay_seconds = (end_at - datetime.utcnow()).total_seconds()
+        end_at_utc = self._ensure_utc(end_at)
+        delay_seconds = (end_at_utc - datetime.now(timezone.utc)).total_seconds()
         if delay_seconds > 0:
             try:
                 await asyncio.sleep(delay_seconds)
@@ -201,7 +216,8 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
     ) -> discord.Embed:
         embed = discord.Embed(title=title, color=color)
 
-        end_ts = int(end_at.timestamp())
+        end_at_utc = self._ensure_utc(end_at)
+        end_ts = int(end_at_utc.timestamp())
         description_lines = intro_lines + ["✅ Klikni na tlačítko níže a připoj se."]
         embed.description = "\n".join(description_lines)
 
@@ -476,7 +492,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
 
         image_url: Optional[str] = image.url if image is not None else None
         duration = int(duration_minutes) if duration_minutes is not None else DEFAULT_GIVEAWAY_DURATION_MINUTES
-        end_at = datetime.utcnow() + timedelta(minutes=duration)
+        end_at = datetime.now(timezone.utc) + timedelta(minutes=duration)
 
         # ---------------------- COIN ----------------------
         if typ == GiveawayType.COIN:
