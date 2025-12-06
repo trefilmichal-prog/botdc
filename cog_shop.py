@@ -32,9 +32,10 @@ def _can_manage_shop(interaction: discord.Interaction) -> bool:
     if isinstance(user, discord.Member):
         if user.guild_permissions.administrator:
             return True
-        return any(role.id == SHOP_MANAGER_ROLE_ID for role in user.roles)
+        if any(role.id == SHOP_MANAGER_ROLE_ID for role in user.roles):
+            return True
 
-    # Podpora pro interakce v DM – ověříme role uživatele na jakémkoli serveru bota
+    # Fallback (včetně DM): ověříme role uživatele na jakémkoli serveru bota
     client = interaction.client
     if isinstance(client, commands.Bot):
         for guild in client.guilds:
@@ -107,7 +108,6 @@ class ShopCog(commands.Cog, name="ShopCog"):
         name="addshopitem",
         description="Přidá položku do shopu (screen, cena, počet kusů).",
     )
-    @app_commands.check(_can_manage_shop)
     @app_commands.describe(
         title="Název položky",
         price_coins="Cena v coinech",
