@@ -393,6 +393,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
         screen_winners="Počet výherců pro screen giveaway (min 1, max 10)",
         duration_minutes="Za kolik minut se má giveaway automaticky ukončit (prázdné = default z configu)",
         block_admins="Zabrání administrátorům přihlásit se do giveaway",
+        mention_ping_role="Pingne při startu giveaway nastavenou roli (true/false)",
     )
     async def start_giveaway_cmd(
         self,
@@ -405,6 +406,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
         screen_winners: Optional[app_commands.Range[int, 1, 10]] = None,
         duration_minutes: Optional[app_commands.Range[int, 1, 1440]] = None,
         block_admins: bool = False,
+        mention_ping_role: bool = True,
     ):
         channel_id_str = get_setting("giveaway_channel_id")
         if not channel_id_str:
@@ -538,7 +540,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
         view = GiveawayView(self)
 
         content = ""
-        if GIVEAWAY_PING_ROLE_ID:
+        if GIVEAWAY_PING_ROLE_ID and mention_ping_role:
             content = f"<@&{GIVEAWAY_PING_ROLE_ID}>"
 
         msg = await channel.send(content=content, embed=embed, view=view)
