@@ -6,6 +6,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 
+from config import SETUP_MANAGER_ROLE_ID
 from db import (
     create_shop_item,
     create_shop_purchase,
@@ -86,6 +87,7 @@ class ShopCog(commands.Cog, name="ShopCog"):
         description="Nastaví tento kanál jako roomku pro shop (admin).",
     )
     @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.checks.has_role(SETUP_MANAGER_ROLE_ID)
     async def setupshop_cmd(self, interaction: discord.Interaction):
         channel = interaction.channel
         if not isinstance(channel, discord.TextChannel):

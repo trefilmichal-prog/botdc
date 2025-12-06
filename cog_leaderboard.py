@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from config import CLAN_MEMBER_ROLE_ID
+from config import CLAN_MEMBER_ROLE_ID, SETUP_MANAGER_ROLE_ID
 from db import (
     add_clan_panel,
     add_leaderboard_panel,
@@ -32,6 +32,7 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
             app_commands.Choice(name="Zprávy", value="message_count"),
         ]
     )
+    @app_commands.checks.has_role(SETUP_MANAGER_ROLE_ID)
     async def leaderboard_cmd(
         self, interaction: discord.Interaction, metric: app_commands.Choice[str]
     ):
@@ -83,6 +84,7 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
     )
     @app_commands.describe(channel="Kanál, kam se má zpráva poslat.")
     @app_commands.default_permissions(manage_channels=True)
+    @app_commands.checks.has_role(SETUP_MANAGER_ROLE_ID)
     async def setup_clan_room(
         self, interaction: discord.Interaction, channel: discord.TextChannel
     ):
@@ -111,6 +113,7 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
     )
     @app_commands.describe(channel="Kanál, kam se má žebříček poslat.")
     @app_commands.default_permissions(manage_channels=True)
+    @app_commands.checks.has_role(SETUP_MANAGER_ROLE_ID)
     async def setup_leaderboard_room(
         self, interaction: discord.Interaction, channel: discord.TextChannel
     ):

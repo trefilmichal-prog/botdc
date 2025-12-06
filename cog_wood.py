@@ -9,7 +9,12 @@ import discord
 from discord.ext import commands, tasks
 from discord import app_commands
 
-from config import REMINDER_INTERVAL_HOURS, STAFF_ROLE_ID, TICKET_VIEWER_ROLE_ID
+from config import (
+    REMINDER_INTERVAL_HOURS,
+    SETUP_MANAGER_ROLE_ID,
+    STAFF_ROLE_ID,
+    TICKET_VIEWER_ROLE_ID,
+)
 from i18n import DEFAULT_LOCALE, get_interaction_locale, get_message_locale, normalize_locale, t
 from db import (
     set_setting,
@@ -239,6 +244,7 @@ class WoodCog(commands.Cog, name="WoodCog"):
         description="Vytvoří hlavní panel se surovinami a tlačítkem pro ticket (admin).",
     )
     @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.checks.has_role(SETUP_MANAGER_ROLE_ID)
     async def setup_panel_cmd(self, interaction: discord.Interaction):
         locale = get_interaction_locale(interaction)
         channel = interaction.channel

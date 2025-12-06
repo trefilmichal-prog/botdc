@@ -10,7 +10,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from config import ADMIN_TASK_DB_PATH, REBIRTH_DATA_URL
+from config import ADMIN_TASK_DB_PATH, REBIRTH_DATA_URL, SETUP_MANAGER_ROLE_ID
 from db import (
     add_sp_panel,
     get_all_sp_panels,
@@ -291,6 +291,7 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
         description="Propojí embed s webovou tabulkou rebirthů (aktualizace každých 5 minut)",
     )
     @app_commands.default_permissions(manage_channels=True)
+    @app_commands.checks.has_role(SETUP_MANAGER_ROLE_ID)
     async def setup_sp(self, interaction: discord.Interaction, channel: discord.TextChannel):
         if interaction.guild is None:
             await interaction.response.send_message(
