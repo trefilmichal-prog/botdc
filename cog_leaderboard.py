@@ -1,3 +1,5 @@
+import asyncio
+
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -22,6 +24,11 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
 
     def cog_unload(self):
         self.panel_refresh_loop.cancel()
+
+    @staticmethod
+    def _embed_has_changed(message: discord.Message, new_embed: discord.Embed) -> bool:
+        current = message.embeds[0] if message.embeds else None
+        return current is None or current.to_dict() != new_embed.to_dict()
 
     @app_commands.command(
         name="leaderboard", description="Ukáže žebříček podle coinů nebo počtu zpráv."
@@ -184,7 +191,10 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
                 continue
 
             try:
+                if not self._embed_has_changed(msg, embed):
+                    continue
                 await msg.edit(embed=embed)
+                await asyncio.sleep(0.25)
             except discord.HTTPException:
                 continue
 
@@ -215,7 +225,10 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
                 continue
 
             try:
+                if not self._embed_has_changed(msg, embed):
+                    continue
                 await msg.edit(embed=embed)
+                await asyncio.sleep(0.25)
             except discord.HTTPException:
                 continue
 
