@@ -1,4 +1,5 @@
 import json
+import asyncio
 import re
 import sqlite3
 import urllib.error
@@ -36,6 +37,11 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
 
     def cog_unload(self):
         self.refresh_loop.cancel()
+
+    @staticmethod
+    def _embed_has_changed(message: discord.Message, new_embed: discord.Embed) -> bool:
+        current = message.embeds[0] if message.embeds else None
+        return current is None or current.to_dict() != new_embed.to_dict()
 
     def _get_admin_connection(self) -> sqlite3.Connection:
         return sqlite3.connect(ADMIN_TASK_DB_PATH)
@@ -336,7 +342,10 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
                 continue
 
             try:
+                if not self._embed_has_changed(message, embed):
+                    continue
                 await message.edit(embed=embed)
+                await asyncio.sleep(0.25)
             except discord.HTTPException:
                 continue
 

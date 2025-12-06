@@ -55,6 +55,11 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
         embed = self._build_embed()
 
         if message:
+            if message.embeds and message.embeds[0].to_dict() == embed.to_dict():
+                set_setting("time_status_message_id", str(message.id))
+                set_setting("time_status_channel_id", str(channel.id))
+                self.message_id = message.id
+                return
             await message.edit(embed=embed)
             set_setting("time_status_message_id", str(message.id))
             set_setting("time_status_channel_id", str(channel.id))
