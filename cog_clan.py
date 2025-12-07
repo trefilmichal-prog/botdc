@@ -862,8 +862,12 @@ class ClanApplyPanelView(discord.ui.View):
         self._apply_locale()
 
     def _apply_locale(self):
+        is_english = self.locale == DEFAULT_LOCALE
         for child in list(self.children):
             if isinstance(child, discord.ui.Button) and child.custom_id == "clan_apply_button":
+                if is_english:
+                    self.remove_item(child)
+                    continue
                 child.label = "HROT"
 
             if isinstance(child, discord.ui.Button) and child.custom_id == "clan2_apply_button":
