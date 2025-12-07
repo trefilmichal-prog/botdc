@@ -884,7 +884,7 @@ class ClanApplyPanelView(discord.ui.View):
                 style=discord.ButtonStyle.primary,
                 custom_id="clan_apply_button",
             )
-            hrot_button.callback = self.apply_button
+            hrot_button.callback = self.apply_button.callback
             self.add_item(hrot_button)
 
         if not has_hr2t_button:
@@ -893,7 +893,7 @@ class ClanApplyPanelView(discord.ui.View):
                 style=discord.ButtonStyle.primary,
                 custom_id="clan2_apply_button",
             )
-            hr2t_button.callback = self.apply_clan2_button
+            hr2t_button.callback = self.apply_clan2_button.callback
             self.add_item(hr2t_button)
 
     def _get_clan2_cog(self) -> "Clan2ApplicationsCog | None":
