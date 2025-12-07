@@ -4,6 +4,7 @@ import logging
 import types
 import weakref
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import discord
@@ -15,9 +16,9 @@ from config import (
     AUTO_TRANSLATE_TARGET_CHANNEL_ID,
     CLAN_MEMBER_ROLE_EN_ID,
     CLAN_MEMBER_ROLE_ID,
-    OLLAMA_MODEL,
-    OLLAMA_TIMEOUT,
-    OLLAMA_URL,
+    DEEPL_API_KEY,
+    DEEPL_API_URL,
+    DEEPL_TIMEOUT,
     REACTION_TRANSLATION_BLOCKED_CHANNEL_IDS,
 )
 
@@ -57,7 +58,7 @@ class AutoTranslateCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._target_channel: discord.abc.Messageable | None = None
-        self._reaction_targets = {"🇨🇿": "Czech", "🇺🇲": "English"}
+        self._reaction_targets = {"🇨🇿": "czech", "🇺🇲": "english"}
         self._safe_allowed_mentions = discord.AllowedMentions(
             everyone=False, roles=False, replied_user=False
         )
@@ -68,38 +69,61 @@ class AutoTranslateCog(commands.Cog):
             3, 20, commands.BucketType.channel
         )
 
-    def _post_json(self, payload: dict[str, object]) -> str:
+    def _post_deepl(self, payload: dict[str, object]) -> str:
         request = urllib.request.Request(
-            OLLAMA_URL,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            DEEPL_API_URL,
+            data=urllib.parse.urlencode(payload).encode("utf-8"),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=OLLAMA_TIMEOUT) as response:
+        with urllib.request.urlopen(request, timeout=DEEPL_TIMEOUT) as response:
             return response.read().decode("utf-8")
 
-    async def _ask_ollama(self, prompt: str) -> str | None:
+    def _resolve_language(self, language: str) -> tuple[str, str] | None:
+        normalized = language.strip().lower().replace(" ", "").replace("-", "")
+        language_map = {
+            "english": ("EN", "English"),
+            "en": ("EN", "English"),
+            "engb": ("EN-GB", "English (GB)"),
+            "enus": ("EN-US", "English (US)"),
+            "czech": ("CS", "Czech"),
+            "cs": ("CS", "Czech"),
+            "cesky": ("CS", "Czech"),
+            "česky": ("CS", "Czech"),
+            "čeština": ("CS", "Czech"),
+        }
+        return language_map.get(normalized)
+
+    async def _translate_text(self, target_lang: str, content: str) -> str | None:
+        prepared_content = self._prepare_content(content)
         payload = {
-            "model": OLLAMA_MODEL,
-            "prompt": prompt,
-            "stream": False,
-            "options": {"temperature": 0},
+            "auth_key": DEEPL_API_KEY,
+            "text": prepared_content,
+            "target_lang": target_lang,
         }
 
         try:
-            raw_response = await asyncio.to_thread(self._post_json, payload)
+            raw_response = await asyncio.to_thread(self._post_deepl, payload)
             data = json.loads(raw_response)
         except (urllib.error.URLError, TimeoutError) as error:
-            logger.warning("Ollama request failed: %s", error)
+            logger.warning("DeepL request failed: %s", error)
             return None
         except json.JSONDecodeError:
-            logger.warning("Ollama returned invalid JSON")
+            logger.warning("DeepL returned invalid JSON")
             return None
 
-        response_text = data.get("response") if isinstance(data, dict) else None
-        if not response_text:
+        translations = data.get("translations") if isinstance(data, dict) else None
+        if not translations or not isinstance(translations, list):
             return None
-        return response_text.strip()
+
+        first_translation = translations[0] if translations else None
+        if not isinstance(first_translation, dict):
+            return None
+
+        translation_text = first_translation.get("text")
+        if not translation_text:
+            return None
+        return str(translation_text).strip()
 
     async def _target_messageable(self) -> discord.abc.Messageable | None:
         if self._target_channel:
@@ -127,20 +151,6 @@ class AutoTranslateCog(commands.Cog):
         )
         return safe_content.replace("<@&", "<@\u200b&")
 
-    def _build_prompt(self, language: str, content: str) -> str:
-        return (
-            f"Translate the following Discord message to {language}. "
-            "Preserve the original formatting, emojis, and mentions. "
-            "Use a neutral, respectful tone without jokes or additions. "
-            "Answer with the translation only.\n\n"
-            f"Message: {content}"
-        )
-
-    async def _translate_text(self, language: str, content: str) -> str | None:
-        prepared_content = self._prepare_content(content)
-        prompt = self._build_prompt(language, prepared_content)
-        return await self._ask_ollama(prompt)
-
     async def _respond_with_translation(
         self, interaction: discord.Interaction, language: str, message: discord.Message
     ) -> None:
@@ -156,8 +166,16 @@ class AutoTranslateCog(commands.Cog):
             )
             return
 
+        resolved_language = self._resolve_language(language)
+        if not resolved_language:
+            await interaction.response.send_message(
+                "Tento jazyk není podporován pro překlad.", ephemeral=True
+            )
+            return
+
+        target_lang, language_label = resolved_language
         await interaction.response.defer(thinking=True, ephemeral=True)
-        translation = await self._translate_text(language, message.content)
+        translation = await self._translate_text(target_lang, message.content)
         if not translation:
             await interaction.followup.send(
                 "Překlad se nepodařil, zkuste to prosím znovu.", ephemeral=True
@@ -166,7 +184,7 @@ class AutoTranslateCog(commands.Cog):
 
         safe_translation = self._sanitize_output(translation)
         await interaction.followup.send(
-            f"Překlad do {language}: {safe_translation}",
+            f"Překlad do {language_label}: {safe_translation}",
             ephemeral=True,
             allowed_mentions=self._safe_allowed_mentions,
         )
@@ -177,10 +195,19 @@ class AutoTranslateCog(commands.Cog):
     ):
         """Translate arbitrary text for anyone without special permissions."""
 
-        prompt = self._build_prompt(language, text)
+        resolved_language = self._resolve_language(language)
+        if not resolved_language:
+            await ctx.reply(
+                "Tento jazyk není podporován pro překlad.",
+                mention_author=False,
+                allowed_mentions=self._safe_allowed_mentions,
+            )
+            return
+
+        target_lang, language_label = resolved_language
 
         async with ctx.typing():
-            translation = await self._ask_ollama(prompt)
+            translation = await self._translate_text(target_lang, text)
 
         if not translation:
             await ctx.reply(
@@ -192,7 +219,7 @@ class AutoTranslateCog(commands.Cog):
 
         safe_translation = self._sanitize_output(translation)
         await ctx.reply(
-            safe_translation,
+            f"Překlad do {language_label}: {safe_translation}",
             mention_author=False,
             allowed_mentions=self._safe_allowed_mentions,
         )
@@ -217,11 +244,15 @@ class AutoTranslateCog(commands.Cog):
         if not message.content.strip():
             return
 
-        prepared_content = self._prepare_content(message.content)
-        prompt = self._build_prompt("English", prepared_content)
+        resolved_language = self._resolve_language("english")
+        if not resolved_language:
+            logger.warning("Default language English is not configured for translation")
+            return
+
+        target_lang, _ = resolved_language
 
         async with message.channel.typing():
-            translation = await self._ask_ollama(prompt)
+            translation = await self._translate_text(target_lang, message.content)
 
         if not translation:
             logger.warning("Translation failed for message %s", message.id)
@@ -287,11 +318,17 @@ class AutoTranslateCog(commands.Cog):
         if not message.content.strip():
             return
 
-        prepared_content = self._prepare_content(message.content)
-        prompt = self._build_prompt(target_language, prepared_content)
+        resolved_language = self._resolve_language(target_language)
+        if not resolved_language:
+            logger.warning(
+                "Unsupported target language %s for reaction translation", target_language
+            )
+            return
+
+        target_lang, language_label = resolved_language
 
         async with channel.typing():
-            translation = await self._ask_ollama(prompt)
+            translation = await self._translate_text(target_lang, message.content)
 
         if not translation:
             logger.warning(
@@ -305,7 +342,7 @@ class AutoTranslateCog(commands.Cog):
 
         try:
             await message.reply(
-                f"Překlad: {safe_translation}",
+                f"Překlad do {language_label}: {safe_translation}",
                 mention_author=False,
                 allowed_mentions=self._safe_allowed_mentions,
             )
