@@ -862,16 +862,38 @@ class ClanApplyPanelView(discord.ui.View):
         self._apply_locale()
 
     def _apply_locale(self):
-        is_english = self.locale == DEFAULT_LOCALE
+        has_hrot_button = False
+        has_hr2t_button = False
+
         for child in list(self.children):
             if isinstance(child, discord.ui.Button) and child.custom_id == "clan_apply_button":
                 if is_english:
                     self.remove_item(child)
                     continue
                 child.label = "HROT"
+                has_hrot_button = True
 
             if isinstance(child, discord.ui.Button) and child.custom_id == "clan2_apply_button":
                 child.label = "HR2T"
+                has_hr2t_button = True
+
+        if not has_hrot_button:
+            hrot_button = discord.ui.Button(
+                label="HROT",
+                style=discord.ButtonStyle.primary,
+                custom_id="clan_apply_button",
+            )
+            hrot_button.callback = self.apply_button
+            self.add_item(hrot_button)
+
+        if not has_hr2t_button:
+            hr2t_button = discord.ui.Button(
+                label="HR2T",
+                style=discord.ButtonStyle.primary,
+                custom_id="clan2_apply_button",
+            )
+            hr2t_button.callback = self.apply_clan2_button
+            self.add_item(hr2t_button)
 
     def _get_clan2_cog(self) -> "Clan2ApplicationsCog | None":
         return self.cog.bot.get_cog("Clan2ApplicationsCog")
