@@ -13,6 +13,15 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
 OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))
 
+# DeepL konfigurace
+DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
+if not DEEPL_API_KEY:
+    raise RuntimeError(
+        "Chybí environment proměnná DEEPL_API_KEY pro překlady Deepl."
+    )
+DEEPL_API_URL = os.getenv("DEEPL_API_URL", "https://api-free.deepl.com/v2/translate")
+DEEPL_TIMEOUT = int(os.getenv("DEEPL_TIMEOUT", "30"))
+
 # Přehled času – cílová místnost a výchozí americká oblast
 TIME_STATUS_CHANNEL_ID = 1445973251019898961
 TIME_STATUS_STATE_NAME = os.getenv("TIME_STATUS_STATE_NAME", "New York")
