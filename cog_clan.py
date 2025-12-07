@@ -13,6 +13,7 @@ from config import (
     CLAN_MEMBER_ROLE_EN_ID,
     CLAN2_MEMBER_ROLE_ID,
     CLAN_APPLICATION_PING_ROLE_ID,
+    CLAN2_APPLICATION_PING_ROLE_ID,
     CLAN_TICKET_CATEGORY_ID,
     CLAN_ACCEPTED_TICKET_CATEGORY_ID,
     CLAN2_ACCEPTED_TICKET_CATEGORY_ID,
@@ -189,8 +190,11 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         channel: discord.TextChannel,
         base: str,
         status: str,
+        clan_label: str | None = None,
     ):
-        new_name = self.build_ticket_name(base, status)
+        new_name = self.build_ticket_name_for_label(
+            base, status, clan_label or self.ticket_clan_label
+        )
         if channel.name == new_name:
             return
 
@@ -321,7 +325,7 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
                     clan_label = "HROT"
                     has_clan_role = True
                 elif CLAN_MEMBER_ROLE_EN_ID and member.get_role(CLAN_MEMBER_ROLE_EN_ID):
-                    clan_label = "HROT"
+                    clan_label = "HR2T"
                     has_clan_role = True
 
                 if has_clan_role:
@@ -468,7 +472,13 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
 
             if selected_app is not None:
                 base = self._get_ticket_base_from_app(selected_app, guild)
-                await self.rename_ticket_channel(channel, base, "accepted")
+                app_locale = normalize_locale(
+                    selected_app.get("locale", DEFAULT_LOCALE)
+                )
+                clan_label = "HR2T" if app_locale == DEFAULT_LOCALE else self.ticket_clan_label
+                await self.rename_ticket_channel(
+                    channel, base, "accepted", clan_label
+                )
 
             if channel.category_id == target_category.id:
                 already_ok += 1
@@ -774,7 +784,7 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
             return CLAN_ACCEPTED_TICKET_CATEGORY_ID
 
         if CLAN_MEMBER_ROLE_EN_ID and member.get_role(CLAN_MEMBER_ROLE_EN_ID):
-            return CLAN_ACCEPTED_TICKET_CATEGORY_ID
+            return CLAN2_ACCEPTED_TICKET_CATEGORY_ID
 
         return None
 
@@ -829,7 +839,11 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
 
         if selected_app is not None:
             base = self._get_ticket_base_from_app(selected_app, after.guild)
-            await self.rename_ticket_channel(ticket_channel, base, "accepted")
+            app_locale = normalize_locale(selected_app.get("locale", DEFAULT_LOCALE))
+            clan_label = "HR2T" if app_locale == DEFAULT_LOCALE else self.ticket_clan_label
+            await self.rename_ticket_channel(
+                ticket_channel, base, "accepted", clan_label
+            )
 
         await self.move_ticket_to_category(
             ticket_channel,
@@ -848,8 +862,12 @@ class ClanApplyPanelView(discord.ui.View):
         self._apply_locale()
 
     def _apply_locale(self):
+        is_english = self.locale == DEFAULT_LOCALE
         for child in list(self.children):
             if isinstance(child, discord.ui.Button) and child.custom_id == "clan_apply_button":
+                if is_english:
+                    self.remove_item(child)
+                    continue
                 child.label = "HROT"
 
             if isinstance(child, discord.ui.Button) and child.custom_id == "clan2_apply_button":
@@ -1055,7 +1073,11 @@ class ClanApplicationModal(discord.ui.Modal):
                     send_messages=True,
                     read_message_history=True,
                 )
-        ch_name = self.cog.build_ticket_name(nick or user.name, "open")
+        is_english = locale == DEFAULT_LOCALE
+        ticket_clan_label = "HR2T" if is_english else self.cog.ticket_clan_label
+        ch_name = self.cog.build_ticket_name_for_label(
+            nick or user.name, "open", ticket_clan_label
+        )
 
         reason_text = t("clan_ticket_audit", DEFAULT_LOCALE, user=user, user_id=user.id)
 
@@ -1128,8 +1150,11 @@ class ClanApplicationModal(discord.ui.Modal):
         )
 
         content_parts = [user.mention]
-        if CLAN_APPLICATION_PING_ROLE_ID:
-            content_parts.insert(0, f"<@&{CLAN_APPLICATION_PING_ROLE_ID}>")
+        ping_role_id = (
+            CLAN2_APPLICATION_PING_ROLE_ID if is_english else CLAN_APPLICATION_PING_ROLE_ID
+        )
+        if ping_role_id:
+            content_parts.insert(0, f"<@&{ping_role_id}>")
 
         admin_view = ClanAdminView(self.cog, locale)
         self.cog.bot.add_view(admin_view)
@@ -1234,11 +1259,7 @@ class ClanAdminView(discord.ui.View):
             return
 
         app_locale = normalize_locale(app.get("locale", DEFAULT_LOCALE))
-        role_id = (
-            CLAN_MEMBER_ROLE_EN_ID
-            if app_locale == DEFAULT_LOCALE
-            else CLAN_MEMBER_ROLE_ID
-        )
+        role_id = CLAN2_MEMBER_ROLE_ID if app_locale == DEFAULT_LOCALE else CLAN_MEMBER_ROLE_ID
 
         set_clan_application_status(app["id"], "accepted", datetime.utcnow())
 
@@ -1246,7 +1267,10 @@ class ClanAdminView(discord.ui.View):
         member = guild.get_member(app["user_id"])
         if isinstance(channel, discord.TextChannel):
             base = self.cog._get_ticket_base_from_app(app, guild)
-            await self.cog.rename_ticket_channel(channel, base, "accepted")
+            clan_label = "HR2T" if app_locale == DEFAULT_LOCALE else self.cog.ticket_clan_label
+            await self.cog.rename_ticket_channel(
+                channel, base, "accepted", clan_label
+            )
             await self.cog.move_ticket_to_accepted_category(channel)
         if member is not None and role_id:
             role = guild.get_role(role_id)
@@ -1390,7 +1414,10 @@ class ClanAdminView(discord.ui.View):
         member = guild.get_member(app["user_id"])
         if isinstance(channel, discord.TextChannel):
             base = self.cog._get_ticket_base_from_app(app, guild)
-            await self.cog.rename_ticket_channel(channel, base, "rejected")
+            clan_label = "HR2T" if app_locale == DEFAULT_LOCALE else self.cog.ticket_clan_label
+            await self.cog.rename_ticket_channel(
+                channel, base, "rejected", clan_label
+            )
 
         await interaction.response.send_message(
             t("clan_application_reject_public", locale),
