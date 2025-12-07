@@ -862,6 +862,7 @@ class ClanApplyPanelView(discord.ui.View):
         self._apply_locale()
 
     def _apply_locale(self):
+        is_english = self.locale == DEFAULT_LOCALE
         has_hrot_button = False
         has_hr2t_button = False
 
