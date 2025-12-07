@@ -744,12 +744,9 @@ class Clan2ApplyPanelView(discord.ui.View):
                     t("clan_application_open_in_channel", locale, channel=channel.mention),
                     ephemeral=True,
                 )
-            else:
-                await interaction.response.send_message(
-                    t("clan_application_open_wait", locale),
-                    ephemeral=True,
-                )
-            return
+                return
+
+            mark_clan_application_deleted(existing["id"])
 
         latest_app = get_latest_clan_application_by_user(guild.id, user.id)
         if (
@@ -768,6 +765,7 @@ class Clan2ApplyPanelView(discord.ui.View):
                     ephemeral=True,
                 )
                 return
+            mark_clan_application_deleted(latest_app["id"])
 
         # pouze otevřeme formulář, ticket se vytvoří až po submit
         modal = Clan2ApplicationModal(self.cog, locale)
