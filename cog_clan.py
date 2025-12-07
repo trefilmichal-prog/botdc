@@ -867,6 +867,9 @@ class ClanApplyPanelView(discord.ui.View):
 
         for child in list(self.children):
             if isinstance(child, discord.ui.Button) and child.custom_id == "clan_apply_button":
+                if is_english:
+                    self.remove_item(child)
+                    continue
                 child.label = "HROT"
                 has_hrot_button = True
 
