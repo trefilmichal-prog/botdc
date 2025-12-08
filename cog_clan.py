@@ -11,7 +11,7 @@ ADMIN_ROLE_ID = None  # nebo např. 123456789
 class ClanSelect(discord.ui.Select):
     def __init__(self):
         options = [
-            discord.SelectOption(label="HROT"),
+            discord.SelectOption(label="Hrot 🇨🇿"),
             discord.SelectOption(label="HR2T"),
             discord.SelectOption(label="TGMC"),
         ]
