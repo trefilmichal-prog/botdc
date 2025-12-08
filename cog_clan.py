@@ -899,7 +899,7 @@ class ClanApplyPanelView(discord.ui.View):
                 child.label = "TGMC"
                 has_tgmc_button = True
 
-        if not has_hrot_button:
+        if not has_hrot_button and not is_english:
             hrot_button = discord.ui.Button(
                 label="HROT",
                 style=discord.ButtonStyle.primary,
