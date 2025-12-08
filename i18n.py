@@ -584,6 +584,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "cs": "Tento příkaz lze použít jen v textovém kanálu.",
         "en": "This command can only be used in a text channel.",
     },
+    "wood_setup_forbidden": {
+        "cs": "Na tento příkaz nemáš oprávnění.",
+        "en": "You don't have permission to use this command.",
+    },
     "wood_panel_title": {
         "cs": "Suroviny – těžba dřeva (Ultimate Rebirth Champions)",
         "en": "Materials – wood mining (Ultimate Rebirth Champions)",

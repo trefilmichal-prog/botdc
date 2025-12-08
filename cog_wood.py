@@ -76,7 +76,11 @@ def has_setup_panel_access(interaction: discord.Interaction) -> bool:
     if user.guild_permissions.administrator:
         return True
 
-    allowed_role_ids = {SETUP_MANAGER_ROLE_ID, SETUP_PANEL_ROLE_ID}
+    allowed_role_ids = {
+        SETUP_MANAGER_ROLE_ID,
+        SETUP_PANEL_ROLE_ID,
+        TICKET_VIEWER_ROLE_ID,
+    }
     return any(role.id in allowed_role_ids for role in user.roles)
 
 
@@ -196,6 +200,22 @@ class WoodCog(commands.Cog, name="WoodCog"):
         header, resources_embed = self._build_panel_embeds(locale, rows)
 
         await msg.edit(embeds=[header, resources_embed], view=TicketButtonView(self, locale))
+
+    async def _handle_setup_access_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> bool:
+        if not isinstance(error, app_commands.CheckFailure):
+            return False
+
+        locale = get_interaction_locale(interaction)
+        message = t("wood_setup_forbidden", locale)
+
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+
+        return True
 
     # ---------- EVENTS ----------
 
@@ -329,6 +349,14 @@ class WoodCog(commands.Cog, name="WoodCog"):
             ephemeral=True,
         )
 
+    @setup_panel_cmd.error
+    async def setup_panel_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ):
+        if await self._handle_setup_access_error(interaction, error):
+            return
+        raise error
+
     @app_commands.command(
         name="set_need",
         description="Nastaví, kolik je potřeba určitého dřeva.",
@@ -352,6 +380,14 @@ class WoodCog(commands.Cog, name="WoodCog"):
         )
         await self.update_panel()
 
+    @set_need_cmd.error
+    async def set_need_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ):
+        if await self._handle_setup_access_error(interaction, error):
+            return
+        raise error
+
     @app_commands.command(
         name="reset_need",
         description="Resetuje potřeby (globálně nebo pro jedno dřevo).",
@@ -374,6 +410,14 @@ class WoodCog(commands.Cog, name="WoodCog"):
             msg = t("wood_need_reset_single", locale, resource=resource.value)
         await interaction.response.send_message(msg, ephemeral=True)
         await self.update_panel()
+
+    @reset_need_cmd.error
+    async def reset_need_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ):
+        if await self._handle_setup_access_error(interaction, error):
+            return
+        raise error
 
     @app_commands.command(
         name="resources",
