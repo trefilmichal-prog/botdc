@@ -238,7 +238,11 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.checks.has_role(SETUP_MANAGER_ROLE_ID)
     async def setup_clan_panel_cmd(self, interaction: discord.Interaction):
-        locale = get_interaction_locale(interaction)
+        locale = normalize_locale(
+            interaction.locale
+            or self.locale
+            or getattr(interaction, "guild_locale", None)
+        )
         channel = interaction.channel
         if not isinstance(channel, discord.TextChannel):
             await interaction.response.send_message(
@@ -946,7 +950,11 @@ class ClanApplyPanelView(discord.ui.View):
         modal_factory,
         target_cog: "ClanApplicationsCog | Clan2ApplicationsCog",
     ):
-        locale = get_interaction_locale(interaction)
+        locale = normalize_locale(
+            interaction.locale
+            or self.locale
+            or getattr(interaction, "guild_locale", None)
+        )
         user = interaction.user
         guild = interaction.guild
         if guild is None:
