@@ -1599,23 +1599,41 @@ class DeleteRejectedTicketView(discord.ui.View):
 
         await interaction.response.defer(ephemeral=True)
 
+        await interaction.followup.send(
+            t("clan_ticket_deleted", self.locale, channel=channel.mention),
+            ephemeral=True,
+        )
+
+        asyncio.create_task(
+            self._delete_ticket_channel(channel, interaction.user, locale)
+        )
+
+    async def _delete_ticket_channel(
+        self,
+        channel: discord.TextChannel,
+        user: discord.abc.User,
+        locale: discord.Locale,
+    ) -> None:
         try:
             await channel.delete(reason="Smazání clan ticketu po zamítnutí přihlášky")
             mark_clan_application_deleted(self.app_id)
-            await interaction.followup.send(
-                t("clan_ticket_deleted", self.locale, channel=channel.mention),
-                ephemeral=True,
-            )
         except discord.Forbidden:
-            await interaction.followup.send(
+            await self._notify_deletion_issue(
+                user,
                 t("clan_ticket_delete_forbidden", locale, channel=channel.mention),
-                ephemeral=True,
             )
         except discord.HTTPException:
-            await interaction.followup.send(
+            await self._notify_deletion_issue(
+                user,
                 t("clan_ticket_delete_failed", locale, channel=channel.mention),
-                ephemeral=True,
             )
+
+    @staticmethod
+    async def _notify_deletion_issue(user: discord.abc.User, message: str) -> None:
+        try:
+            await user.send(message)
+        except discord.HTTPException:
+            pass
 
 class ClanAdminPanelView(discord.ui.View):
     def __init__(
