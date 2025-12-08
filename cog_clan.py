@@ -26,6 +26,7 @@ from config import (
 from i18n import (
     DEFAULT_LOCALE,
     CZECH_LOCALE,
+    ENGLISH_LOCALE,
     get_interaction_locale,
     normalize_locale,
     t,
@@ -43,7 +44,7 @@ CLAN_EMBED_CLAN_LIST_EN = (
 
 
 def get_clan_embed_clan_list(locale: discord.Locale) -> str:
-    if normalize_locale(locale) == DEFAULT_LOCALE:
+    if normalize_locale(locale) == ENGLISH_LOCALE:
         return CLAN_EMBED_CLAN_LIST_EN
     return CLAN_EMBED_CLAN_LIST
 
@@ -889,7 +890,7 @@ class ClanApplyPanelView(discord.ui.View):
         self._apply_locale()
 
     def _apply_locale(self):
-        is_english = self.locale == DEFAULT_LOCALE
+        is_english = self.locale == ENGLISH_LOCALE
         has_hrot_button = False
         has_hr2t_button = False
         has_tgmc_button = False
@@ -1172,7 +1173,7 @@ class ClanApplicationModal(discord.ui.Modal):
                     read_message_history=True,
                 )
         is_czech = locale == CZECH_LOCALE
-        is_english = normalize_locale(locale) == DEFAULT_LOCALE
+        is_english = normalize_locale(locale) == ENGLISH_LOCALE
         ticket_clan_label = "HR2T" if is_czech else self.cog.ticket_clan_label
         ch_name = self.cog.build_ticket_name_for_label(
             nick or user.name, "open", ticket_clan_label
