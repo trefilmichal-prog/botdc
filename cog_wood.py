@@ -12,6 +12,7 @@ from discord import app_commands
 from config import (
     REMINDER_INTERVAL_HOURS,
     SETUP_MANAGER_ROLE_ID,
+    SETUP_PANEL_ROLE_ID,
     STAFF_ROLE_ID,
     TICKET_VIEWER_ROLE_ID,
 )
@@ -64,6 +65,19 @@ def build_needed_materials_embed(rows: List[Tuple[str, int, int]], locale: disco
             inline=False,
         )
     return embed
+
+
+def has_setup_panel_access(interaction: discord.Interaction) -> bool:
+    user = interaction.user
+
+    if not isinstance(user, discord.Member):
+        return False
+
+    if user.guild_permissions.administrator:
+        return True
+
+    allowed_role_ids = {SETUP_MANAGER_ROLE_ID, SETUP_PANEL_ROLE_ID}
+    return any(role.id in allowed_role_ids for role in user.roles)
 
 
 class WoodCog(commands.Cog, name="WoodCog"):
@@ -290,8 +304,7 @@ class WoodCog(commands.Cog, name="WoodCog"):
         name="setup_panel",
         description="Vytvoří hlavní panel se surovinami a tlačítkem pro ticket (admin).",
     )
-    @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.checks.has_role(SETUP_MANAGER_ROLE_ID)
+    @app_commands.check(has_setup_panel_access)
     async def setup_panel_cmd(self, interaction: discord.Interaction):
         locale = get_interaction_locale(interaction)
         channel = interaction.channel
@@ -320,7 +333,7 @@ class WoodCog(commands.Cog, name="WoodCog"):
         name="set_need",
         description="Nastaví, kolik je potřeba určitého dřeva.",
     )
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.check(has_setup_panel_access)
     @app_commands.describe(
         resource="Typ dřeva",
         required="Požadované množství",
@@ -343,7 +356,7 @@ class WoodCog(commands.Cog, name="WoodCog"):
         name="reset_need",
         description="Resetuje potřeby (globálně nebo pro jedno dřevo).",
     )
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.check(has_setup_panel_access)
     @app_commands.describe(
         resource="Konkrétní dřevo (prázdné = všechno).",
     )
