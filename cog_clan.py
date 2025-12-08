@@ -26,6 +26,13 @@ from config import (
 from i18n import DEFAULT_LOCALE, get_interaction_locale, normalize_locale, t
 
 CLAN_EMBED_CLAN_LIST = "HROT - Main clan :flag_cz:  :flag_us:\nTGMC - Second clan :flag_us:"
+CLAN_EMBED_CLAN_LIST_EN = "TGMC - Main clan :flag_us:"
+
+
+def get_clan_embed_clan_list(locale: discord.Locale) -> str:
+    if normalize_locale(locale) == DEFAULT_LOCALE:
+        return CLAN_EMBED_CLAN_LIST_EN
+    return CLAN_EMBED_CLAN_LIST
 
 if TYPE_CHECKING:  # pragma: no cover - only for type hints
     from cog_clan2 import Clan2ApplicationsCog, Clan2ApplicationModal
@@ -892,7 +899,7 @@ class ClanApplyPanelView(discord.ui.View):
                 child.label = "TGMC"
                 has_tgmc_button = True
 
-        if not has_hrot_button:
+        if not has_hrot_button and not is_english:
             hrot_button = discord.ui.Button(
                 label="HROT",
                 style=discord.ButtonStyle.primary,
@@ -1222,7 +1229,7 @@ class ClanApplicationModal(discord.ui.Modal):
         # embed s instrukcemi na screeny
         intro_embed = discord.Embed(
             title=t("clan_application_intro_title", locale),
-            description=f"{t('clan_application_intro_body', locale)}\n\n{CLAN_EMBED_CLAN_LIST}",
+            description=f"{t('clan_application_intro_body', locale)}\n\n{get_clan_embed_clan_list(locale)}",
             color=0x2980B9,
         )
 

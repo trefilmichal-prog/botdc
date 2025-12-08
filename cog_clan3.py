@@ -20,6 +20,13 @@ from config import (
 from i18n import DEFAULT_LOCALE, get_interaction_locale, normalize_locale, t
 
 CLAN_EMBED_CLAN_LIST = "HROT - Main clan :flag_cz:  :flag_us:\nTGMC - Second clan :flag_us:"
+CLAN_EMBED_CLAN_LIST_EN = "TGMC - Main clan :flag_us:"
+
+
+def get_clan_embed_clan_list(locale: discord.Locale) -> str:
+    if normalize_locale(locale) == DEFAULT_LOCALE:
+        return CLAN_EMBED_CLAN_LIST_EN
+    return CLAN_EMBED_CLAN_LIST
 from db import (
     create_clan_application,
     get_open_application_by_user,
@@ -946,7 +953,7 @@ class Clan3ApplicationModal(discord.ui.Modal):
         # embed s instrukcemi na screeny
         intro_embed = discord.Embed(
             title=t("clan_application_intro_title", locale),
-            description=f"{t('clan_application_intro_body', locale)}\n\n{CLAN_EMBED_CLAN_LIST}",
+            description=f"{t('clan_application_intro_body', locale)}\n\n{get_clan_embed_clan_list(locale)}",
             color=0x2980B9,
         )
 
