@@ -503,7 +503,7 @@ class Clan3ApplicationsCog(commands.Cog, name="Clan3ApplicationsCog"):
         )
 
     @app_commands.command(
-        name="pair_all2",
+        name="pair_all3",
         description=(
             "Spáruje všechny tickety v této kategorii s členy klanu podle roblox nicku v názvu."
         ),
