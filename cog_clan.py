@@ -1172,6 +1172,7 @@ class ClanApplicationModal(discord.ui.Modal):
                     read_message_history=True,
                 )
         is_czech = locale == CZECH_LOCALE
+        is_english = normalize_locale(locale) == DEFAULT_LOCALE
         ticket_clan_label = "HR2T" if is_czech else self.cog.ticket_clan_label
         ch_name = self.cog.build_ticket_name_for_label(
             nick or user.name, "open", ticket_clan_label
