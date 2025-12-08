@@ -1,5 +1,4 @@
-# clan_panel_v2_single.py
-# Components V2 - single container (one file)
+# clan_panel_v2_single_fixed.py
 
 import discord
 from discord.ext import commands
@@ -38,7 +37,11 @@ class ClanTicketView(discord.ui.View):
 
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
+            user: discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True
+            )
         }
 
         safe_name = user.name.lower().replace(" ", "-")
@@ -71,26 +74,29 @@ class ClanPanelCog(commands.Cog):
             title="PŘIHLÁŠKY DO CLANU",
             color=0x2F3136
         )
+
         embed.add_field(
             name="🇺🇸 Podmínky přijetí",
-            value="```
+            value="""```
 - 2SP rebirths +
 - Play 24/7
 - 30% index
 - 10d playtime
-```",
+```""",
             inline=False
         )
+
         embed.add_field(
             name="🇨🇿 Podmínky přijetí",
-            value="```
+            value="""```
 - 2SP rebirthů +
 - Hrát 24/7
 - 30% index
 - 10d playtime
-```",
+```""",
             inline=False
         )
+
         view = ClanTicketView()
         await interaction.response.send_message(embed=embed, view=view)
 
