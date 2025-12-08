@@ -49,8 +49,9 @@ def _get_english_locale() -> discord.Locale:
     )
 
 
-DEFAULT_LOCALE = _get_english_locale()
 CZECH_LOCALE = _get_czech_locale()
+DEFAULT_LOCALE = CZECH_LOCALE
+ENGLISH_LOCALE = _get_english_locale()
 
 
 def normalize_locale(raw_locale: str | discord.Locale | None) -> discord.Locale:
@@ -66,7 +67,7 @@ def normalize_locale(raw_locale: str | discord.Locale | None) -> discord.Locale:
     if normalized.startswith("cs") or normalized == "czech":
         return CZECH_LOCALE
     if normalized.startswith("en"):
-        return DEFAULT_LOCALE
+        return ENGLISH_LOCALE
 
     return DEFAULT_LOCALE
 

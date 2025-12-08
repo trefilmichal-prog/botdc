@@ -17,7 +17,7 @@ from config import (
     TICKET_VIEWER_ROLE_ID,
     CLAN2_ADMIN_ROLE_ID,
 )
-from i18n import DEFAULT_LOCALE, get_interaction_locale, normalize_locale, t
+from i18n import DEFAULT_LOCALE, ENGLISH_LOCALE, get_interaction_locale, normalize_locale, t
 
 CLAN_EMBED_CLAN_LIST = (
     "HROT - Main clan :flag_cz:  :flag_us:\n"
@@ -31,7 +31,7 @@ CLAN_EMBED_CLAN_LIST_EN = (
 
 
 def get_clan_embed_clan_list(locale: discord.Locale) -> str:
-    if normalize_locale(locale) == DEFAULT_LOCALE:
+    if normalize_locale(locale) == ENGLISH_LOCALE:
         return CLAN_EMBED_CLAN_LIST_EN
     return CLAN_EMBED_CLAN_LIST
 from db import (
