@@ -1,6 +1,6 @@
 import discord
-
-TICKET_CATEGORY_ID = 1440977431577235456
+from discord.ext import commands
+from discord import app_commands
 
 
 class Components(discord.ui.LayoutView):
@@ -8,29 +8,22 @@ class Components(discord.ui.LayoutView):
         super().__init__(timeout=None)
 
         container = discord.ui.Container(
-
-            # Nadpis
-            discord.ui.TextDisplay(
-                content="## PŘIHLÁŠKY DO CLANU"
-            ),
+            discord.ui.TextDisplay(content="## PŘIHLÁŠKY DO CLANU"),
 
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
 
-            # 🇺🇸 blok
             discord.ui.TextDisplay(
                 content="### 🇺🇸 Podmínky přijetí\n```\n- 2SP rebirths +\n- Play 24/7\n- 30% index\n- 10d playtime\n```"
             ),
 
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
 
-            # 🇨🇿 blok
             discord.ui.TextDisplay(
                 content="### 🇨🇿 Podmínky přijetí\n```\n- 2SP rebirthů +\n- Hrát 24/7\n- 30% index\n- 10d playtime\n```"
             ),
 
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
 
-            # Select menu
             discord.ui.ActionRow(
                 discord.ui.Select(
                     custom_id="clan_select",
@@ -44,46 +37,22 @@ class Components(discord.ui.LayoutView):
             ),
         )
 
-        # DŮLEŽITÉ – přidat container do view
         self.add_item(container)
 
-    # handler pro select
 
-    @discord.ui.select(custom_id="clan_select")
-    async def select_callback(self, select: discord.ui.Select, interaction: discord.Interaction):
+class ClanPanelCog(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
 
-        guild = interaction.guild
-        user = interaction.user
-        clan = select.values[0]
-
-        category = guild.get_channel(TICKET_CATEGORY_ID)
-        if not isinstance(category, discord.CategoryChannel):
-            await interaction.response.send_message(
-                "Kategorie ticketů není správně nastavena.",
-                ephemeral=True
-            )
-            return
-
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            user: discord.PermissionOverwrite(view_channel=True, send_messages=True)
-        }
-
-        safe = user.name.lower().replace(" ", "-")
-        ch_name = f"🟠přihlášky-{clan}-{safe}"[:90]
-
-        channel = await guild.create_text_channel(
-            name=ch_name,
-            category=category,
-            overwrites=overwrites,
-            reason=f"Přihláška do clanu {clan}"
-        )
-
-        await channel.send(
-            f"{user.mention} otevřel ticket pro **{clan}**. Pošli screeny a info."
-        )
-
+    @app_commands.command(name="clan_panel", description="Zobrazí panel pro přihlášky do clanu")
+    async def clan_panel(self, interaction: discord.Interaction):
+        view = Components()
         await interaction.response.send_message(
-            f"Ticket vytvořen: {channel.mention}",
-            ephemeral=True
+            content="",
+            view=view,
+            ephemeral=False
         )
+
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(ClanPanelCog(bot))
