@@ -897,9 +897,6 @@ class ClanApplyPanelView(discord.ui.View):
                 has_hr2t_button = True
 
             if isinstance(child, discord.ui.Button) and child.custom_id == "clan3_apply_button":
-                if not is_english:
-                    self.remove_item(child)
-                    continue
                 child.label = "TGMC"
                 has_tgmc_button = True
 
@@ -923,14 +920,13 @@ class ClanApplyPanelView(discord.ui.View):
                 self.add_item(hr2t_button)
 
         if not has_tgmc_button:
-            if is_english:
-                tgmc_button = discord.ui.Button(
-                    label="TGMC",
-                    style=discord.ButtonStyle.primary,
-                    custom_id="clan3_apply_button",
-                )
-                tgmc_button.callback = self.apply_clan3_button.callback
-                self.add_item(tgmc_button)
+            tgmc_button = discord.ui.Button(
+                label="TGMC",
+                style=discord.ButtonStyle.primary,
+                custom_id="clan3_apply_button",
+            )
+            tgmc_button.callback = self.apply_clan3_button.callback
+            self.add_item(tgmc_button)
 
     def _get_clan2_cog(self) -> "Clan2ApplicationsCog | None":
         return self.cog.bot.get_cog("Clan2ApplicationsCog")
