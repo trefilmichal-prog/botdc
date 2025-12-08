@@ -70,10 +70,17 @@ def build_needed_materials_embed(rows: List[Tuple[str, int, int]], locale: disco
 def has_setup_panel_access(interaction: discord.Interaction) -> bool:
     user = interaction.user
 
-    if not isinstance(user, discord.Member):
+    if isinstance(user, discord.Member):
+        member = user
+    elif interaction.guild is not None:
+        member = interaction.guild.get_member(user.id)
+    else:
+        member = None
+
+    if member is None:
         return False
 
-    if user.guild_permissions.administrator:
+    if member.guild_permissions.administrator:
         return True
 
     allowed_role_ids = {
@@ -81,7 +88,7 @@ def has_setup_panel_access(interaction: discord.Interaction) -> bool:
         SETUP_PANEL_ROLE_ID,
         TICKET_VIEWER_ROLE_ID,
     }
-    return any(role.id in allowed_role_ids for role in user.roles)
+    return any(role.id in allowed_role_ids for role in member.roles)
 
 
 class WoodCog(commands.Cog, name="WoodCog"):
