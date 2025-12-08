@@ -333,7 +333,7 @@ class WoodCog(commands.Cog, name="WoodCog"):
         name="set_need",
         description="Nastaví, kolik je potřeba určitého dřeva.",
     )
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.check(has_setup_panel_access)
     @app_commands.describe(
         resource="Typ dřeva",
         required="Požadované množství",
@@ -356,7 +356,7 @@ class WoodCog(commands.Cog, name="WoodCog"):
         name="reset_need",
         description="Resetuje potřeby (globálně nebo pro jedno dřevo).",
     )
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.check(has_setup_panel_access)
     @app_commands.describe(
         resource="Konkrétní dřevo (prázdné = všechno).",
     )
