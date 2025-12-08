@@ -1,7 +1,11 @@
+# clan_panel_v2_single.py
+# Components V2 - single container (one file)
+
 import discord
 from discord.ext import commands
+from discord import app_commands
 
-TICKET_CATEGORY_ID = 1440977431577235456  # cílová kategorie pro tickety
+TICKET_CATEGORY_ID = 1440977431577235456
 
 class ClanTicketView(discord.ui.View):
     @discord.ui.select(
@@ -48,7 +52,8 @@ class ClanTicketView(discord.ui.View):
         )
 
         await channel.send(
-            f"{user.mention} otevřel ticket pro **{clan}**. Prosím pošli screeny a informace podle podmínek."
+            f"{user.mention} otevřel ticket pro **{clan}**. "
+            f"Prosím pošli screeny a informace podle podmínek."
         )
 
         await interaction.response.send_message(
@@ -60,7 +65,7 @@ class ClanPanelCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @discord.app_commands.command(name="clan_panel", description="Vytvoří panel pro přihlášky clanu")
+    @app_commands.command(name="clan_panel", description="Vytvoří panel pro přihlášky clanu")
     async def clan_panel(self, interaction: discord.Interaction):
         embed = discord.Embed(
             title="PŘIHLÁŠKY DO CLANU",
@@ -68,12 +73,22 @@ class ClanPanelCog(commands.Cog):
         )
         embed.add_field(
             name="🇺🇸 Podmínky přijetí",
-            value="```\n- 2SP rebirths +\n- Play 24/7\n- 30% index\n- 10d playtime\n```",
+            value="```
+- 2SP rebirths +
+- Play 24/7
+- 30% index
+- 10d playtime
+```",
             inline=False
         )
         embed.add_field(
             name="🇨🇿 Podmínky přijetí",
-            value="```\n- 2SP rebirthů +\n- Hrát 24/7\n- 30% index\n- 10d playtime\n```",
+            value="```
+- 2SP rebirthů +
+- Hrát 24/7
+- 30% index
+- 10d playtime
+```",
             inline=False
         )
         view = ClanTicketView()
