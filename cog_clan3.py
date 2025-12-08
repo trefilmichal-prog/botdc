@@ -19,8 +19,15 @@ from config import (
 )
 from i18n import DEFAULT_LOCALE, get_interaction_locale, normalize_locale, t
 
-CLAN_EMBED_CLAN_LIST = "HROT - Main clan :flag_cz:  :flag_us:\nTGMC - Second clan :flag_us:"
-CLAN_EMBED_CLAN_LIST_EN = "TGMC - Main clan :flag_us:"
+CLAN_EMBED_CLAN_LIST = (
+    "HROT - Main clan :flag_cz:  :flag_us:\n"
+    "TGMC - Second clan :flag_us:\n"
+    "HR2T - Third clan :flag_cz:"
+)
+CLAN_EMBED_CLAN_LIST_EN = (
+    "HROT - Main clan :flag_cz:  :flag_us:\n"
+    "TGMC - Second clan :flag_us:"
+)
 
 
 def get_clan_embed_clan_list(locale: discord.Locale) -> str:
