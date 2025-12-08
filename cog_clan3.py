@@ -2,48 +2,65 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from typing import Optional, Dict, Any, List, Tuple, TYPE_CHECKING
+from typing import Optional, Dict, Any, List, Tuple
 
 import discord
 from discord.ext import commands
 from discord import app_commands
 
 from config import (
-    CLAN_MEMBER_ROLE_ID,
-    CLAN_MEMBER_ROLE_EN_ID,
-    CLAN2_MEMBER_ROLE_ID,
-    CLAN_APPLICATION_PING_ROLE_ID,
-    CLAN2_APPLICATION_PING_ROLE_ID,
+    CLAN3_MEMBER_ROLE_ID,
+    CLAN3_APPLICATION_PING_ROLE_ID,
     CLAN_TICKET_CATEGORY_ID,
-    CLAN_ACCEPTED_TICKET_CATEGORY_ID,
-    CLAN2_ACCEPTED_TICKET_CATEGORY_ID,
+    CLAN3_ACCEPTED_TICKET_CATEGORY_ID,
     CLAN_VACATION_TICKET_CATEGORY_ID,
-    CLAN_BOOSTS_IMAGE_URL,
-    CLAN_BANNER_IMAGE_URL,
     TICKET_VIEWER_ROLE_ID,
-    SETUP_MANAGER_ROLE_ID,
+    CLAN3_ADMIN_ROLE_ID,
 )
 from i18n import DEFAULT_LOCALE, get_interaction_locale, normalize_locale, t
 
 CLAN_EMBED_CLAN_LIST = "HROT - Main clan :flag_cz:  :flag_us:\nTGMC - Second clan :flag_us:"
-
-if TYPE_CHECKING:  # pragma: no cover - only for type hints
-    from cog_clan2 import Clan2ApplicationsCog, Clan2ApplicationModal
-    from cog_clan3 import Clan3ApplicationsCog, Clan3ApplicationModal
 from db import (
     create_clan_application,
     get_open_application_by_user,
     get_latest_clan_application_by_user,
     get_clan_applications_by_user,
     get_open_application_by_channel,
-    get_clan_application_by_channel,
     update_clan_application_form,
     set_clan_application_status,
     mark_clan_application_deleted,
 )
 
 
-class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
+def has_clan3_admin_access(member: discord.Member) -> bool:
+    perms = member.guild_permissions
+    if perms.administrator or perms.manage_guild or perms.manage_roles:
+        return True
+
+    if CLAN3_ADMIN_ROLE_ID:
+        admin_role = member.guild.get_role(CLAN3_ADMIN_ROLE_ID)
+        if admin_role in member.roles:
+            return True
+
+    if TICKET_VIEWER_ROLE_ID:
+        role = member.guild.get_role(TICKET_VIEWER_ROLE_ID)
+        if role in member.roles:
+            return True
+
+    return False
+
+
+async def clan3_admin_permission_check(
+    interaction: discord.Interaction,
+) -> bool:
+    user = interaction.user
+    if isinstance(user, discord.Member) and has_clan3_admin_access(user):
+        return True
+
+    raise app_commands.CheckFailure("Nemáš oprávnění pro správu clan ticketů.")
+
+
+class Clan3ApplicationsCog(commands.Cog, name="Clan3ApplicationsCog"):
     """
     Ticket systém pro přihlášky do klanu + admin panel klanu.
     Tickety (kanály) se nemažou – zůstávají, jen měníme stav v DB a role.
@@ -51,11 +68,11 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.ticket_clan_label = "HROT"
+        self.ticket_clan_label = "TGMC"
 
         # persistentní view – panel pro přihlášky a admin view v ticketech
-        self.apply_panel_view = ClanApplyPanelView(self, DEFAULT_LOCALE)
-        self.admin_view = ClanAdminView(self, DEFAULT_LOCALE)
+        self.apply_panel_view = Clan3ApplyPanelView(self, DEFAULT_LOCALE)
+        self.admin_view = Clan3AdminView(self, DEFAULT_LOCALE)
 
         self.bot.add_view(self.apply_panel_view)
         self.bot.add_view(self.admin_view)
@@ -96,18 +113,22 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         name = f"{emoji}{prefix}-{normalized}"
         return name[:90]
 
-    def build_ticket_name_for_label(
-        self, base: str, status: str, clan_label: str
-    ) -> str:
-        emoji_map = {
-            "accepted": "🟢",
-            "rejected": "🔴",
-        }
-        emoji = emoji_map.get(status, "🟠")
-        normalized = self._normalize_ticket_base(base)
-        prefix = f"{clan_label}" if status == "accepted" else f"přihlášky-{clan_label}"
-        name = f"{emoji}{prefix}-{normalized}"
-        return name[:90]
+    def _add_clan3_admin_overwrite(
+        self, overwrites: dict[discord.abc.Snowflake, discord.PermissionOverwrite], guild: discord.Guild
+    ) -> None:
+        if not CLAN3_ADMIN_ROLE_ID:
+            return
+
+        role = guild.get_role(CLAN3_ADMIN_ROLE_ID)
+        if role is None:
+            return
+
+        overwrites[role] = discord.PermissionOverwrite(
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True,
+            manage_channels=True,
+        )
 
     async def remove_clan_ticket_for_member(
         self,
@@ -193,11 +214,8 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         channel: discord.TextChannel,
         base: str,
         status: str,
-        clan_label: str | None = None,
     ):
-        new_name = self.build_ticket_name_for_label(
-            base, status, clan_label or self.ticket_clan_label
-        )
+        new_name = self.build_ticket_name(base, status)
         if channel.name == new_name:
             return
 
@@ -209,66 +227,14 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
 
         await self.safe_channel_edit(channel, name=new_name, reason=reason)
 
-    # ---------- SLASH COMMANDS – PŘIHLÁŠKY ----------
-
-    @app_commands.command(
-        name="setup_clan_panel",
-        description="Vytvoří panel pro přihlášky do klanu v tomto kanálu (admin).",
-    )
-    @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.checks.has_role(SETUP_MANAGER_ROLE_ID)
-    async def setup_clan_panel_cmd(self, interaction: discord.Interaction):
-        locale = get_interaction_locale(interaction)
-        channel = interaction.channel
-        if not isinstance(channel, discord.TextChannel):
-            await interaction.response.send_message(
-                t("guild_text_only", locale),
-                ephemeral=True,
-            )
-            return
-
-        embed_description = (
-            t("clan_benefits_list", locale)
-        )
-
-        main_embed = discord.Embed(
-            title=t("clan_benefits_title", locale),
-            description=embed_description,
-            color=0x3498DB,
-        )
-
-        if CLAN_BOOSTS_IMAGE_URL:
-            main_embed.url = CLAN_BOOSTS_IMAGE_URL
-
-        requirements_text = t("clan_requirements_list", locale)
-
-        main_embed.add_field(
-            name=t("clan_requirements_title", locale),
-            value=requirements_text,
-            inline=False,
-        )
-
-        if CLAN_BANNER_IMAGE_URL:
-            main_embed.set_image(url=CLAN_BANNER_IMAGE_URL)
-
-        localized_view = ClanApplyPanelView(self, locale)
-        self.bot.add_view(localized_view)
-
-        await channel.send(embed=main_embed, view=localized_view)
-
-        await interaction.response.send_message(
-            t("clan_panel_created", locale),
-            ephemeral=True,
-        )
-
     # ---------- SLASH COMMAND – ADMIN PANEL CLANU ----------
 
     @app_commands.command(
-        name="clan_panel",
+        name="clan3_panel",
         description="Zobrazí admin panel se seznamem členů klanu (Warn / Kick).",
     )
-    @app_commands.checks.has_permissions(manage_roles=True)
-    async def clan_panel_cmd(self, interaction: discord.Interaction):
+    @app_commands.check(clan3_admin_permission_check)
+    async def clan3_panel_cmd(self, interaction: discord.Interaction):
         locale = get_interaction_locale(interaction)
         guild = interaction.guild
         if guild is None:
@@ -288,146 +254,11 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         self.register_admin_panel(msg)
 
     @app_commands.command(
-        name="up_text",
-        description="Hromadně přejmenuje tickety podle toho, v jakém jsou klanu.",
-    )
-    @app_commands.checks.has_permissions(manage_channels=True)
-    async def update_ticket_names(self, interaction: discord.Interaction):
-        locale = get_interaction_locale(interaction)
-        guild = interaction.guild
-        if guild is None:
-            await interaction.response.send_message(
-                t("guild_only", locale),
-                ephemeral=True,
-            )
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        updated = 0
-        unchanged = 0
-
-        for channel in guild.text_channels:
-            app = get_clan_application_by_channel(guild.id, channel.id)
-            if app is None:
-                continue
-
-            base = self._get_ticket_base_from_app(app, guild)
-            member = guild.get_member(app["user_id"])
-
-            clan_label = "HROT"
-            status = app.get("status", "open")
-
-            if member is not None:
-                has_clan_role = False
-
-                if CLAN2_MEMBER_ROLE_ID and member.get_role(CLAN2_MEMBER_ROLE_ID):
-                    clan_label = "HR2T"
-                    has_clan_role = True
-                elif CLAN_MEMBER_ROLE_ID and member.get_role(CLAN_MEMBER_ROLE_ID):
-                    clan_label = "HROT"
-                    has_clan_role = True
-                elif CLAN_MEMBER_ROLE_EN_ID and member.get_role(CLAN_MEMBER_ROLE_EN_ID):
-                    clan_label = "HR2T"
-                    has_clan_role = True
-
-                if has_clan_role:
-                    status = "accepted"
-            new_name = self.build_ticket_name_for_label(base, status, clan_label)
-
-            if channel.name == new_name:
-                unchanged += 1
-                continue
-
-            success = await self.safe_channel_edit(
-                channel,
-                name=new_name,
-                reason="Hromadné přejmenování ticketů podle klanu",
-            )
-            if success:
-                updated += 1
-            else:
-                continue
-
-        await interaction.followup.send(
-            f"Přejmenováno ticketů: {updated}. Beze změny: {unchanged}.",
-            ephemeral=True,
-        )
-
-    @app_commands.command(
-        name="clan_kick",
-        description=(
-            "Odebere člena z klanu (role) a smaže jeho ticket, pokud existuje."
-        ),
-    )
-    @app_commands.checks.has_permissions(manage_roles=True)
-    async def clan_kick_cmd(
-        self, interaction: discord.Interaction, member: discord.Member
-    ):
-        locale = get_interaction_locale(interaction)
-        guild = interaction.guild
-        if guild is None:
-            await interaction.response.send_message(
-                t("guild_only", locale), ephemeral=True
-            )
-            return
-
-        role = guild.get_role(CLAN_MEMBER_ROLE_ID) if CLAN_MEMBER_ROLE_ID else None
-        if role is None:
-            await interaction.response.send_message(
-                t("clan_setup_role_missing", locale, role_id=CLAN_MEMBER_ROLE_ID),
-                ephemeral=True,
-            )
-            return
-
-        if role not in member.roles:
-            await interaction.response.send_message(
-                t("clan_member_not_found", locale), ephemeral=True
-            )
-            return
-
-        try:
-            await member.remove_roles(
-                role,
-                reason="Clan kick command – odebrání clan role",
-            )
-        except discord.Forbidden:
-            await interaction.response.send_message(
-                t("clan_member_role_forbidden", locale), ephemeral=True
-            )
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        ticket_info = await self.remove_clan_ticket_for_member(
-            guild, member, "Clan kick command"
-        )
-
-        try:
-            await member.send(
-                f"Na serveru **{guild.name}** ti byla odebrána role člena klanu. "
-                f"Pokud chceš, můžeš si znovu požádat o pozvánku přes ticket."
-            )
-            dm_info = t("direct_message_sent", locale)
-        except discord.Forbidden:
-            dm_info = t("direct_message_failed", locale)
-
-        response = (
-            f"\N{WAVING HAND SIGN} {member.mention} byl/a odebrán/a z klanu (odebrána role)."
-        )
-        if ticket_info:
-            response = f"{response}\n{ticket_info}"
-
-        response = f"{response}\n{dm_info}"
-
-        await interaction.followup.send(response, ephemeral=True)
-
-    @app_commands.command(
-        name="update_clan_ticket",
+        name="update_clan3_ticket",
         description="Přesune clan tickety členů do správné kategorie.",
     )
     @app_commands.checks.has_permissions(manage_channels=True)
-    async def update_clan_ticket_cmd(self, interaction: discord.Interaction):
+    async def update_clan3_ticket_cmd(self, interaction: discord.Interaction):
         guild = interaction.guild
         if guild is None:
             await interaction.response.send_message(
@@ -436,7 +267,7 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
             )
             return
 
-        target_category = guild.get_channel(CLAN_ACCEPTED_TICKET_CATEGORY_ID)
+        target_category = guild.get_channel(CLAN3_ACCEPTED_TICKET_CATEGORY_ID)
         if not isinstance(target_category, discord.CategoryChannel):
             await interaction.response.send_message(
                 "Nastavená kategorie pro přijaté tickety neexistuje.",
@@ -444,7 +275,7 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
             )
             return
 
-        member_role = guild.get_role(CLAN_MEMBER_ROLE_ID) if CLAN_MEMBER_ROLE_ID else None
+        member_role = guild.get_role(CLAN3_MEMBER_ROLE_ID) if CLAN3_MEMBER_ROLE_ID else None
         if member_role is None:
             await interaction.response.send_message(
                 "Role pro členy klanu nebyla nalezena.",
@@ -475,12 +306,16 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
 
             if selected_app is not None:
                 base = self._get_ticket_base_from_app(selected_app, guild)
-                app_locale = normalize_locale(
-                    selected_app.get("locale", DEFAULT_LOCALE)
-                )
-                clan_label = "HR2T" if app_locale == DEFAULT_LOCALE else self.ticket_clan_label
-                await self.rename_ticket_channel(
-                    channel, base, "accepted", clan_label
+                await self.rename_ticket_channel(channel, base, "accepted")
+
+            overwrites = dict(channel.overwrites)
+            self._add_clan3_admin_overwrite(overwrites, guild)
+
+            if overwrites != channel.overwrites:
+                await self.safe_channel_edit(
+                    channel,
+                    overwrites=overwrites,
+                    reason="Aktualizace přístupu pro clan3 admin roli",
                 )
 
             if channel.category_id == target_category.id:
@@ -511,15 +346,102 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         )
 
     @app_commands.command(
-        name="pair_clan_ticket",
+        name="sync_clan3_ticket_perms",
+        description="Přidá clan3 admin roli do všech ticketů (přístup/úpravy).",
+    )
+    @app_commands.check(clan3_admin_permission_check)
+    @app_commands.checks.has_permissions(manage_channels=True)
+    async def sync_clan3_ticket_perms_cmd(self, interaction: discord.Interaction):
+        guild = interaction.guild
+
+        if guild is None:
+            await interaction.response.send_message(
+                "Příkaz lze použít pouze na serveru.",
+                ephemeral=True,
+            )
+            return
+
+        if not CLAN3_ADMIN_ROLE_ID:
+            await interaction.response.send_message(
+                "ID clan3 admin role není nastaveno v konfiguraci.",
+                ephemeral=True,
+            )
+            return
+
+        admin_role = guild.get_role(CLAN3_ADMIN_ROLE_ID)
+        if admin_role is None:
+            await interaction.response.send_message(
+                "Clan3 admin role nebyla nalezena.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        category_ids = [
+            CLAN_TICKET_CATEGORY_ID,
+            CLAN3_ACCEPTED_TICKET_CATEGORY_ID,
+            CLAN_VACATION_TICKET_CATEGORY_ID,
+        ]
+
+        categories = [
+            guild.get_channel(cat_id)
+            for cat_id in category_ids
+            if cat_id
+        ]
+
+        target_channels: list[discord.TextChannel] = []
+        for category in categories:
+            if isinstance(category, discord.CategoryChannel):
+                target_channels.extend(
+                    ch for ch in category.channels if isinstance(ch, discord.TextChannel)
+                )
+
+        updated = 0
+        skipped = 0
+        failed = 0
+
+        for channel in target_channels:
+            overwrites = dict(channel.overwrites)
+            before_overwrites = dict(overwrites)
+            self._add_clan3_admin_overwrite(overwrites, guild)
+
+            if overwrites == before_overwrites:
+                skipped += 1
+                continue
+
+            success = await self.safe_channel_edit(
+                channel,
+                overwrites=overwrites,
+                reason="Doplnění přístupu pro clan3 admin roli",
+            )
+            if success:
+                updated += 1
+            else:
+                failed += 1
+
+        await interaction.followup.send(
+            (
+                "Hotovo. Aktualizováno: {updated}, již obsahuje roli: {skipped}, "
+                "chyby: {failed}."
+            ).format(
+                updated=updated,
+                skipped=skipped,
+                failed=failed,
+            ),
+            ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="pair_clan3_ticket",
         description=(
             "Spáruje ticket z jiného bota s členem klanu podle roblox nicku v názvu."
         ),
     )
     @app_commands.checks.has_permissions(manage_channels=True)
-    async def pair_clan_ticket_cmd(self, interaction: discord.Interaction):
+    async def pair_clan3_ticket_cmd(self, interaction: discord.Interaction):
         """
-        Vyhledá člena klanu s rolí CLAN_MEMBER_ROLE_ID podle roblox nicku v názvu
+        Vyhledá člena klanu s rolí CLAN3_MEMBER_ROLE_ID podle roblox nicku v názvu
         aktuálního ticket kanálu a vytvoří pro něj záznam přihlášky.
         """
 
@@ -540,7 +462,7 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
             )
             return
 
-        member_role = guild.get_role(CLAN_MEMBER_ROLE_ID) if CLAN_MEMBER_ROLE_ID else None
+        member_role = guild.get_role(CLAN3_MEMBER_ROLE_ID) if CLAN3_MEMBER_ROLE_ID else None
         if member_role is None:
             await interaction.response.send_message(
                 "Role pro členy klanu nebyla nalezena.", ephemeral=True
@@ -581,13 +503,13 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
         )
 
     @app_commands.command(
-        name="pair_all",
+        name="pair_all2",
         description=(
             "Spáruje všechny tickety v této kategorii s členy klanu podle roblox nicku v názvu."
         ),
     )
     @app_commands.checks.has_permissions(manage_channels=True)
-    async def pair_all_clan_tickets_cmd(self, interaction: discord.Interaction):
+    async def pair_all_clan3_tickets_cmd(self, interaction: discord.Interaction):
         guild = interaction.guild
         channel = interaction.channel
 
@@ -598,7 +520,7 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
             )
             return
 
-        member_role = guild.get_role(CLAN_MEMBER_ROLE_ID) if CLAN_MEMBER_ROLE_ID else None
+        member_role = guild.get_role(CLAN3_MEMBER_ROLE_ID) if CLAN3_MEMBER_ROLE_ID else None
         if member_role is None:
             await interaction.response.send_message(
                 "Role pro členy klanu nebyla nalezena.", ephemeral=True
@@ -717,7 +639,7 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
 
         return await self.move_ticket_to_category(
             channel,
-            CLAN_ACCEPTED_TICKET_CATEGORY_ID,
+            CLAN3_ACCEPTED_TICKET_CATEGORY_ID,
             "Přesun clan ticketu do kategorie přijatých členů",
         )
 
@@ -736,11 +658,11 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
 
     def build_clan_admin_panel(
         self, guild: discord.Guild, locale: discord.Locale = DEFAULT_LOCALE
-    ) -> tuple[discord.Embed, "ClanAdminPanelView"]:
+    ) -> tuple[discord.Embed, "Clan3AdminPanelView"]:
         """
-        Vytvoří embed + view se seznamem členů klanu (role CLAN_MEMBER_ROLE_ID).
+        Vytvoří embed + view se seznamem členů klanu (role CLAN3_MEMBER_ROLE_ID).
         """
-        role = guild.get_role(CLAN_MEMBER_ROLE_ID) if CLAN_MEMBER_ROLE_ID else None
+        role = guild.get_role(CLAN3_MEMBER_ROLE_ID) if CLAN3_MEMBER_ROLE_ID else None
         members: List[discord.Member] = []
         if role is not None:
             members = sorted(role.members, key=lambda m: m.display_name.lower())
@@ -776,162 +698,33 @@ class ClanApplicationsCog(commands.Cog, name="ClanApplicationsCog"):
                 )
             )
 
-        view = ClanAdminPanelView(self, options, locale)
+        view = Clan3AdminPanelView(self, options, locale)
         return embed, view
-
-    def _get_ticket_target_category(self, member: discord.Member) -> int | None:
-        if CLAN2_MEMBER_ROLE_ID and member.get_role(CLAN2_MEMBER_ROLE_ID):
-            return CLAN2_ACCEPTED_TICKET_CATEGORY_ID
-
-        if CLAN_MEMBER_ROLE_ID and member.get_role(CLAN_MEMBER_ROLE_ID):
-            return CLAN_ACCEPTED_TICKET_CATEGORY_ID
-
-        if CLAN_MEMBER_ROLE_EN_ID and member.get_role(CLAN_MEMBER_ROLE_EN_ID):
-            return CLAN2_ACCEPTED_TICKET_CATEGORY_ID
-
-        return None
-
-    @commands.Cog.listener()
-    async def on_member_update(
-        self, before: discord.Member, after: discord.Member
-    ) -> None:
-        if before.guild is None or before.guild != after.guild:
-            return
-
-        before_roles = {r.id for r in before.roles}
-        after_roles = {r.id for r in after.roles}
-
-        if before_roles == after_roles:
-            return
-
-        membership_roles = {
-            CLAN_MEMBER_ROLE_ID,
-            CLAN_MEMBER_ROLE_EN_ID,
-            CLAN2_MEMBER_ROLE_ID,
-        }
-
-        had_membership = bool(before_roles & membership_roles)
-        has_membership = bool(after_roles & membership_roles)
-
-        if had_membership and not has_membership:
-            await self.remove_clan_ticket_for_member(
-                after.guild,
-                after,
-                "Ztráta členské role",
-            )
-            return
-
-        target_category_id = self._get_ticket_target_category(after)
-        if target_category_id is None:
-            return
-
-        ticket_channel = self.find_member_ticket_channel(after.guild, after)
-        if not isinstance(ticket_channel, discord.TextChannel):
-            return
-
-        if ticket_channel.category_id == target_category_id:
-            return
-
-        apps = get_clan_applications_by_user(after.guild.id, after.id)
-        selected_app: Optional[Dict[str, Any]] = None
-
-        for candidate in apps:
-            if candidate.get("channel_id") == ticket_channel.id:
-                selected_app = candidate
-                break
-
-        if selected_app is not None:
-            base = self._get_ticket_base_from_app(selected_app, after.guild)
-            app_locale = normalize_locale(selected_app.get("locale", DEFAULT_LOCALE))
-            clan_label = "HR2T" if app_locale == DEFAULT_LOCALE else self.ticket_clan_label
-            await self.rename_ticket_channel(
-                ticket_channel, base, "accepted", clan_label
-            )
-
-        await self.move_ticket_to_category(
-            ticket_channel,
-            target_category_id,
-            "Automatický přesun ticketu podle změny role",
-        )
 
 
 # ---------- VIEW: Panel s tlačítkem "Podat přihlášku" ----------
 
-class ClanApplyPanelView(discord.ui.View):
-    def __init__(self, cog: ClanApplicationsCog, locale: discord.Locale):
+class Clan3ApplyPanelView(discord.ui.View):
+    def __init__(self, cog: Clan3ApplicationsCog, locale: discord.Locale):
         super().__init__(timeout=None)
         self.cog = cog
         self.locale = locale
         self._apply_locale()
 
     def _apply_locale(self):
-        is_english = self.locale == DEFAULT_LOCALE
-        has_hrot_button = False
-        has_hr2t_button = False
-        has_tgmc_button = False
-
-        for child in list(self.children):
-            if isinstance(child, discord.ui.Button) and child.custom_id == "clan_apply_button":
-                if is_english:
-                    self.remove_item(child)
-                    continue
-                child.label = "HROT"
-                has_hrot_button = True
-
-            if isinstance(child, discord.ui.Button) and child.custom_id == "clan2_apply_button":
-                if is_english:
-                    self.remove_item(child)
-                    continue
-                child.label = "HR2T"
-                has_hr2t_button = True
-
+        for child in self.children:
             if isinstance(child, discord.ui.Button) and child.custom_id == "clan3_apply_button":
-                if not is_english:
-                    self.remove_item(child)
-                    continue
                 child.label = "TGMC"
-                has_tgmc_button = True
 
-        if not has_hrot_button:
-            hrot_button = discord.ui.Button(
-                label="HROT",
-                style=discord.ButtonStyle.primary,
-                custom_id="clan_apply_button",
-            )
-            hrot_button.callback = self.apply_button.callback
-            self.add_item(hrot_button)
-
-        if not has_hr2t_button:
-            if not is_english:
-                hr2t_button = discord.ui.Button(
-                    label="HR2T",
-                    style=discord.ButtonStyle.primary,
-                    custom_id="clan2_apply_button",
-                )
-                hr2t_button.callback = self.apply_clan2_button.callback
-                self.add_item(hr2t_button)
-
-        if not has_tgmc_button:
-            if is_english:
-                tgmc_button = discord.ui.Button(
-                    label="TGMC",
-                    style=discord.ButtonStyle.primary,
-                    custom_id="clan3_apply_button",
-                )
-                tgmc_button.callback = self.apply_clan3_button.callback
-                self.add_item(tgmc_button)
-
-    def _get_clan2_cog(self) -> "Clan2ApplicationsCog | None":
-        return self.cog.bot.get_cog("Clan2ApplicationsCog")
-
-    def _get_clan3_cog(self) -> "Clan3ApplicationsCog | None":
-        return self.cog.bot.get_cog("Clan3ApplicationsCog")
-
-    async def _open_application_modal(
+    @discord.ui.button(
+        label="TGMC",
+        style=discord.ButtonStyle.primary,
+        custom_id="clan3_apply_button",
+    )
+    async def apply_button(
         self,
         interaction: discord.Interaction,
-        modal_factory,
-        target_cog: "ClanApplicationsCog | Clan2ApplicationsCog",
+        button: discord.ui.Button,
     ):
         locale = get_interaction_locale(interaction)
         user = interaction.user
@@ -943,6 +736,7 @@ class ClanApplyPanelView(discord.ui.View):
             )
             return
 
+        # Kontrola, zda už nemá otevřený ticket (přihlášku)
         existing = get_open_application_by_user(guild.id, user.id)
         if existing is not None:
             ch_id = existing["channel_id"]
@@ -975,83 +769,15 @@ class ClanApplyPanelView(discord.ui.View):
                 return
             mark_clan_application_deleted(latest_app["id"])
 
-        modal = modal_factory(target_cog, locale)
-        await interaction.response.send_modal(modal)
-
-    @discord.ui.button(
-        label="HROT",
-        style=discord.ButtonStyle.primary,
-        custom_id="clan_apply_button",
-    )
-    async def apply_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ):
         # pouze otevřeme formulář, ticket se vytvoří až po submit
-        await self._open_application_modal(
-            interaction,
-            lambda cog, loc: ClanApplicationModal(cog, loc),
-            self.cog,
-        )
-
-    @discord.ui.button(
-        label="HR2T",
-        style=discord.ButtonStyle.primary,
-        custom_id="clan2_apply_button",
-    )
-    async def apply_clan2_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ):
-        clan2_cog = self._get_clan2_cog()
-        if clan2_cog is None:
-            await interaction.response.send_message(
-                "Clan2 panel není dostupný.",
-                ephemeral=True,
-            )
-            return
-
-        from cog_clan2 import Clan2ApplicationModal
-
-        await self._open_application_modal(
-            interaction,
-            lambda cog, loc: Clan2ApplicationModal(cog, loc),
-            clan2_cog,
-        )
-
-    @discord.ui.button(
-        label="TGMC",
-        style=discord.ButtonStyle.primary,
-        custom_id="clan3_apply_button",
-    )
-    async def apply_clan3_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ):
-        clan3_cog = self._get_clan3_cog()
-        if clan3_cog is None:
-            await interaction.response.send_message(
-                "Clan3 panel není dostupný.",
-                ephemeral=True,
-            )
-            return
-
-        from cog_clan3 import Clan3ApplicationModal
-
-        await self._open_application_modal(
-            interaction,
-            lambda cog, loc: Clan3ApplicationModal(cog, loc),
-            clan3_cog,
-        )
+        modal = Clan3ApplicationModal(self.cog, locale)
+        await interaction.response.send_modal(modal)
 
 
 # ---------- MODAL: Přihláška – vytvoření ticketu až po submit ----------
 
-class ClanApplicationModal(discord.ui.Modal):
-    def __init__(self, cog: ClanApplicationsCog, locale: discord.Locale):
+class Clan3ApplicationModal(discord.ui.Modal):
+    def __init__(self, cog: Clan3ApplicationsCog, locale: discord.Locale):
         super().__init__(timeout=None, title=t("clan_modal_title", locale))
         self.cog = cog
         self.locale = locale
@@ -1142,6 +868,8 @@ class ClanApplicationModal(discord.ui.Modal):
             ),
         }
 
+        self.cog._add_clan3_admin_overwrite(overwrites, guild)
+
         if TICKET_VIEWER_ROLE_ID:
             ticket_viewer_role = guild.get_role(TICKET_VIEWER_ROLE_ID)
             if ticket_viewer_role:
@@ -1150,11 +878,7 @@ class ClanApplicationModal(discord.ui.Modal):
                     send_messages=True,
                     read_message_history=True,
                 )
-        is_english = locale == DEFAULT_LOCALE
-        ticket_clan_label = "HR2T" if is_english else self.cog.ticket_clan_label
-        ch_name = self.cog.build_ticket_name_for_label(
-            nick or user.name, "open", ticket_clan_label
-        )
+        ch_name = self.cog.build_ticket_name(nick or user.name, "open")
 
         reason_text = t("clan_ticket_audit", DEFAULT_LOCALE, user=user, user_id=user.id)
 
@@ -1227,13 +951,10 @@ class ClanApplicationModal(discord.ui.Modal):
         )
 
         content_parts = [user.mention]
-        ping_role_id = (
-            CLAN2_APPLICATION_PING_ROLE_ID if is_english else CLAN_APPLICATION_PING_ROLE_ID
-        )
-        if ping_role_id:
-            content_parts.insert(0, f"<@&{ping_role_id}>")
+        if CLAN3_APPLICATION_PING_ROLE_ID:
+            content_parts.insert(0, f"<@&{CLAN3_APPLICATION_PING_ROLE_ID}>")
 
-        admin_view = ClanAdminView(self.cog, locale)
+        admin_view = Clan3AdminView(self.cog, locale)
         self.cog.bot.add_view(admin_view)
 
         await ticket_channel.send(
@@ -1250,8 +971,8 @@ class ClanApplicationModal(discord.ui.Modal):
 
 # ---------- VIEW: Admin rozhodnutí (Přijmout / Zamítnout) ----------
 
-class ClanAdminView(discord.ui.View):
-    def __init__(self, cog: ClanApplicationsCog, locale: discord.Locale):
+class Clan3AdminView(discord.ui.View):
+    def __init__(self, cog: Clan3ApplicationsCog, locale: discord.Locale):
         super().__init__(timeout=None)
         self.cog = cog
         self.locale = locale
@@ -1259,9 +980,9 @@ class ClanAdminView(discord.ui.View):
 
     def _apply_locale(self):
         label_map = {
-            "clan_accept": "clan_accept_button_label",
-            "clan_toggle_vacation": "clan_vacation_button_label",
-            "clan_reject": "clan_reject_button_label",
+            "clan3_accept": "clan_accept_button_label",
+            "clan3_toggle_vacation": "clan_vacation_button_label",
+            "clan3_reject": "clan_reject_button_label",
         }
 
         for child in self.children:
@@ -1293,21 +1014,12 @@ class ClanAdminView(discord.ui.View):
         return app
 
     def _is_admin(self, user: discord.Member) -> bool:
-        perms = user.guild_permissions
-        if perms.administrator or perms.manage_guild or perms.manage_roles:
-            return True
-
-        if TICKET_VIEWER_ROLE_ID:
-            role = user.guild.get_role(TICKET_VIEWER_ROLE_ID)
-            if role in user.roles:
-                return True
-
-        return False
+        return has_clan3_admin_access(user)
 
     @discord.ui.button(
         label="Přijmout",
         style=discord.ButtonStyle.success,
-        custom_id="clan_accept",
+        custom_id="clan3_accept",
     )
     async def accept_button(
         self,
@@ -1336,7 +1048,6 @@ class ClanAdminView(discord.ui.View):
             return
 
         app_locale = normalize_locale(app.get("locale", DEFAULT_LOCALE))
-        role_id = CLAN2_MEMBER_ROLE_ID if app_locale == DEFAULT_LOCALE else CLAN_MEMBER_ROLE_ID
 
         set_clan_application_status(app["id"], "accepted", datetime.utcnow())
 
@@ -1344,13 +1055,10 @@ class ClanAdminView(discord.ui.View):
         member = guild.get_member(app["user_id"])
         if isinstance(channel, discord.TextChannel):
             base = self.cog._get_ticket_base_from_app(app, guild)
-            clan_label = "HR2T" if app_locale == DEFAULT_LOCALE else self.cog.ticket_clan_label
-            await self.cog.rename_ticket_channel(
-                channel, base, "accepted", clan_label
-            )
+            await self.cog.rename_ticket_channel(channel, base, "accepted")
             await self.cog.move_ticket_to_accepted_category(channel)
-        if member is not None and role_id:
-            role = guild.get_role(role_id)
+        if member is not None and CLAN3_MEMBER_ROLE_ID:
+            role = guild.get_role(CLAN3_MEMBER_ROLE_ID)
             if role is not None:
                 try:
                     await member.add_roles(role, reason="Přijetí do klanu")
@@ -1376,7 +1084,7 @@ class ClanAdminView(discord.ui.View):
     @discord.ui.button(
         label="Dovolená",
         style=discord.ButtonStyle.secondary,
-        custom_id="clan_toggle_vacation",
+        custom_id="clan3_toggle_vacation",
     )
     async def vacation_button(
         self, interaction: discord.Interaction, button: discord.ui.Button
@@ -1405,7 +1113,7 @@ class ClanAdminView(discord.ui.View):
             )
             return
 
-        accepted_category = guild.get_channel(CLAN_ACCEPTED_TICKET_CATEGORY_ID)
+        accepted_category = guild.get_channel(CLAN3_ACCEPTED_TICKET_CATEGORY_ID)
         vacation_category = guild.get_channel(CLAN_VACATION_TICKET_CATEGORY_ID)
 
         if not isinstance(accepted_category, discord.CategoryChannel):
@@ -1426,7 +1134,7 @@ class ClanAdminView(discord.ui.View):
         target_category_id = (
             CLAN_VACATION_TICKET_CATEGORY_ID
             if moving_to_vacation
-            else CLAN_ACCEPTED_TICKET_CATEGORY_ID
+            else CLAN3_ACCEPTED_TICKET_CATEGORY_ID
         )
         reason = (
             "Přesun clan ticketu do kategorie dovolené"
@@ -1455,7 +1163,7 @@ class ClanAdminView(discord.ui.View):
     @discord.ui.button(
         label="Zamítnout",
         style=discord.ButtonStyle.danger,
-        custom_id="clan_reject",
+        custom_id="clan3_reject",
     )
     async def reject_button(
         self,
@@ -1491,10 +1199,7 @@ class ClanAdminView(discord.ui.View):
         member = guild.get_member(app["user_id"])
         if isinstance(channel, discord.TextChannel):
             base = self.cog._get_ticket_base_from_app(app, guild)
-            clan_label = "HR2T" if app_locale == DEFAULT_LOCALE else self.cog.ticket_clan_label
-            await self.cog.rename_ticket_channel(
-                channel, base, "rejected", clan_label
-            )
+            await self.cog.rename_ticket_channel(channel, base, "rejected")
 
         await interaction.response.send_message(
             t("clan_application_reject_public", locale),
@@ -1516,7 +1221,7 @@ class ClanAdminView(discord.ui.View):
 
 class DeleteRejectedTicketView(discord.ui.View):
     def __init__(
-        self, cog: "ClanApplicationsCog", app: Dict[str, Any], locale: discord.Locale
+        self, cog: "Clan3ApplicationsCog", app: Dict[str, Any], locale: discord.Locale
     ):
         super().__init__(timeout=7 * 24 * 60 * 60)
         self.cog = cog
@@ -1528,20 +1233,14 @@ class DeleteRejectedTicketView(discord.ui.View):
         delete_button = discord.ui.Button(
             label=t("clan_delete_ticket_button_label", locale),
             style=discord.ButtonStyle.danger,
-            custom_id="clan_delete_ticket",
+            custom_id="clan3_delete_ticket",
         )
         delete_button.callback = self.delete_ticket  # type: ignore
         self.add_item(delete_button)
 
     def _can_manage(self, member: discord.Member) -> bool:
-        perms = member.guild_permissions
-        if perms.administrator or perms.manage_guild or perms.manage_roles:
+        if has_clan3_admin_access(member):
             return True
-
-        if TICKET_VIEWER_ROLE_ID:
-            role = member.guild.get_role(TICKET_VIEWER_ROLE_ID)
-            if role in member.roles:
-                return True
 
         return member.id == self.app_user_id
 
@@ -1577,28 +1276,46 @@ class DeleteRejectedTicketView(discord.ui.View):
 
         await interaction.response.defer(ephemeral=True)
 
+        await interaction.followup.send(
+            t("clan_ticket_deleted", self.locale, channel=channel.mention),
+            ephemeral=True,
+        )
+
+        asyncio.create_task(
+            self._delete_ticket_channel(channel, interaction.user, locale)
+        )
+
+    async def _delete_ticket_channel(
+        self,
+        channel: discord.TextChannel,
+        user: discord.abc.User,
+        locale: discord.Locale,
+    ) -> None:
         try:
             await channel.delete(reason="Smazání clan ticketu po zamítnutí přihlášky")
             mark_clan_application_deleted(self.app_id)
-            await interaction.followup.send(
-                t("clan_ticket_deleted", self.locale, channel=channel.mention),
-                ephemeral=True,
-            )
         except discord.Forbidden:
-            await interaction.followup.send(
+            await self._notify_deletion_issue(
+                user,
                 t("clan_ticket_delete_forbidden", locale, channel=channel.mention),
-                ephemeral=True,
             )
         except discord.HTTPException:
-            await interaction.followup.send(
+            await self._notify_deletion_issue(
+                user,
                 t("clan_ticket_delete_failed", locale, channel=channel.mention),
-                ephemeral=True,
             )
 
-class ClanAdminPanelView(discord.ui.View):
+    @staticmethod
+    async def _notify_deletion_issue(user: discord.abc.User, message: str) -> None:
+        try:
+            await user.send(message)
+        except discord.HTTPException:
+            pass
+
+class Clan3AdminPanelView(discord.ui.View):
     def __init__(
         self,
-        cog: ClanApplicationsCog,
+        cog: Clan3ApplicationsCog,
         options: List[discord.SelectOption],
         locale: discord.Locale,
     ):
@@ -1622,7 +1339,7 @@ class ClanAdminPanelView(discord.ui.View):
             min_values=1,
             max_values=1,
             options=options,
-            custom_id="clan_admin_select_member",
+            custom_id="clan3_admin_select_member",
         )
         select.callback = self.on_select  # type: ignore
         self.member_select = select
@@ -1631,9 +1348,9 @@ class ClanAdminPanelView(discord.ui.View):
 
     def _apply_locale(self):
         label_map = {
-            "clan_admin_warn": "clan_admin_warn_button_label",
-            "clan_admin_toggle_vacation": "clan_vacation_button_label",
-            "clan_admin_kick": "clan_admin_kick_button_label",
+            "clan3_admin_warn": "clan_admin_warn_button_label",
+            "clan3_admin_toggle_vacation": "clan_vacation_button_label",
+            "clan3_admin_kick": "clan_admin_kick_button_label",
         }
 
         for child in self.children:
@@ -1652,10 +1369,7 @@ class ClanAdminPanelView(discord.ui.View):
             return
 
         user = interaction.user
-        if not isinstance(user, discord.Member) or not (
-            user.guild_permissions.administrator
-            or user.guild_permissions.manage_roles
-        ):
+        if not isinstance(user, discord.Member) or not has_clan3_admin_access(user):
             await interaction.response.send_message(
                 "Tento panel může používat pouze admin (nebo člen s Manage Roles).",
                 ephemeral=True,
@@ -1707,10 +1421,7 @@ class ClanAdminPanelView(discord.ui.View):
         user = interaction.user
         if guild is None or not isinstance(user, discord.Member):
             return "Tento panel lze použít pouze na serveru."
-        if not (
-            user.guild_permissions.administrator
-            or user.guild_permissions.manage_roles
-        ):
+        if not has_clan3_admin_access(user):
             return "Tento panel může používat pouze admin (nebo člen s Manage Roles)."
         return None
 
@@ -1743,7 +1454,7 @@ class ClanAdminPanelView(discord.ui.View):
     @discord.ui.button(
         label="Warn",
         style=discord.ButtonStyle.secondary,
-        custom_id="clan_admin_warn",
+        custom_id="clan3_admin_warn",
     )
     async def warn_button(
         self,
@@ -1783,7 +1494,7 @@ class ClanAdminPanelView(discord.ui.View):
     @discord.ui.button(
         label="Dovolená",
         style=discord.ButtonStyle.secondary,
-        custom_id="clan_admin_toggle_vacation",
+        custom_id="clan3_admin_toggle_vacation",
     )
     async def vacation_button(
         self, interaction: discord.Interaction, button: discord.ui.Button
@@ -1812,7 +1523,7 @@ class ClanAdminPanelView(discord.ui.View):
             )
             return
 
-        accepted_category = guild.get_channel(CLAN_ACCEPTED_TICKET_CATEGORY_ID)
+        accepted_category = guild.get_channel(CLAN3_ACCEPTED_TICKET_CATEGORY_ID)
         vacation_category = guild.get_channel(CLAN_VACATION_TICKET_CATEGORY_ID)
 
         if not isinstance(accepted_category, discord.CategoryChannel):
@@ -1833,7 +1544,7 @@ class ClanAdminPanelView(discord.ui.View):
         target_category_id = (
             CLAN_VACATION_TICKET_CATEGORY_ID
             if moving_to_vacation
-            else CLAN_ACCEPTED_TICKET_CATEGORY_ID
+            else CLAN3_ACCEPTED_TICKET_CATEGORY_ID
         )
         reason = (
             "Přesun clan ticketu do kategorie dovolené"
@@ -1862,7 +1573,7 @@ class ClanAdminPanelView(discord.ui.View):
     @discord.ui.button(
         label="Kick (odebrat clan roli)",
         style=discord.ButtonStyle.danger,
-        custom_id="clan_admin_kick",
+        custom_id="clan3_admin_kick",
     )
     async def kick_button(
         self,
@@ -1920,4 +1631,4 @@ class ClanAdminPanelView(discord.ui.View):
 
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(ClanApplicationsCog(bot))
+    await bot.add_cog(Clan3ApplicationsCog(bot))
