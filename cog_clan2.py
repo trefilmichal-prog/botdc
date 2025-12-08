@@ -18,6 +18,8 @@ from config import (
     CLAN2_ADMIN_ROLE_ID,
 )
 from i18n import DEFAULT_LOCALE, get_interaction_locale, normalize_locale, t
+
+CLAN_EMBED_CLAN_LIST = "HROT - Main clan :flag_cz:  :flag_us:\nTGMC - Second clan :flag_us:"
 from db import (
     create_clan_application,
     get_open_application_by_user,
@@ -944,7 +946,7 @@ class Clan2ApplicationModal(discord.ui.Modal):
         # embed s instrukcemi na screeny
         intro_embed = discord.Embed(
             title=t("clan_application_intro_title", locale),
-            description=t("clan_application_intro_body", locale),
+            description=f"{t('clan_application_intro_body', locale)}\n\n{CLAN_EMBED_CLAN_LIST}",
             color=0x2980B9,
         )
 
