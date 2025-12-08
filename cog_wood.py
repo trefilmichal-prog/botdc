@@ -78,6 +78,84 @@ class WoodCog(commands.Cog, name="WoodCog"):
         # připomínky materiálů
         self.materials_reminder_loop.start()
 
+    @staticmethod
+    def _render_progress_bar(delivered: int, required: int, length: int = 14) -> str:
+        if required <= 0:
+            ratio = 1
+        else:
+            ratio = delivered / required
+        ratio = min(max(ratio, 0), 1)
+        filled = int(round(ratio * length))
+        empty = max(length - filled, 0)
+        return f"{'█' * filled}{'░' * empty}"
+
+    def _build_panel_embeds(
+        self, locale: discord.Locale, rows: List[Tuple[str, int, int]]
+    ) -> tuple[discord.Embed, discord.Embed]:
+        header = discord.Embed(
+            title=t("wood_panel_title", locale),
+            description=t("wood_panel_description", locale),
+            color=0x00AAFF,
+        )
+        header.add_field(
+            name=t("wood_panel_howto_title", locale),
+            value=t("wood_panel_howto_body", locale),
+            inline=False,
+        )
+        header.add_field(
+            name=t("wood_panel_commands_title", locale),
+            value=t("wood_panel_commands_body", locale),
+            inline=False,
+        )
+        header.set_footer(text=t("wood_panel_footer", locale))
+
+        resources_embed = discord.Embed(
+            title=t("wood_panel_resources_title", locale),
+            color=0x00AAFF,
+        )
+
+        if rows:
+            done_count = sum(1 for _, required, delivered in rows if delivered >= required)
+            remaining_total = sum(max(required - delivered, 0) for _, required, delivered in rows)
+            resources_embed.description = t(
+                "wood_panel_resources_summary",
+                locale,
+                done=done_count,
+                total=len(rows),
+                remaining=remaining_total,
+            )
+            resources_embed.add_field(
+                name=t("wood_panel_legend_title", locale),
+                value=t("wood_panel_legend_body", locale),
+                inline=False,
+            )
+
+            for name, required, delivered in rows:
+                remaining = max(required - delivered, 0)
+                emoji = "✅" if delivered >= required else "⏳"
+                progress_bar = self._render_progress_bar(delivered, required)
+                resources_embed.add_field(
+                    name=f"{emoji} {name}",
+                    value=t(
+                        "wood_panel_resource_field",
+                        locale,
+                        delivered=delivered,
+                        required=required,
+                        remaining=remaining,
+                        bar=progress_bar,
+                    ),
+                    inline=False,
+                )
+        else:
+            resources_embed.description = t("wood_panel_no_need", locale)
+            resources_embed.add_field(
+                name=t("wood_panel_no_data_title", locale),
+                value=t("wood_panel_no_data_body", locale),
+                inline=False,
+            )
+
+        return header, resources_embed
+
     async def update_panel(self):
         channel_id_str = get_setting("panel_channel_id")
         message_id_str = get_setting("panel_message_id")
@@ -100,39 +178,8 @@ class WoodCog(commands.Cog, name="WoodCog"):
         guild = channel.guild if isinstance(channel, discord.TextChannel) else None
         locale = normalize_locale(getattr(guild, "preferred_locale", None)) if guild else DEFAULT_LOCALE
 
-        header = discord.Embed(
-            title=t("wood_panel_title", locale),
-            description=t("wood_panel_description", locale),
-            color=0x00AAFF,
-        )
-
-        resources_embed = discord.Embed(
-            title=t("wood_panel_resources_title", locale),
-            color=0x00AAFF,
-        )
-
         rows = get_resources_status()
-        if not rows:
-            resources_embed.add_field(
-                name=t("wood_panel_no_data_title", locale),
-                value=t("wood_panel_no_data_body", locale),
-                inline=False,
-            )
-        else:
-            for name, required, delivered in rows:
-                remaining = max(required - delivered, 0)
-                emoji = "✅" if delivered >= required else "⏳"
-                resources_embed.add_field(
-                    name=f"{emoji} {name}",
-                    value=t(
-                        "wood_panel_resource_field",
-                        locale,
-                        delivered=delivered,
-                        required=required,
-                        remaining=remaining,
-                    ),
-                    inline=False,
-                )
+        header, resources_embed = self._build_panel_embeds(locale, rows)
 
         await msg.edit(embeds=[header, resources_embed], view=TicketButtonView(self, locale))
 
@@ -255,16 +302,8 @@ class WoodCog(commands.Cog, name="WoodCog"):
             )
             return
 
-        header = discord.Embed(
-            title=t("wood_panel_title", locale),
-            description=t("wood_panel_empty_description", locale),
-            color=0x00AAFF,
-        )
-        resources_embed = discord.Embed(
-            title=t("wood_panel_resources_title", locale),
-            description=t("wood_panel_no_need", locale),
-            color=0x00AAFF,
-        )
+        rows = get_resources_status()
+        header, resources_embed = self._build_panel_embeds(locale, rows)
 
         view = TicketButtonView(self, locale)
         msg = await channel.send(embeds=[header, resources_embed], view=view)

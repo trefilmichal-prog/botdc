@@ -592,19 +592,42 @@ STRINGS: dict[str, dict[str, str]] = {
         "cs": "Přehled, kolik čeho je potřeba a kolik už bylo odevzdáno.\nK nahlášení použij tlačítko níže.",
         "en": "Overview of required materials and what has been delivered.\nUse the button below to report your delivery.",
     },
+    "wood_panel_howto_title": {"cs": "Jak nahlásit dodávku", "en": "How to report a delivery"},
+    "wood_panel_howto_body": {
+        "cs": "Klikni na **Tiket pro dodávku** a řiď se pokyny bota v novém kanálu.",
+        "en": "Click **Delivery ticket** and follow the bot's instructions in the new channel.",
+    },
+    "wood_panel_commands_title": {"cs": "Užitečné příkazy", "en": "Useful commands"},
+    "wood_panel_commands_body": {
+        "cs": "`/resources` rychlý přehled · `/set_need` nebo `/reset_need` pro správu požadavků",
+        "en": "`/resources` quick overview · `/set_need` or `/reset_need` to manage requirements",
+    },
     "wood_panel_resources_title": {"cs": "Přehled dřev", "en": "Wood overview"},
     "wood_panel_no_data_title": {"cs": "Žádná data", "en": "No data"},
     "wood_panel_no_data_body": {
         "cs": "Zatím není nastaveno, kolik čeho je potřeba. Použij `/set_need`.",
         "en": "No requirements are set yet. Use `/set_need` to configure them.",
     },
+    "wood_panel_resources_summary": {
+        "cs": "Hotovo {done}/{total} typů · Zbývá celkem {remaining} ks",
+        "en": "Completed {done}/{total} types · {remaining} pieces still needed",
+    },
+    "wood_panel_legend_title": {"cs": "Legenda", "en": "Legend"},
+    "wood_panel_legend_body": {
+        "cs": "✅ splněno · ⏳ ve sběru · Progres bar ukazuje postup k cíli",
+        "en": "✅ done · ⏳ in progress · Progress bar shows how close we are",
+    },
     "wood_panel_resource_field": {
-        "cs": "Odevzdáno: **{delivered}/{required}** (zbývá {remaining})",
-        "en": "Delivered: **{delivered}/{required}** (remaining {remaining})",
+        "cs": "Odevzdáno: **{delivered}/{required}** (zbývá {remaining})\n{bar}",
+        "en": "Delivered: **{delivered}/{required}** (remaining {remaining})\n{bar}",
     },
     "wood_panel_empty_description": {
         "cs": "Zde bude přehled, kolik je potřeba kterého dřeva a kolik už je odevzdáno.\nK nahlášení použij tlačítko níže.",
         "en": "This will show how much of each wood type is needed and delivered.\nUse the button below to report your delivery.",
+    },
+    "wood_panel_footer": {
+        "cs": "Panel se aktualizuje po každém nahlášení dodávky.",
+        "en": "The panel refreshes after every reported delivery.",
     },
     "wood_panel_no_need": {
         "cs": "Zatím žádná potřeba není nastavená. Použij `/set_need`.",
