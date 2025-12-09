@@ -429,19 +429,19 @@ class Components(discord.ui.LayoutView):
 	    		placeholder="Vyber clan",
 	    		options=[
 	    			discord.SelectOption(
-	    				label="🇨🇿🇺🇸 Main Clan HROT",
+	    				label="Main Clan HROT",
 	    				value="HROT",
-	    				description="\U0001F1E8\U0001F1FF & \U0001F1FA\U0001F1F8",
+	    				description="🇨🇿 & 🇺🇸",
 	    			),
 	    			discord.SelectOption(
 	    				label="Second Clan HR2T",
 	    				value="HR2T",
-	    				description="only 🇨🇿",
+	    				description="🇨🇿",
 	    			),
 	    			discord.SelectOption(
 	    				label="Third Clan TGCM",
 	    				value="TGCM",
-	    				description="only 🇺🇸",
+	    				description="🇺🇸",
 	    			),
 	    		],
 	    	)
