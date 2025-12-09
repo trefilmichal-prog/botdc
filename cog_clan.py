@@ -61,10 +61,6 @@ def _slugify_channel_part(value: str) -> str:
     return value or "applicant"
 
 
-def _apply_custom_id(channel_id: int, clan_value: str) -> str:
-    return f"clan_apply|{channel_id}|{clan_value}"
-
-
 def _finalize_custom_id(channel_id: int, clan_value: str) -> str:
     return f"clan_finalize|{channel_id}|{clan_value}"
 
@@ -178,7 +174,12 @@ async def _set_ticket_status(channel: discord.TextChannel, status_emoji: str) ->
     return True
 
 
-async def _rename_ticket_prefix(channel: discord.TextChannel, clan_value: str, player_name: str, status_emoji: str = STATUS_OPEN) -> bool:
+async def _rename_ticket_prefix(
+    channel: discord.TextChannel,
+    clan_value: str,
+    player_name: str,
+    status_emoji: str = STATUS_OPEN,
+) -> bool:
     """Rename ticket to requested format.
 
     Example: 🟠přihlášky-hrot-senpaicat221
@@ -190,7 +191,6 @@ async def _rename_ticket_prefix(channel: discord.TextChannel, clan_value: str, p
     slug = _slugify_channel_part(player_name)
     name = f"{status_emoji}přihlášky-{clan_key}-{slug}"
 
-    # Channel name limit is 100.
     if len(name) > 100:
         name = name[:100].rstrip("-")
         if not name:
@@ -213,7 +213,6 @@ class Components(discord.ui.LayoutView):
             discord.ui.TextDisplay(content="## PŘIHLÁŠKY DO CLANU"),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
 
-            # 🇺🇸 Conditions
             discord.ui.TextDisplay(
                 content=(
                     "### 🇺🇸 Podmínky přijetí\n"
@@ -222,12 +221,10 @@ class Components(discord.ui.LayoutView):
                     "- Play 24/7\n"
                     "- 30% index\n"
                     "- 10d playtime\n"
-                    "```"
+                    "```\n"
                 )
             ),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
-
-            # 🇨🇿 Conditions
             discord.ui.TextDisplay(
                 content=(
                     "### 🇨🇿 Podmínky přijetí\n"
@@ -236,7 +233,7 @@ class Components(discord.ui.LayoutView):
                     "- Hrát 24/7\n"
                     "- 30% index\n"
                     "- 10d playtime\n"
-                    "```"
+                    "```\n"
                 )
             ),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
@@ -250,46 +247,6 @@ class Components(discord.ui.LayoutView):
                         discord.SelectOption(label="HR2T", value="HR2T", description=":flag_cz:"),
                         discord.SelectOption(label="TGCM", value="TGCM", description=":flag_us:"),
                     ],
-                )
-            ),
-        )
-        self.add_item(container)
-
-
-class TicketStartView(discord.ui.LayoutView):
-    """Panel inside the ticket channel to start filling the application."""
-
-    def __init__(self, ticket_channel_id: int, clan_value: str):
-        super().__init__(timeout=None)
-
-        container = discord.ui.Container(
-            discord.ui.TextDisplay(content=f"## ✅ Ticket pro clan: **{clan_value}**"),
-            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
-            discord.ui.TextDisplay(
-                content=(
-                    "### Co vyplnit\n"
-                    "• **Roblox Display Name**\n"
-                    "• **Kolik máš rebirthů**\n"
-                    "• **Kolik hodin denně můžeš hrát**\n"
-                )
-            ),
-            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
-            discord.ui.TextDisplay(
-                content=(
-                    "### Screeny (může být více)\n"
-                    "♻️ Screeny Petů\n"
-                    "♻️ Tvoje Gamepassy (pokud vlastníš)\n"
-                    "♻️ Tvoje Rebirthy\n"
-                    "♻️ Tvojí Prestige\n\n"
-                    "Screeny pošli **jako přílohy** sem do ticketu (klidně více zpráv)."
-                )
-            ),
-            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
-            discord.ui.ActionRow(
-                discord.ui.Button(
-                    custom_id=_apply_custom_id(ticket_channel_id, clan_value),
-                    label="Vyplnit přihlášku",
-                    style=discord.ButtonStyle.primary,
                 )
             ),
         )
@@ -346,11 +303,10 @@ class TicketReviewView(discord.ui.LayoutView):
 
 
 class ClanApplicationModal(discord.ui.Modal):
-    """Modal for application input (text only)."""
+    """Modal for application input (text only). Ticket is created after submit."""
 
-    def __init__(self, ticket_channel_id: int, clan_value: str):
+    def __init__(self, clan_value: str):
         super().__init__(title="Přihláška do clanu")
-        self.ticket_channel_id = int(ticket_channel_id)
         self.clan_value = str(clan_value)
 
         self.display_name = discord.ui.TextInput(
@@ -382,13 +338,65 @@ class ClanApplicationModal(discord.ui.Modal):
             await interaction.response.send_message("Tahle akce musí běžet na serveru.", ephemeral=True)
             return
 
-        ticket_channel = guild.get_channel(self.ticket_channel_id)
-        if ticket_channel is None or not isinstance(ticket_channel, discord.TextChannel):
-            await interaction.response.send_message("Ticket kanál neexistuje.", ephemeral=True)
+        # Defer early to avoid interaction timeouts while creating channel
+        await interaction.response.defer(ephemeral=True)
+
+        intake_category = guild.get_channel(TICKET_CATEGORY_ID)
+        if intake_category is None or not isinstance(intake_category, discord.CategoryChannel):
+            await interaction.followup.send("Vstupní kategorie neexistuje nebo nemám práva.", ephemeral=True)
             return
 
         roblox_display = (self.display_name.value or "").strip()
         roblox_display_nick = _sanitize_nickname(roblox_display)
+
+        # Create ticket channel first
+        topic = f"clan_applicant={interaction.user.id};clan={self.clan_value}"
+        tmp_name = f"ticket-{_slugify_channel_part(self.clan_value)}-{_slugify_channel_part(interaction.user.name)}"
+
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            interaction.user: discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                attach_files=True,
+            ),
+        }
+
+        admin_role = discord.utils.get(guild.roles, name=ADMIN_ROLE_NAME)
+        if admin_role:
+            overwrites[admin_role] = discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                attach_files=True,
+            )
+
+        review_role_id = _review_role_id_for_clan(self.clan_value)
+        if review_role_id:
+            review_role = guild.get_role(review_role_id)
+            if review_role:
+                overwrites[review_role] = discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    read_message_history=True,
+                    attach_files=True,
+                )
+
+        try:
+            ticket_channel = await guild.create_text_channel(
+                name=tmp_name,
+                overwrites=overwrites,
+                category=intake_category,
+                topic=topic,
+                reason=f"Clan ticket: {self.clan_value}",
+            )
+        except discord.Forbidden:
+            await interaction.followup.send("Nemám práva vytvořit ticket kanál (Manage Channels).", ephemeral=True)
+            return
+        except discord.HTTPException as e:
+            await interaction.followup.send(f"Discord API chyba při vytváření ticketu: {e}", ephemeral=True)
+            return
 
         # 1) Set user's nickname on the server to the Roblox Display Name.
         nick_ok = False
@@ -434,7 +442,7 @@ class ClanApplicationModal(discord.ui.Modal):
         except discord.HTTPException as e:
             rename_err = f"Discord API chyba při přejmenování kanálu: {e}"
 
-        # 3) Ensure clan review role visibility
+        # 3) Ensure clan review role visibility (safety)
         role_vis_ok = False
         role_vis_err = None
         try:
@@ -497,13 +505,18 @@ class ClanApplicationModal(discord.ui.Modal):
             warn_view.add_item(warn_container)
             await ticket_channel.send(content="", view=warn_view)
 
-        # Finalize button (includes clan in custom_id)
+        # Instructions for screenshots + finalize button
+        instr_view = discord.ui.LayoutView(timeout=None)
+        instr_container = discord.ui.Container(
+            discord.ui.TextDisplay(content="## 📎 Screeny"),
+            discord.ui.TextDisplay(content="Pošli screeny jako přílohy sem do ticketu (může být více zpráv)."),            
+        )
+        instr_view.add_item(instr_container)
+        await ticket_channel.send(content="", view=instr_view)
+
         await ticket_channel.send(content="", view=TicketFinalizeView(ticket_channel.id, self.clan_value))
 
-        await interaction.response.send_message(
-            "✅ Přihláška byla odeslána do ticketu. Teď pošli screeny jako přílohy.",
-            ephemeral=True,
-        )
+        await interaction.followup.send(f"✅ Ticket vytvořen: {ticket_channel.mention}", ephemeral=True)
 
 
 class ClanPanelCog(commands.Cog):
@@ -522,7 +535,7 @@ class ClanPanelCog(commands.Cog):
         data = interaction.data or {}
         custom_id = data.get("custom_id", "")
 
-        # 1) Select -> create ticket channel in intake category
+        # 1) Select -> open application modal immediately
         if custom_id == "clan_select":
             values = data.get("values") or []
             if not values:
@@ -530,81 +543,10 @@ class ClanPanelCog(commands.Cog):
                 return
 
             clan_value = values[0]
-            guild = interaction.guild
-            if guild is None:
-                await interaction.response.send_message("Tahle akce musí běžet na serveru.", ephemeral=True)
-                return
-
-            intake_category = guild.get_channel(TICKET_CATEGORY_ID)
-            if intake_category is None or not isinstance(intake_category, discord.CategoryChannel):
-                await interaction.response.send_message("Vstupní kategorie neexistuje nebo nemám práva.", ephemeral=True)
-                return
-
-            topic = f"clan_applicant={interaction.user.id};clan={clan_value}"
-
-            # Temporary safe name; will be renamed after modal submit
-            channel_name = f"ticket-{_slugify_channel_part(clan_value)}-{_slugify_channel_part(interaction.user.name)}"
-
-            overwrites = {
-                guild.default_role: discord.PermissionOverwrite(view_channel=False),
-                interaction.user: discord.PermissionOverwrite(
-                    view_channel=True,
-                    send_messages=True,
-                    read_message_history=True,
-                    attach_files=True,
-                ),
-            }
-
-            admin_role = discord.utils.get(guild.roles, name=ADMIN_ROLE_NAME)
-            if admin_role:
-                overwrites[admin_role] = discord.PermissionOverwrite(
-                    view_channel=True,
-                    send_messages=True,
-                    read_message_history=True,
-                    attach_files=True,
-                )
-
-            review_role_id = _review_role_id_for_clan(clan_value)
-            if review_role_id:
-                review_role = guild.get_role(review_role_id)
-                if review_role:
-                    overwrites[review_role] = discord.PermissionOverwrite(
-                        view_channel=True,
-                        send_messages=True,
-                        read_message_history=True,
-                        attach_files=True,
-                    )
-
-            ticket_channel = await guild.create_text_channel(
-                name=channel_name,
-                overwrites=overwrites,
-                category=intake_category,
-                topic=topic,
-                reason=f"Clan ticket: {clan_value}",
-            )
-
-            await ticket_channel.send(content="", view=TicketStartView(ticket_channel.id, clan_value))
-            await interaction.response.send_message(f"Ticket vytvořen: {ticket_channel.mention}", ephemeral=True)
+            await interaction.response.send_modal(ClanApplicationModal(clan_value=clan_value))
             return
 
-        # 2) "Vyplnit přihlášku" -> open modal
-        if isinstance(custom_id, str) and custom_id.startswith("clan_apply|"):
-            parts = custom_id.split("|", 2)
-            if len(parts) != 3:
-                await interaction.response.send_message("Neplatný button.", ephemeral=True)
-                return
-
-            _, channel_id_str, clan_value = parts
-            try:
-                channel_id = int(channel_id_str)
-            except ValueError:
-                await interaction.response.send_message("Neplatný ticket.", ephemeral=True)
-                return
-
-            await interaction.response.send_modal(ClanApplicationModal(ticket_channel_id=channel_id, clan_value=clan_value))
-            return
-
-        # 3) Finalize -> mention review role + show review panel (NO moving here)
+        # 2) Finalize -> mention review role + show review panel
         if isinstance(custom_id, str) and custom_id.startswith("clan_finalize|"):
             parts = custom_id.split("|", 2)
             if len(parts) != 3:
@@ -647,7 +589,7 @@ class ClanPanelCog(commands.Cog):
             await interaction.response.send_message("✅ Označeno jako hotovo.", ephemeral=True)
             return
 
-        # 4) Review accept/deny
+        # 3) Review accept/deny
         if isinstance(custom_id, str) and custom_id.startswith("clan_review|"):
             parts = custom_id.split("|", 3)
             if len(parts) != 4:
