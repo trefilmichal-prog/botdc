@@ -395,7 +395,7 @@ class Components(discord.ui.LayoutView):
         CZ_FLAG = "\U0001F1E8\U0001F1FF"  # 🇨🇿
         US_FLAG = "\U0001F1FA\U0001F1F8"  # 🇺🇸
         container = discord.ui.Container(
-            discord.ui.TextDisplay(content="## PŘIHLÁŠKY DO CLANU"),
+            discord.ui.TextDisplay(content="## CLAN APPLICATIONS"),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
 
             discord.ui.TextDisplay(
@@ -426,7 +426,7 @@ class Components(discord.ui.LayoutView):
 	    discord.ui.ActionRow(
     	    	discord.ui.Select(
 	    		custom_id="clan_select",
-	    		placeholder="Choose clan",
+	    		placeholder="Choose Clan",
 	    		options=[
 	    			discord.SelectOption(
 	    				label="Main Clan HROT",
