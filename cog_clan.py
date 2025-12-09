@@ -392,7 +392,8 @@ class Components(discord.ui.LayoutView):
 
     def __init__(self):
         super().__init__(timeout=None)
-
+        CZ_FLAG = "\U0001F1E8\U0001F1FF"  # 🇨🇿
+        US_FLAG = "\U0001F1FA\U0001F1F8"  # 🇺🇸
         container = discord.ui.Container(
             discord.ui.TextDisplay(content="## PŘIHLÁŠKY DO CLANU"),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
@@ -430,17 +431,17 @@ class Components(discord.ui.LayoutView):
 	    			discord.SelectOption(
 	    				label="Main Clan HROT",
 	    				value="HROT",
-	    				description="🇨🇿 🇺🇸",
+	    				description=f"{CZ_FLAG} {US_FLAG}",
 	    			),
 	    			discord.SelectOption(
 	    				label="Second Clan HR2T",
 	    				value="HR2T",
-	    				description="🇨🇿",
+	    				description=f"{CZ_FLAG}",
 	    			),
 	    			discord.SelectOption(
 	    				label="Third Clan TGCM",
 	    				value="TGCM",
-	    				description="🇺🇸",
+	    				description=f"{US_FLAG}",
 	    			),
 	    		],
 	    	)
