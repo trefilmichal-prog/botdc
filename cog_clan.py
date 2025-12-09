@@ -6,7 +6,7 @@ from discord import app_commands
 # Category where NEW ticket channels will be created (initial intake)
 TICKET_CATEGORY_ID = 1440977431577235456
 
-# Optional admin role that should see all tickets
+# Optional admin role name that can manage tickets
 ADMIN_ROLE_NAME = "Admin"
 
 # Status emojis used in ticket channel name
@@ -15,21 +15,21 @@ STATUS_ACCEPTED = "🟢"
 STATUS_DENIED = "🔴"
 STATUS_SET = (STATUS_OPEN, STATUS_ACCEPTED, STATUS_DENIED)
 
-# Clan -> "review" role id (leaders/officers) that should see the ticket
+# Clan -> "review" role id (leaders/officers) that should see the ticket (and can accept/deny)
 CLAN_REVIEW_ROLE_IDS = {
     "hrot": 1440268371152339065,
     "hr2t": 1444304987986595923,
     "tgcm": 1447423174974247102,
 }
 
-# Clan -> role id that will be ASSIGNED to the applicant on accept (kept for later use)
+# Clan -> role id that will be ASSIGNED to the applicant on accept
 CLAN_MEMBER_ROLE_IDS = {
     "hrot": 1440268327892025438,
     "hr2t": 1444306127687778405,
     "tgcm": 1447423249817403402,
 }
 
-# Clan -> category id where the ticket should be MOVED after ACCEPT (kept for later use)
+# Clan -> category id where the ticket should be MOVED after ACCEPT
 CLAN_CATEGORY_IDS = {
     "hrot": 1443684694968373421,
     "hr2t": 1444304658142335217,
@@ -55,8 +55,12 @@ def _slugify_channel_part(value: str) -> str:
     return value or "applicant"
 
 
+def _settings_custom_id(channel_id: int, clan_value: str) -> str:
+    return f"clan_settings|{channel_id}|{clan_value}"
+
+
 def _review_custom_id(action: str, channel_id: int, clan_value: str) -> str:
-    # action: accept / deny (kept for later use)
+    # action: accept / deny
     return f"clan_review|{action}|{channel_id}|{clan_value}"
 
 
@@ -86,6 +90,24 @@ def _parse_ticket_topic(topic: str):
     applicant_id = int(m1.group(1)) if m1 else None
     clan = m2.group(1) if m2 else None
     return applicant_id, clan
+
+
+def _is_reviewer(member: discord.Member, clan_value: str) -> bool:
+    """Reviewer = Admin role OR clan review role OR administrator perms."""
+    if member.guild_permissions.administrator:
+        return True
+
+    admin_role = discord.utils.get(member.guild.roles, name=ADMIN_ROLE_NAME)
+    if admin_role and admin_role in member.roles:
+        return True
+
+    rid = _review_role_id_for_clan(clan_value)
+    if rid:
+        role = member.guild.get_role(rid)
+        if role and role in member.roles:
+            return True
+
+    return False
 
 
 async def _ensure_review_role_can_view(channel: discord.TextChannel, clan_value: str) -> bool:
@@ -247,28 +269,26 @@ class ScreenshotInstructionsView(discord.ui.LayoutView):
         self.add_item(container)
 
 
-class TicketReviewView(discord.ui.LayoutView):
-    """Kept for later use (accept/deny buttons will be redesigned later)."""
+class AdminDecisionView(discord.ui.LayoutView):
+    """Ephemeral panel shown after clicking ⚙️. Only admin/clan role can use."""
 
     def __init__(self, ticket_channel_id: int, clan_value: str):
         super().__init__(timeout=None)
 
         container = discord.ui.Container(
-            discord.ui.TextDisplay(content="## 🛡️ Rozhodnutí (admin / clan)"),
-            discord.ui.TextDisplay(content="(Toto se bude upravovat později.)"),
+            discord.ui.TextDisplay(content="## ⚙️ Správa přihlášky"),
+            discord.ui.TextDisplay(content="Vyber akci:"),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
             discord.ui.ActionRow(
                 discord.ui.Button(
                     custom_id=_review_custom_id("accept", ticket_channel_id, clan_value),
                     label="Přijmout",
                     style=discord.ButtonStyle.success,
-                    disabled=True,
                 ),
                 discord.ui.Button(
                     custom_id=_review_custom_id("deny", ticket_channel_id, clan_value),
-                    label="Odmítnout",
+                    label="Zamítnout",
                     style=discord.ButtonStyle.danger,
-                    disabled=True,
                 ),
             ),
         )
@@ -425,7 +445,7 @@ class ClanApplicationModal(discord.ui.Modal):
         except discord.HTTPException as e:
             role_vis_err = f"Discord API chyba při nastavování permissions: {e}"
 
-        # Summary (Components V2)
+        # Summary (Components V2) + ⚙️ button
         summary_view = discord.ui.LayoutView(timeout=None)
         summary_container = discord.ui.Container(
             discord.ui.TextDisplay(content="## 📄 Přihláška"),
@@ -443,6 +463,14 @@ class ClanApplicationModal(discord.ui.Modal):
                     f"• Přezdívka na serveru: **{'OK' if nick_ok else 'NE'}**\n"
                     f"• Přejmenování ticketu: **{'OK' if rename_ok else 'NE'}**\n"
                     f"• Přístup pro clan roli: **{'OK' if role_vis_ok else 'NE'}**"
+                )
+            ),
+            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
+            discord.ui.ActionRow(
+                discord.ui.Button(
+                    custom_id=_settings_custom_id(ticket_channel.id, self.clan_value),
+                    style=discord.ButtonStyle.secondary,
+                    emoji="⚙️",
                 )
             ),
         )
@@ -515,8 +543,137 @@ class ClanPanelCog(commands.Cog):
             await interaction.response.send_modal(ClanApplicationModal(clan_value=clan_value))
             return
 
-        # Review accept/deny will be redesigned later; nothing else handled here for now.
-        return
+        # ⚙️ -> show ephemeral accept/deny panel (admin or clan review role only)
+        if isinstance(custom_id, str) and custom_id.startswith("clan_settings|"):
+            parts = custom_id.split("|", 2)
+            if len(parts) != 3:
+                await interaction.response.send_message("Neplatný button.", ephemeral=True)
+                return
+
+            _, channel_id_str, clan_value = parts
+            try:
+                channel_id = int(channel_id_str)
+            except ValueError:
+                await interaction.response.send_message("Neplatný ticket.", ephemeral=True)
+                return
+
+            guild = interaction.guild
+            if guild is None:
+                await interaction.response.send_message("Tahle akce musí běžet na serveru.", ephemeral=True)
+                return
+
+            clicker = interaction.user
+            if not isinstance(clicker, discord.Member):
+                await interaction.response.send_message("Neplatný uživatel.", ephemeral=True)
+                return
+
+            if not _is_reviewer(clicker, clan_value):
+                await interaction.response.send_message("Na toto nemáš oprávnění.", ephemeral=True)
+                return
+
+            await interaction.response.send_message(
+                content="",
+                view=AdminDecisionView(channel_id, clan_value),
+                ephemeral=True,
+            )
+            return
+
+        # Accept/Deny actions (permission checked again)
+        if isinstance(custom_id, str) and custom_id.startswith("clan_review|"):
+            parts = custom_id.split("|", 3)
+            if len(parts) != 4:
+                await interaction.response.send_message("Neplatný button.", ephemeral=True)
+                return
+
+            _, action, channel_id_str, clan_value = parts
+            try:
+                channel_id = int(channel_id_str)
+            except ValueError:
+                await interaction.response.send_message("Neplatný ticket.", ephemeral=True)
+                return
+
+            guild = interaction.guild
+            if guild is None:
+                await interaction.response.send_message("Tahle akce musí běžet na serveru.", ephemeral=True)
+                return
+
+            clicker = interaction.user
+            if not isinstance(clicker, discord.Member):
+                await interaction.response.send_message("Neplatný uživatel.", ephemeral=True)
+                return
+
+            if not _is_reviewer(clicker, clan_value):
+                await interaction.response.send_message("Na toto nemáš oprávnění.", ephemeral=True)
+                return
+
+            ticket_channel = guild.get_channel(channel_id)
+            if ticket_channel is None or not isinstance(ticket_channel, discord.TextChannel):
+                await interaction.response.send_message("Ticket kanál neexistuje.", ephemeral=True)
+                return
+
+            applicant_id, topic_clan = _parse_ticket_topic(ticket_channel.topic or "")
+            if topic_clan:
+                clan_value = topic_clan
+
+            if not applicant_id:
+                await interaction.response.send_message("Nelze zjistit žadatele (chybí topic).", ephemeral=True)
+                return
+
+            try:
+                applicant = guild.get_member(applicant_id) or await guild.fetch_member(applicant_id)
+            except discord.NotFound:
+                await interaction.response.send_message("Žadatel už není na serveru.", ephemeral=True)
+                return
+
+            if action == "accept":
+                role_id = _member_role_id_for_clan(clan_value)
+                if not role_id:
+                    await interaction.response.send_message("Pro tento clan není nastavená role.", ephemeral=True)
+                    return
+
+                role = guild.get_role(role_id)
+                if role is None:
+                    await interaction.response.send_message("Role pro přijetí nebyla nalezena.", ephemeral=True)
+                    return
+
+                try:
+                    await applicant.add_roles(role, reason=f"Clan application accepted for {clan_value}")
+                except discord.Forbidden:
+                    await interaction.response.send_message("Nemám práva přidat roli (Manage Roles / hierarchie).", ephemeral=True)
+                    return
+                except discord.HTTPException as e:
+                    await interaction.response.send_message(f"Discord API chyba při přidání role: {e}", ephemeral=True)
+                    return
+
+                # Move ticket to clan category
+                try:
+                    await _move_ticket_to_clan_category(ticket_channel, clan_value)
+                except Exception:
+                    pass
+
+                # Status emoji -> 🟢
+                try:
+                    await _set_ticket_status(ticket_channel, STATUS_ACCEPTED)
+                except Exception:
+                    pass
+
+                await ticket_channel.send(f"✅ **PŘIJATO** — schválil {clicker.mention}. Role přidána: <@&{role_id}>.")
+                await interaction.response.send_message("✅ Přijato.", ephemeral=True)
+                return
+
+            if action == "deny":
+                # Status emoji -> 🔴
+                try:
+                    await _set_ticket_status(ticket_channel, STATUS_DENIED)
+                except Exception:
+                    pass
+
+                await ticket_channel.send(f"⛔ **ZAMÍTNUTO** — zamítl {clicker.mention}.")
+                await interaction.response.send_message("⛔ Zamítnuto.", ephemeral=True)
+                return
+
+            await interaction.response.send_message("Neznámá akce.", ephemeral=True)
+            return
 
 
 async def setup(bot: commands.Bot):
