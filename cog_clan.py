@@ -9,6 +9,10 @@ TICKET_CATEGORY_ID = 1440977431577235456
 # Optional admin role name that can manage tickets
 ADMIN_ROLE_NAME = "Admin"
 
+# Language roles:
+ROLE_LANG_CZ = 1444075970649915586
+ROLE_LANG_EN = 1444075991118119024
+
 # Status emojis used in ticket channel name
 STATUS_OPEN = "🟠"
 STATUS_ACCEPTED = "🟢"
@@ -37,6 +41,172 @@ CLAN_CATEGORY_IDS = {
 }
 
 
+I18N = {
+    "cs": {
+        "modal_title": "Přihláška do clanu",
+        "label_display": "Roblox Display Name",
+        "ph_display": "Např. senpaicat221",
+        "label_rebirths": "Kolik máš rebirthů (text)",
+        "ph_rebirths": "Např. 2SP / 150k / ...",
+        "label_hours": "Kolik hodin denně můžeš hrát (text)",
+        "ph_hours": "Např. 6-10h, 2h, 24/7 ...",
+        "must_be_in_guild": "Tahle akce musí běžet na serveru.",
+        "intake_missing": "Vstupní kategorie neexistuje nebo nemám práva.",
+        "create_no_perms": "Nemám práva vytvořit ticket kanál (Manage Channels).",
+        "create_api_err": "Discord API chyba při vytváření ticketu:",
+        "nick_owner": "Nelze měnit přezdívku **majiteli serveru**.",
+        "nick_perm": "Bot nemá oprávnění **Manage Nicknames** (nebo **Administrator**).",
+        "nick_hierarchy": "Role bota je **níž nebo stejně** jako role uživatele (hierarchie rolí).",
+        "nick_forbidden": "Discord odmítl změnu přezdívky (oprávnění/hierarchie rolí).",
+        "nick_api_err": "Discord API chyba při změně přezdívky:",
+        "nick_notfound": "Uživatel nebyl nalezen (NotFound).",
+        "rename_no_perms": "Nemám práva na přejmenování kanálu (Manage Channels).",
+        "rename_api_err": "Discord API chyba při přejmenování kanálu:",
+        "perm_no_perms": "Nemám práva nastavovat permissions (Manage Channels).",
+        "perm_api_err": "Discord API chyba při nastavování permissions:",
+        "summary_title": "## 📄 Přihláška",
+        "summary_clan": "**Clan:**",
+        "summary_user": "**Uživatel:**",
+        "summary_display": "**Roblox Display Name:**",
+        "summary_rebirths": "**Rebirthy:**",
+        "summary_hours": "**Hodiny denně:**",
+        "summary_auto": "### ✅ Automatické nastavení",
+        "summary_nick": "• Přezdívka na serveru:",
+        "summary_rename": "• Přejmenování ticketu:",
+        "summary_access": "• Přístup pro clan roli:",
+        "warn_title": "## ⚠️ Poznámka pro adminy",
+        "warn_nick": "**Nick změna:**",
+        "warn_diag": "**Diagnostika:**",
+        "warn_rename": "**Rename ticketu:**",
+        "warn_access": "**Clan role přístup:**",
+        "warn_role_missing": "**Clan role přístup:** Clan role nebyla nalezena (zkontroluj ID role).",
+        "ticket_created": "✅ Ticket vytvořen:",
+        "select_none": "Nebyla vybrána žádná možnost.",
+        "settings_invalid": "Neplatný button.",
+        "ticket_invalid": "Neplatný ticket.",
+        "no_perm": "Na toto nemáš oprávnění.",
+        "ticket_missing": "Ticket kanál neexistuje.",
+        "cant_get_applicant": "Nelze zjistit žadatele (chybí topic).",
+        "applicant_left": "Žadatel už není na serveru.",
+        "accept_no_role": "Pro tento clan není nastavená role.",
+        "accept_role_missing": "Role pro přijetí nebyla nalezena.",
+        "addrole_forbidden": "Nemám práva přidat roli (Manage Roles / hierarchie).",
+        "addrole_api_err": "Discord API chyba při přidání role:",
+        "accepted_msg": "✅ **PŘIJATO** — schválil",
+        "accepted_role_added": "Role přidána:",
+        "denied_msg": "⛔ **ZAMÍTNUTO** — zamítl",
+        "accepted_ephemeral": "✅ Přijato.",
+        "denied_ephemeral": "⛔ Zamítnuto.",
+        "unknown_action": "Neznámá akce.",
+        "screenshot_title_prefix": "## Ahoj",
+        "screenshot_body": (
+            "Nyní nám pošli screenshoty, kde na každém screenshotu bude i viditelně tvůj nick:\n"
+            "* inventář petů\n"
+            "* počet rebirthů\n"
+            "* všechny gamepassy\n"
+            "* prestiž\n\n"
+            "Screeny posílej jako přílohy sem do ticketu (může být více zpráv).\n\n"
+        ),
+        "screenshot_done_ping": "Až budeš mít hotovo, napiš sem zprávu a označ:",
+        "screenshot_done_msg": "Až budeš mít hotovo, napiš sem zprávu pro vedení clanu.",
+        "manage_title": "## ⚙️ Správa přihlášky",
+        "manage_choose": "Vyber akci:",
+        "btn_accept": "Přijmout",
+        "btn_deny": "Zamítnout",
+    },
+    "en": {
+        "modal_title": "Clan application",
+        "label_display": "Roblox Display Name",
+        "ph_display": "e.g. senpaicat221",
+        "label_rebirths": "How many rebirths do you have (text)",
+        "ph_rebirths": "e.g. 2SP / 150k / ...",
+        "label_hours": "How many hours per day can you play (text)",
+        "ph_hours": "e.g. 6-10h, 2h, 24/7 ...",
+        "must_be_in_guild": "This action must be used in a server.",
+        "intake_missing": "The intake category is missing or I don't have permissions.",
+        "create_no_perms": "I don't have permission to create the ticket channel (Manage Channels).",
+        "create_api_err": "Discord API error while creating the ticket:",
+        "nick_owner": "Cannot change the **server owner's** nickname.",
+        "nick_perm": "Bot is missing **Manage Nicknames** (or **Administrator**) permission.",
+        "nick_hierarchy": "Bot role is **lower or equal** to the user's top role (role hierarchy).",
+        "nick_forbidden": "Discord denied nickname change (permissions/role hierarchy).",
+        "nick_api_err": "Discord API error while changing nickname:",
+        "nick_notfound": "User not found (NotFound).",
+        "rename_no_perms": "I don't have permission to rename the channel (Manage Channels).",
+        "rename_api_err": "Discord API error while renaming the channel:",
+        "perm_no_perms": "I don't have permission to edit channel permissions (Manage Channels).",
+        "perm_api_err": "Discord API error while editing channel permissions:",
+        "summary_title": "## 📄 Application",
+        "summary_clan": "**Clan:**",
+        "summary_user": "**User:**",
+        "summary_display": "**Roblox Display Name:**",
+        "summary_rebirths": "**Rebirths:**",
+        "summary_hours": "**Hours per day:**",
+        "summary_auto": "### ✅ Automatic setup",
+        "summary_nick": "• Server nickname:",
+        "summary_rename": "• Ticket rename:",
+        "summary_access": "• Clan role access:",
+        "warn_title": "## ⚠️ Note for admins",
+        "warn_nick": "**Nickname:**",
+        "warn_diag": "**Diagnostics:**",
+        "warn_rename": "**Ticket rename:**",
+        "warn_access": "**Clan role access:**",
+        "warn_role_missing": "**Clan role access:** Clan role not found (check role ID).",
+        "ticket_created": "✅ Ticket created:",
+        "select_none": "No option was selected.",
+        "settings_invalid": "Invalid button.",
+        "ticket_invalid": "Invalid ticket.",
+        "no_perm": "You don't have permission to do that.",
+        "ticket_missing": "Ticket channel does not exist.",
+        "cant_get_applicant": "Cannot determine applicant (missing topic).",
+        "applicant_left": "The applicant is no longer on the server.",
+        "accept_no_role": "No member role is configured for this clan.",
+        "accept_role_missing": "Member role for accept was not found.",
+        "addrole_forbidden": "I can't add the role (Manage Roles / role hierarchy).",
+        "addrole_api_err": "Discord API error while adding role:",
+        "accepted_msg": "✅ **ACCEPTED** — approved by",
+        "accepted_role_added": "Role added:",
+        "denied_msg": "⛔ **DENIED** — denied by",
+        "accepted_ephemeral": "✅ Accepted.",
+        "denied_ephemeral": "⛔ Denied.",
+        "unknown_action": "Unknown action.",
+        "screenshot_title_prefix": "## Hi",
+        "screenshot_body": (
+            "Now please send screenshots where your nickname is clearly visible on each screenshot:\n"
+            "* pets inventory\n"
+            "* rebirth count\n"
+            "* all gamepasses\n"
+            "* prestige\n\n"
+            "Send screenshots as attachments here in the ticket (you can send multiple messages).\n\n"
+        ),
+        "screenshot_done_ping": "When you're done, write a message here and mention:",
+        "screenshot_done_msg": "When you're done, write a message here for clan leadership.",
+        "manage_title": "## ⚙️ Application management",
+        "manage_choose": "Choose an action:",
+        "btn_accept": "Accept",
+        "btn_deny": "Deny",
+    },
+}
+
+
+def _lang_for_member(member: discord.Member) -> str:
+    """Choose language based on role. EN has priority if both are present."""
+    if member is None:
+        return "cs"
+    role_ids = {r.id for r in getattr(member, "roles", [])}
+    if ROLE_LANG_EN in role_ids:
+        return "en"
+    if ROLE_LANG_CZ in role_ids:
+        return "cs"
+    return "cs"
+
+
+def _t(lang: str, key: str) -> str:
+    if lang not in I18N:
+        lang = "cs"
+    return I18N[lang].get(key, I18N["cs"].get(key, key))
+
+
 def _sanitize_nickname(value: str) -> str:
     """Discord nickname max length is 32."""
     value = (value or "").strip()
@@ -55,13 +225,12 @@ def _slugify_channel_part(value: str) -> str:
     return value or "applicant"
 
 
-def _settings_custom_id(channel_id: int, clan_value: str) -> str:
-    return f"clan_settings|{channel_id}|{clan_value}"
+def _settings_custom_id(channel_id: int, clan_value: str, lang: str) -> str:
+    return f"clan_settings|{channel_id}|{clan_value}|{lang}"
 
 
-def _review_custom_id(action: str, channel_id: int, clan_value: str) -> str:
-    # action: accept / deny
-    return f"clan_review|{action}|{channel_id}|{clan_value}"
+def _review_custom_id(action: str, channel_id: int, clan_value: str, lang: str) -> str:
+    return f"clan_review|{action}|{channel_id}|{clan_value}|{lang}"
 
 
 def _review_role_id_for_clan(clan_value: str):
@@ -247,22 +416,23 @@ class Components(discord.ui.LayoutView):
 class ScreenshotInstructionsView(discord.ui.LayoutView):
     """Single message with screenshot instructions (NO buttons)."""
 
-    def __init__(self, user_mention: str, clan_value: str):
+    def __init__(self, user_mention: str, clan_value: str, lang: str):
         super().__init__(timeout=None)
 
         role_mention = _role_mention_for_clan(clan_value)
 
+        body = _t(lang, "screenshot_body")
+        if role_mention:
+            done_line = f"{_t(lang, 'screenshot_done_ping')} {role_mention}"
+        else:
+            done_line = _t(lang, "screenshot_done_msg")
+
         container = discord.ui.Container(
             discord.ui.TextDisplay(
                 content=(
-                    f"## Ahoj {user_mention}\n"
-                    "Nyní nám pošli screenshoty, kde na každém screenshotu bude i viditelně tvůj nick:\n"
-                    "* inventář petů\n"
-                    "* počet rebirthů\n"
-                    "* všechny gamepassy\n"
-                    "* prestiž\n\n"
-                    "Screeny posílej jako přílohy sem do ticketu (může být více zpráv).\n\n"
-                    + (f"Až budeš mít hotovo, napiš sem zprávu a označ: {role_mention}" if role_mention else "Až budeš mít hotovo, napiš sem zprávu pro vedení clanu.")
+                    f"{_t(lang, 'screenshot_title_prefix')} {user_mention}\n"
+                    + body
+                    + done_line
                 )
             )
         )
@@ -272,22 +442,22 @@ class ScreenshotInstructionsView(discord.ui.LayoutView):
 class AdminDecisionView(discord.ui.LayoutView):
     """Ephemeral panel shown after clicking ⚙️. Only admin/clan role can use."""
 
-    def __init__(self, ticket_channel_id: int, clan_value: str):
+    def __init__(self, ticket_channel_id: int, clan_value: str, lang: str):
         super().__init__(timeout=None)
 
         container = discord.ui.Container(
-            discord.ui.TextDisplay(content="## ⚙️ Správa přihlášky"),
-            discord.ui.TextDisplay(content="Vyber akci:"),
+            discord.ui.TextDisplay(content=_t(lang, "manage_title")),
+            discord.ui.TextDisplay(content=_t(lang, "manage_choose")),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
             discord.ui.ActionRow(
                 discord.ui.Button(
-                    custom_id=_review_custom_id("accept", ticket_channel_id, clan_value),
-                    label="Přijmout",
+                    custom_id=_review_custom_id("accept", ticket_channel_id, clan_value, lang),
+                    label=_t(lang, "btn_accept"),
                     style=discord.ButtonStyle.success,
                 ),
                 discord.ui.Button(
-                    custom_id=_review_custom_id("deny", ticket_channel_id, clan_value),
-                    label="Zamítnout",
+                    custom_id=_review_custom_id("deny", ticket_channel_id, clan_value, lang),
+                    label=_t(lang, "btn_deny"),
                     style=discord.ButtonStyle.danger,
                 ),
             ),
@@ -298,25 +468,26 @@ class AdminDecisionView(discord.ui.LayoutView):
 class ClanApplicationModal(discord.ui.Modal):
     """Modal for application input (text only). Ticket is created after submit."""
 
-    def __init__(self, clan_value: str):
-        super().__init__(title="Přihláška do clanu")
+    def __init__(self, clan_value: str, lang: str):
+        self.lang = lang
+        super().__init__(title=_t(lang, "modal_title"))
         self.clan_value = str(clan_value)
 
         self.display_name = discord.ui.TextInput(
-            label="Roblox Display Name",
-            placeholder="Např. senpaicat221",
+            label=_t(lang, "label_display"),
+            placeholder=_t(lang, "ph_display"),
             required=True,
             max_length=32,
         )
         self.rebirths = discord.ui.TextInput(
-            label="Kolik máš rebirthů (text)",
-            placeholder="Např. 2SP / 150k / ...",
+            label=_t(lang, "label_rebirths"),
+            placeholder=_t(lang, "ph_rebirths"),
             required=True,
             max_length=120,
         )
         self.hours_per_day = discord.ui.TextInput(
-            label="Kolik hodin denně můžeš hrát (text)",
-            placeholder="Např. 6-10h, 2h, 24/7 ...",
+            label=_t(lang, "label_hours"),
+            placeholder=_t(lang, "ph_hours"),
             required=True,
             max_length=120,
         )
@@ -326,9 +497,11 @@ class ClanApplicationModal(discord.ui.Modal):
         self.add_item(self.hours_per_day)
 
     async def on_submit(self, interaction: discord.Interaction):
+        lang = self.lang
+
         guild = interaction.guild
         if guild is None:
-            await interaction.response.send_message("Tahle akce musí běžet na serveru.", ephemeral=True)
+            await interaction.response.send_message(_t(lang, "must_be_in_guild"), ephemeral=True)
             return
 
         # Defer early to avoid interaction timeouts while creating channel
@@ -336,7 +509,7 @@ class ClanApplicationModal(discord.ui.Modal):
 
         intake_category = guild.get_channel(TICKET_CATEGORY_ID)
         if intake_category is None or not isinstance(intake_category, discord.CategoryChannel):
-            await interaction.followup.send("Vstupní kategorie neexistuje nebo nemám práva.", ephemeral=True)
+            await interaction.followup.send(_t(lang, "intake_missing"), ephemeral=True)
             return
 
         roblox_display = (self.display_name.value or "").strip()
@@ -385,10 +558,10 @@ class ClanApplicationModal(discord.ui.Modal):
                 reason=f"Clan ticket: {self.clan_value}",
             )
         except discord.Forbidden:
-            await interaction.followup.send("Nemám práva vytvořit ticket kanál (Manage Channels).", ephemeral=True)
+            await interaction.followup.send(_t(lang, "create_no_perms"), ephemeral=True)
             return
         except discord.HTTPException as e:
-            await interaction.followup.send(f"Discord API chyba při vytváření ticketu: {e}", ephemeral=True)
+            await interaction.followup.send(f"{_t(lang, 'create_api_err')} {e}", ephemeral=True)
             return
 
         # 1) Set user's nickname on the server to the Roblox Display Name.
@@ -406,11 +579,11 @@ class ClanApplicationModal(discord.ui.Modal):
                 bot_member = await guild.fetch_member(interaction.client.user.id)
 
             if member == guild.owner:
-                nick_diag.append("Nelze měnit přezdívku **majiteli serveru**.")
+                nick_diag.append(_t(lang, "nick_owner"))
             if not (bot_member.guild_permissions.manage_nicknames or bot_member.guild_permissions.administrator):
-                nick_diag.append("Bot nemá oprávnění **Manage Nicknames** (nebo **Administrator**).")
+                nick_diag.append(_t(lang, "nick_perm"))
             if bot_member.top_role <= member.top_role and member != guild.owner:
-                nick_diag.append("Role bota je **níž nebo stejně** jako role uživatele (hierarchie rolí).")
+                nick_diag.append(_t(lang, "nick_hierarchy"))
 
             await member.edit(
                 nick=roblox_display_nick,
@@ -419,11 +592,11 @@ class ClanApplicationModal(discord.ui.Modal):
             nick_ok = True
 
         except discord.Forbidden:
-            nick_err = "Discord odmítl změnu přezdívky (oprávnění/hierarchie rolí)."
+            nick_err = _t(lang, "nick_forbidden")
         except discord.HTTPException as e:
-            nick_err = f"Discord API chyba při změně přezdívky: {e}"
+            nick_err = f"{_t(lang, 'nick_api_err')} {e}"
         except discord.NotFound:
-            nick_err = "Uživatel nebyl nalezen (NotFound)."
+            nick_err = _t(lang, "nick_notfound")
 
         # 2) Rename ticket channel to: 🟠přihlášky-{clan}-{player}
         rename_ok = False
@@ -431,9 +604,9 @@ class ClanApplicationModal(discord.ui.Modal):
         try:
             rename_ok = await _rename_ticket_prefix(ticket_channel, self.clan_value, roblox_display, STATUS_OPEN)
         except discord.Forbidden:
-            rename_err = "Nemám práva na přejmenování kanálu (Manage Channels)."
+            rename_err = _t(lang, "rename_no_perms")
         except discord.HTTPException as e:
-            rename_err = f"Discord API chyba při přejmenování kanálu: {e}"
+            rename_err = f"{_t(lang, 'rename_api_err')} {e}"
 
         # 3) Ensure clan review role visibility (safety)
         role_vis_ok = False
@@ -441,34 +614,34 @@ class ClanApplicationModal(discord.ui.Modal):
         try:
             role_vis_ok = await _ensure_review_role_can_view(ticket_channel, self.clan_value)
         except discord.Forbidden:
-            role_vis_err = "Nemám práva nastavovat permissions (Manage Channels)."
+            role_vis_err = _t(lang, "perm_no_perms")
         except discord.HTTPException as e:
-            role_vis_err = f"Discord API chyba při nastavování permissions: {e}"
+            role_vis_err = f"{_t(lang, 'perm_api_err')} {e}"
 
         # Summary (Components V2) + ⚙️ button
         summary_view = discord.ui.LayoutView(timeout=None)
         summary_container = discord.ui.Container(
-            discord.ui.TextDisplay(content="## 📄 Přihláška"),
+            discord.ui.TextDisplay(content=_t(lang, "summary_title")),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
-            discord.ui.TextDisplay(content=f"**Clan:** {self.clan_value}"),
-            discord.ui.TextDisplay(content=f"**Uživatel:** {interaction.user.mention}"),
+            discord.ui.TextDisplay(content=f"{_t(lang, 'summary_clan')} {self.clan_value}"),
+            discord.ui.TextDisplay(content=f"{_t(lang, 'summary_user')} {interaction.user.mention}"),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
-            discord.ui.TextDisplay(content=f"**Roblox Display Name:** `{roblox_display}`"),
-            discord.ui.TextDisplay(content=f"**Rebirthy:** `{self.rebirths.value}`"),
-            discord.ui.TextDisplay(content=f"**Hodiny denně:** `{self.hours_per_day.value}`"),
+            discord.ui.TextDisplay(content=f"{_t(lang, 'summary_display')} `{roblox_display}`"),
+            discord.ui.TextDisplay(content=f"{_t(lang, 'summary_rebirths')} `{self.rebirths.value}`"),
+            discord.ui.TextDisplay(content=f"{_t(lang, 'summary_hours')} `{self.hours_per_day.value}`"),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
             discord.ui.TextDisplay(
                 content=(
-                    "### ✅ Automatické nastavení\n"
-                    f"• Přezdívka na serveru: **{'OK' if nick_ok else 'NE'}**\n"
-                    f"• Přejmenování ticketu: **{'OK' if rename_ok else 'NE'}**\n"
-                    f"• Přístup pro clan roli: **{'OK' if role_vis_ok else 'NE'}**"
+                    f"{_t(lang, 'summary_auto')}\n"
+                    f"{_t(lang, 'summary_nick')} **{'OK' if nick_ok else 'NE'}**\n"
+                    f"{_t(lang, 'summary_rename')} **{'OK' if rename_ok else 'NE'}**\n"
+                    f"{_t(lang, 'summary_access')} **{'OK' if role_vis_ok else 'NE'}**"
                 )
             ),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
             discord.ui.ActionRow(
                 discord.ui.Button(
-                    custom_id=_settings_custom_id(ticket_channel.id, self.clan_value),
+                    custom_id=_settings_custom_id(ticket_channel.id, self.clan_value, lang),
                     style=discord.ButtonStyle.secondary,
                     emoji="⚙️",
                 )
@@ -480,27 +653,25 @@ class ClanApplicationModal(discord.ui.Modal):
         if (not nick_ok) or (not rename_ok) or (not role_vis_ok):
             warn_view = discord.ui.LayoutView(timeout=None)
             warn_items = [
-                discord.ui.TextDisplay(content="## ⚠️ Poznámka pro adminy"),
+                discord.ui.TextDisplay(content=_t(lang, "warn_title")),
                 discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
             ]
 
             if not nick_ok:
                 if nick_err:
-                    warn_items.append(discord.ui.TextDisplay(content=f"**Nick změna:** {nick_err}"))
+                    warn_items.append(discord.ui.TextDisplay(content=f"{_t(lang, 'warn_nick')} {nick_err}"))
                 if nick_diag:
                     diag_lines = "\n".join([f"• {x}" for x in nick_diag])
-                    warn_items.append(discord.ui.TextDisplay(content=f"**Diagnostika:**\n{diag_lines}"))
+                    warn_items.append(discord.ui.TextDisplay(content=f"{_t(lang, 'warn_diag')}\n{diag_lines}"))
 
             if not rename_ok and rename_err:
-                warn_items.append(discord.ui.TextDisplay(content=f"**Rename ticketu:** {rename_err}"))
+                warn_items.append(discord.ui.TextDisplay(content=f"{_t(lang, 'warn_rename')} {rename_err}"))
 
             if not role_vis_ok:
                 if role_vis_err:
-                    warn_items.append(discord.ui.TextDisplay(content=f"**Clan role přístup:** {role_vis_err}"))
+                    warn_items.append(discord.ui.TextDisplay(content=f"{_t(lang, 'warn_access')} {role_vis_err}"))
                 else:
-                    warn_items.append(
-                        discord.ui.TextDisplay(content="**Clan role přístup:** Clan role nebyla nalezena (zkontroluj ID role).")
-                    )
+                    warn_items.append(discord.ui.TextDisplay(content=_t(lang, "warn_role_missing")))
 
             warn_container = discord.ui.Container(*warn_items)
             warn_view.add_item(warn_container)
@@ -509,11 +680,11 @@ class ClanApplicationModal(discord.ui.Modal):
         # Screenshot instructions (no button). Role mention is shown but NOT pinged by bot.
         await ticket_channel.send(
             content="",
-            view=ScreenshotInstructionsView(interaction.user.mention, self.clan_value),
+            view=ScreenshotInstructionsView(interaction.user.mention, self.clan_value, lang),
             allowed_mentions=discord.AllowedMentions(roles=False, users=True, everyone=False),
         )
 
-        await interaction.followup.send(f"✅ Ticket vytvořen: {ticket_channel.mention}", ephemeral=True)
+        await interaction.followup.send(f"{_t(lang, 'ticket_created')} {ticket_channel.mention}", ephemeral=True)
 
 
 class ClanPanelCog(commands.Cog):
@@ -536,79 +707,83 @@ class ClanPanelCog(commands.Cog):
         if custom_id == "clan_select":
             values = data.get("values") or []
             if not values:
-                await interaction.response.send_message("Nebyla vybrána žádná možnost.", ephemeral=True)
+                await interaction.response.send_message(_t("cs", "select_none"), ephemeral=True)
                 return
 
             clan_value = values[0]
-            await interaction.response.send_modal(ClanApplicationModal(clan_value=clan_value))
+
+            member = interaction.user if isinstance(interaction.user, discord.Member) else None
+            lang = _lang_for_member(member) if member else "cs"
+
+            await interaction.response.send_modal(ClanApplicationModal(clan_value=clan_value, lang=lang))
             return
 
         # ⚙️ -> show ephemeral accept/deny panel (admin or clan review role only)
         if isinstance(custom_id, str) and custom_id.startswith("clan_settings|"):
-            parts = custom_id.split("|", 2)
-            if len(parts) != 3:
-                await interaction.response.send_message("Neplatný button.", ephemeral=True)
+            parts = custom_id.split("|", 3)
+            if len(parts) != 4:
+                await interaction.response.send_message(_t("cs", "settings_invalid"), ephemeral=True)
                 return
 
-            _, channel_id_str, clan_value = parts
+            _, channel_id_str, clan_value, lang = parts
             try:
                 channel_id = int(channel_id_str)
             except ValueError:
-                await interaction.response.send_message("Neplatný ticket.", ephemeral=True)
+                await interaction.response.send_message(_t(lang, "ticket_invalid"), ephemeral=True)
                 return
 
             guild = interaction.guild
             if guild is None:
-                await interaction.response.send_message("Tahle akce musí běžet na serveru.", ephemeral=True)
+                await interaction.response.send_message(_t(lang, "must_be_in_guild"), ephemeral=True)
                 return
 
             clicker = interaction.user
             if not isinstance(clicker, discord.Member):
-                await interaction.response.send_message("Neplatný uživatel.", ephemeral=True)
+                await interaction.response.send_message(_t(lang, "ticket_invalid"), ephemeral=True)
                 return
 
             if not _is_reviewer(clicker, clan_value):
-                await interaction.response.send_message("Na toto nemáš oprávnění.", ephemeral=True)
+                await interaction.response.send_message(_t(lang, "no_perm"), ephemeral=True)
                 return
 
             await interaction.response.send_message(
                 content="",
-                view=AdminDecisionView(channel_id, clan_value),
+                view=AdminDecisionView(channel_id, clan_value, lang),
                 ephemeral=True,
             )
             return
 
         # Accept/Deny actions (permission checked again)
         if isinstance(custom_id, str) and custom_id.startswith("clan_review|"):
-            parts = custom_id.split("|", 3)
-            if len(parts) != 4:
-                await interaction.response.send_message("Neplatný button.", ephemeral=True)
+            parts = custom_id.split("|", 4)
+            if len(parts) != 5:
+                await interaction.response.send_message(_t("cs", "settings_invalid"), ephemeral=True)
                 return
 
-            _, action, channel_id_str, clan_value = parts
+            _, action, channel_id_str, clan_value, lang = parts
             try:
                 channel_id = int(channel_id_str)
             except ValueError:
-                await interaction.response.send_message("Neplatný ticket.", ephemeral=True)
+                await interaction.response.send_message(_t(lang, "ticket_invalid"), ephemeral=True)
                 return
 
             guild = interaction.guild
             if guild is None:
-                await interaction.response.send_message("Tahle akce musí běžet na serveru.", ephemeral=True)
+                await interaction.response.send_message(_t(lang, "must_be_in_guild"), ephemeral=True)
                 return
 
             clicker = interaction.user
             if not isinstance(clicker, discord.Member):
-                await interaction.response.send_message("Neplatný uživatel.", ephemeral=True)
+                await interaction.response.send_message(_t(lang, "ticket_invalid"), ephemeral=True)
                 return
 
             if not _is_reviewer(clicker, clan_value):
-                await interaction.response.send_message("Na toto nemáš oprávnění.", ephemeral=True)
+                await interaction.response.send_message(_t(lang, "no_perm"), ephemeral=True)
                 return
 
             ticket_channel = guild.get_channel(channel_id)
             if ticket_channel is None or not isinstance(ticket_channel, discord.TextChannel):
-                await interaction.response.send_message("Ticket kanál neexistuje.", ephemeral=True)
+                await interaction.response.send_message(_t(lang, "ticket_missing"), ephemeral=True)
                 return
 
             applicant_id, topic_clan = _parse_ticket_topic(ticket_channel.topic or "")
@@ -616,33 +791,33 @@ class ClanPanelCog(commands.Cog):
                 clan_value = topic_clan
 
             if not applicant_id:
-                await interaction.response.send_message("Nelze zjistit žadatele (chybí topic).", ephemeral=True)
+                await interaction.response.send_message(_t(lang, "cant_get_applicant"), ephemeral=True)
                 return
 
             try:
                 applicant = guild.get_member(applicant_id) or await guild.fetch_member(applicant_id)
             except discord.NotFound:
-                await interaction.response.send_message("Žadatel už není na serveru.", ephemeral=True)
+                await interaction.response.send_message(_t(lang, "applicant_left"), ephemeral=True)
                 return
 
             if action == "accept":
                 role_id = _member_role_id_for_clan(clan_value)
                 if not role_id:
-                    await interaction.response.send_message("Pro tento clan není nastavená role.", ephemeral=True)
+                    await interaction.response.send_message(_t(lang, "accept_no_role"), ephemeral=True)
                     return
 
                 role = guild.get_role(role_id)
                 if role is None:
-                    await interaction.response.send_message("Role pro přijetí nebyla nalezena.", ephemeral=True)
+                    await interaction.response.send_message(_t(lang, "accept_role_missing"), ephemeral=True)
                     return
 
                 try:
                     await applicant.add_roles(role, reason=f"Clan application accepted for {clan_value}")
                 except discord.Forbidden:
-                    await interaction.response.send_message("Nemám práva přidat roli (Manage Roles / hierarchie).", ephemeral=True)
+                    await interaction.response.send_message(_t(lang, "addrole_forbidden"), ephemeral=True)
                     return
                 except discord.HTTPException as e:
-                    await interaction.response.send_message(f"Discord API chyba při přidání role: {e}", ephemeral=True)
+                    await interaction.response.send_message(f"{_t(lang, 'addrole_api_err')} {e}", ephemeral=True)
                     return
 
                 # Move ticket to clan category
@@ -657,8 +832,8 @@ class ClanPanelCog(commands.Cog):
                 except Exception:
                     pass
 
-                await ticket_channel.send(f"✅ **PŘIJATO** — schválil {clicker.mention}. Role přidána: <@&{role_id}>.")
-                await interaction.response.send_message("✅ Přijato.", ephemeral=True)
+                await ticket_channel.send(f"{_t(lang, 'accepted_msg')} {clicker.mention}. {_t(lang, 'accepted_role_added')} <@&{role_id}>.")
+                await interaction.response.send_message(_t(lang, "accepted_ephemeral"), ephemeral=True)
                 return
 
             if action == "deny":
@@ -668,11 +843,11 @@ class ClanPanelCog(commands.Cog):
                 except Exception:
                     pass
 
-                await ticket_channel.send(f"⛔ **ZAMÍTNUTO** — zamítl {clicker.mention}.")
-                await interaction.response.send_message("⛔ Zamítnuto.", ephemeral=True)
+                await ticket_channel.send(f"{_t(lang, 'denied_msg')} {clicker.mention}.")
+                await interaction.response.send_message(_t(lang, "denied_ephemeral"), ephemeral=True)
                 return
 
-            await interaction.response.send_message("Neznámá akce.", ephemeral=True)
+            await interaction.response.send_message(_t(lang, "unknown_action"), ephemeral=True)
             return
 
 
