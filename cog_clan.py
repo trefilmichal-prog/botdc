@@ -6,8 +6,15 @@ from discord import app_commands
 # Category where ticket channels will be created
 TICKET_CATEGORY_ID = 1440977431577235456
 
-# Role name that should have access to all tickets (optional)
+# Optional admin role that should see all tickets
 ADMIN_ROLE_NAME = "Admin"
+
+# Clan -> role id (these roles will be mentioned on finalize and will have ticket visibility)
+CLAN_ROLE_IDS = {
+    "hrot": 1440268371152339065,
+    "hr2t": 1444304987986595923,
+    "tgcm": 1447423174974247102,
+}
 
 
 def _sanitize_nickname(value: str) -> str:
@@ -19,19 +26,12 @@ def _sanitize_nickname(value: str) -> str:
 
 
 def _slugify_channel_part(value: str) -> str:
-    """Return a safe channel-name fragment for the 'name' part."""
+    """Return a safe channel-name fragment."""
     value = (value or "").strip().lower()
-
-    # Replace whitespace with hyphens
     value = re.sub(r"\s+", "-", value)
-
-    # Replace common separators
     value = value.replace("_", "-").replace("/", "-").replace("\\", "-")
-
-    # Keep only a-z, 0-9 and hyphen for stability
     value = re.sub(r"[^a-z0-9\-]", "", value)
     value = re.sub(r"\-+", "-", value).strip("-")
-
     return value or "applicant"
 
 
@@ -39,8 +39,42 @@ def _apply_custom_id(channel_id: int, clan_value: str) -> str:
     return f"clan_apply|{channel_id}|{clan_value}"
 
 
-def _finalize_custom_id(channel_id: int) -> str:
-    return f"clan_finalize|{channel_id}"
+def _finalize_custom_id(channel_id: int, clan_value: str) -> str:
+    return f"clan_finalize|{channel_id}|{clan_value}"
+
+
+def _role_id_for_clan(clan_value: str):
+    key = (clan_value or "").strip().lower()
+    return CLAN_ROLE_IDS.get(key)
+
+
+def _role_mention_for_clan(clan_value: str) -> str:
+    rid = _role_id_for_clan(clan_value)
+    return f"<@&{rid}>" if rid else ""
+
+
+async def _ensure_clan_role_can_view(channel: discord.TextChannel, clan_value: str) -> bool:
+    """Ensure the clan role has visibility to the ticket channel."""
+    rid = _role_id_for_clan(clan_value)
+    if not rid:
+        return False
+
+    role = channel.guild.get_role(rid)
+    if role is None:
+        return False
+
+    # Explicit overwrite for ticket visibility
+    await channel.set_permissions(
+        role,
+        overwrite=discord.PermissionOverwrite(
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True,
+            attach_files=True,
+        ),
+        reason="Clan ticket: ensure clan role visibility",
+    )
+    return True
 
 
 class Components(discord.ui.LayoutView):
@@ -88,7 +122,6 @@ class Components(discord.ui.LayoutView):
                 )
             ),
         )
-
         self.add_item(container)
 
 
@@ -129,29 +162,29 @@ class TicketStartView(discord.ui.LayoutView):
                 )
             ),
         )
-
         self.add_item(container)
 
 
 class TicketFinalizeView(discord.ui.LayoutView):
     """Panel to confirm that all screenshots were uploaded."""
 
-    def __init__(self, ticket_channel_id: int):
+    def __init__(self, ticket_channel_id: int, clan_value: str):
         super().__init__(timeout=None)
 
         container = discord.ui.Container(
             discord.ui.TextDisplay(content="## 📎 Screeny"),
-            discord.ui.TextDisplay(content="Až pošleš všechny screeny jako přílohy do ticketu, klikni na **Hotovo**."),
+            discord.ui.TextDisplay(
+                content="Až pošleš všechny screeny jako přílohy do ticketu, klikni na **Hotovo**."
+            ),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
             discord.ui.ActionRow(
                 discord.ui.Button(
-                    custom_id=_finalize_custom_id(ticket_channel_id),
+                    custom_id=_finalize_custom_id(ticket_channel_id, clan_value),
                     label="Hotovo",
                     style=discord.ButtonStyle.success,
                 )
             ),
         )
-
         self.add_item(container)
 
 
@@ -256,6 +289,16 @@ class ClanApplicationModal(discord.ui.Modal):
         except discord.HTTPException as e:
             chan_err = f"Discord API chyba při přejmenování kanálu: {e}"
 
+        # Ensure clan role visibility already at this stage as well (so staff can see the ticket immediately).
+        role_vis_ok = False
+        role_vis_err = None
+        try:
+            role_vis_ok = await _ensure_clan_role_can_view(ticket_channel, self.clan_value)
+        except discord.Forbidden:
+            role_vis_err = "Nemám práva nastavovat permissions (Manage Channels)."
+        except discord.HTTPException as e:
+            role_vis_err = f"Discord API chyba při nastavování permissions: {e}"
+
         # Post application summary into ticket channel (Components V2 panel).
         summary_view = discord.ui.LayoutView(timeout=None)
         summary_container = discord.ui.Container(
@@ -272,7 +315,8 @@ class ClanApplicationModal(discord.ui.Modal):
                 content=(
                     "### ✅ Automatické nastavení\n"
                     f"• Přezdívka na serveru: **{'OK' if nick_ok else 'NE'}**\n"
-                    f"• Přejmenování ticketu: **{'OK' if chan_ok else 'NE'}**"
+                    f"• Přejmenování ticketu: **{'OK' if chan_ok else 'NE'}**\n"
+                    f"• Přístup pro clan roli: **{'OK' if role_vis_ok else 'NE'}**"
                 )
             ),
         )
@@ -280,7 +324,7 @@ class ClanApplicationModal(discord.ui.Modal):
         await ticket_channel.send(content="", view=summary_view)
 
         # If something failed, print reason(s) into the ticket.
-        if (not nick_ok) or (not chan_ok):
+        if (not nick_ok) or (not chan_ok) or (not role_vis_ok):
             warn_view = discord.ui.LayoutView(timeout=None)
 
             warn_items = [
@@ -298,12 +342,22 @@ class ClanApplicationModal(discord.ui.Modal):
             if not chan_ok and chan_err:
                 warn_items.append(discord.ui.TextDisplay(content=f"**Kanál rename:** {chan_err}"))
 
+            if not role_vis_ok:
+                if role_vis_err:
+                    warn_items.append(discord.ui.TextDisplay(content=f"**Clan role přístup:** {role_vis_err}"))
+                else:
+                    warn_items.append(
+                        discord.ui.TextDisplay(
+                            content="**Clan role přístup:** Clan role nebyla nalezena (zkontroluj ID role)."
+                        )
+                    )
+
             warn_container = discord.ui.Container(*warn_items)
             warn_view.add_item(warn_container)
             await ticket_channel.send(content="", view=warn_view)
 
-        # Ask for screenshots + provide finalize button.
-        await ticket_channel.send(content="", view=TicketFinalizeView(ticket_channel.id))
+        # Ask for screenshots + provide finalize button (includes clan in custom_id)
+        await ticket_channel.send(content="", view=TicketFinalizeView(ticket_channel.id, self.clan_value))
 
         await interaction.response.send_message(
             "✅ Přihláška byla odeslána do ticketu. Teď pošli screeny jako přílohy.",
@@ -345,17 +399,39 @@ class ClanPanelCog(commands.Cog):
                 await interaction.response.send_message("Kategorie neexistuje nebo nemám práva.", ephemeral=True)
                 return
 
-            # Create initial channel name. Final name is applied after modal submit.
             channel_name = f"🟠přihlášky-{clan_value}-{_slugify_channel_part(interaction.user.name)}"
 
             overwrites = {
                 guild.default_role: discord.PermissionOverwrite(view_channel=False),
-                interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True),
+                interaction.user: discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    read_message_history=True,
+                    attach_files=True,
+                ),
             }
 
+            # Admin role (optional)
             admin_role = discord.utils.get(guild.roles, name=ADMIN_ROLE_NAME)
             if admin_role:
-                overwrites[admin_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+                overwrites[admin_role] = discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    read_message_history=True,
+                    attach_files=True,
+                )
+
+            # Clan role overwrite (so they have visibility immediately)
+            clan_role_id = _role_id_for_clan(clan_value)
+            if clan_role_id:
+                clan_role = guild.get_role(clan_role_id)
+                if clan_role:
+                    overwrites[clan_role] = discord.PermissionOverwrite(
+                        view_channel=True,
+                        send_messages=True,
+                        read_message_history=True,
+                        attach_files=True,
+                    )
 
             ticket_channel = await guild.create_text_channel(
                 name=channel_name,
@@ -385,15 +461,16 @@ class ClanPanelCog(commands.Cog):
             await interaction.response.send_modal(ClanApplicationModal(ticket_channel_id=channel_id, clan_value=clan_value))
             return
 
-        # 3) Handle finalize button
+        # 3) Handle finalize button -> mention clan role
         if isinstance(custom_id, str) and custom_id.startswith("clan_finalize|"):
-            parts = custom_id.split("|", 1)
-            if len(parts) != 2:
+            parts = custom_id.split("|", 2)
+            if len(parts) != 3:
                 await interaction.response.send_message("Neplatný button.", ephemeral=True)
                 return
 
+            _, channel_id_str, clan_value = parts
             try:
-                channel_id = int(parts[1])
+                channel_id = int(channel_id_str)
             except ValueError:
                 await interaction.response.send_message("Neplatný ticket.", ephemeral=True)
                 return
@@ -408,7 +485,29 @@ class ClanPanelCog(commands.Cog):
                 await interaction.response.send_message("Ticket kanál neexistuje.", ephemeral=True)
                 return
 
-            await ticket_channel.send(f"✅ {interaction.user.mention} označil/a přihlášku jako hotovou (screeny jsou nahrané).")
+            # Ensure clan role visibility again (in case overwrites were changed).
+            vis_ok = False
+            vis_err = None
+            try:
+                vis_ok = await _ensure_clan_role_can_view(ticket_channel, clan_value)
+            except discord.Forbidden:
+                vis_err = "Nemám práva nastavovat permissions (Manage Channels)."
+            except discord.HTTPException as e:
+                vis_err = f"Discord API chyba při nastavování permissions: {e}"
+
+            mention = _role_mention_for_clan(clan_value)
+            if mention:
+                await ticket_channel.send(
+                    f"✅ {interaction.user.mention} označil/a přihlášku jako hotovou. {mention}"
+                )
+            else:
+                await ticket_channel.send(
+                    f"✅ {interaction.user.mention} označil/a přihlášku jako hotovou."
+                )
+
+            if not vis_ok and vis_err:
+                await ticket_channel.send(f"⚠️ Nepodařilo se nastavit přístup pro clan roli: {vis_err}")
+
             await interaction.response.send_message("✅ Označeno jako hotovo.", ephemeral=True)
             return
 
