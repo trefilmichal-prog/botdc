@@ -399,7 +399,7 @@ class Components(discord.ui.LayoutView):
 
             discord.ui.TextDisplay(
                 content=(
-                    "### 🇺🇸 Podmínky přijetí\n"
+                    "### 🇺🇸 Acceptance Requirements\n"
                     "```\n"
                     "- 2SP rebirths +\n"
                     "- Play 24/7\n"
@@ -427,9 +427,9 @@ class Components(discord.ui.LayoutView):
                     custom_id="clan_select",
                     placeholder="Vyber clan",
                     options=[
-                        discord.SelectOption(label="HROT", value="HROT", description=":flag_cz: :flag_us:"),
-                        discord.SelectOption(label="HR2T", value="HR2T", description=":flag_cz:"),
-                        discord.SelectOption(label="TGCM", value="TGCM", description=":flag_us:"),
+                        discord.SelectOption(label="Main Clan HROT", value="HROT", description="🇨🇿 🇺🇲"),
+                        discord.SelectOption(label="Second Clan HR2T", value="HR2T", description="🇨🇿"),
+                        discord.SelectOption(label="Third Clan TGCM", value="TGCM", description="🇺🇲"),
                     ],
                 )
             ),
