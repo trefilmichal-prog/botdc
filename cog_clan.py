@@ -50,7 +50,7 @@ def _slugify_channel_part(value: str) -> str:
 
     - Lowercases
     - Replaces whitespace and slashes with hyphens
-    - Keeps Unicode letters/digits/underscore (\w) and hyphen
+    - Keeps Unicode letters/digits/underscore (\\w) and hyphen
     - Drops punctuation/emojis that often break channel names
     """
     value = (value or "").strip().lower()
@@ -191,6 +191,7 @@ async def _rename_ticket_prefix(
     slug = _slugify_channel_part(player_name)
     name = f"{status_emoji}přihlášky-{clan_key}-{slug}"
 
+    # Channel name limit is 100.
     if len(name) > 100:
         name = name[:100].rstrip("-")
         if not name:
@@ -254,15 +255,22 @@ class Components(discord.ui.LayoutView):
 
 
 class TicketFinalizeView(discord.ui.LayoutView):
-    """Panel to confirm that all screenshots were uploaded."""
+    """Single message with screenshot instructions + finalize button."""
 
-    def __init__(self, ticket_channel_id: int, clan_value: str):
+    def __init__(self, ticket_channel_id: int, clan_value: str, user_mention: str):
         super().__init__(timeout=None)
 
         container = discord.ui.Container(
-            discord.ui.TextDisplay(content="## 📎 Screeny"),
             discord.ui.TextDisplay(
-                content="Až pošleš všechny screeny jako přílohy do ticketu, klikni na **Hotovo**."
+                content=(
+                    f"## Ahoj {user_mention}\n"
+                    "Nyní nám pošli screenshoty, kde na každém screenshotu bude i viditelně tvůj nick:\n"
+                    "* inventář petů\n"
+                    "* počet rebirthů\n"
+                    "* všechny gamepassy\n"
+                    "* prestiž\n\n"
+                    "Screeny posílej jako přílohy sem do ticketu (může být více zpráv)."
+                )
             ),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
             discord.ui.ActionRow(
@@ -432,7 +440,7 @@ class ClanApplicationModal(discord.ui.Modal):
         except discord.NotFound:
             nick_err = "Uživatel nebyl nalezen (NotFound)."
 
-        # 2) Rename ticket channel to: 🟠přihlášky-clan-jmenohrace
+        # 2) Note: ticket name must be exactly: 🟠přihlášky-{clan}-{roblox_display_slug}
         rename_ok = False
         rename_err = None
         try:
@@ -442,7 +450,7 @@ class ClanApplicationModal(discord.ui.Modal):
         except discord.HTTPException as e:
             rename_err = f"Discord API chyba při přejmenování kanálu: {e}"
 
-        # 3) Ensure clan review role visibility (safety)
+        # 3) Ensure clan review role reported visibility (safety)
         role_vis_ok = False
         role_vis_err = None
         try:
@@ -505,16 +513,8 @@ class ClanApplicationModal(discord.ui.Modal):
             warn_view.add_item(warn_container)
             await ticket_channel.send(content="", view=warn_view)
 
-        # Instructions for screenshots + finalize button
-        instr_view = discord.ui.LayoutView(timeout=None)
-        instr_container = discord.ui.Container(
-            discord.ui.TextDisplay(content="## 📎 Screeny"),
-            discord.ui.TextDisplay(content="Pošli screeny jako přílohy sem do ticketu (může být více zpráv)."),            
-        )
-        instr_view.add_item(instr_container)
-        await ticket_channel.send(content="", view=instr_view)
-
-        await ticket_channel.send(content="", view=TicketFinalizeView(ticket_channel.id, self.clan_value))
+        # Single screenshot instruction message + Hotovo button
+        await ticket_channel.send(content="", view=TicketFinalizeView(ticket_channel.id, self.clan_value, interaction.user.mention))
 
         await interaction.followup.send(f"✅ Ticket vytvořen: {ticket_channel.mention}", ephemeral=True)
 
