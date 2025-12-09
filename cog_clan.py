@@ -166,10 +166,6 @@ def _apply_status_to_name(name: str, status_emoji: str) -> str:
         return name
     if name[0] in STATUS_SET:
         return status_emoji + name[1:]
-    # If it already starts with the word without emoji, prepend the status.
-    if name.startswith("přihlášky"):
-        return status_emoji + name
-    # Fallback: just prepend status
     return status_emoji + name
 
 
@@ -216,14 +212,43 @@ class Components(discord.ui.LayoutView):
         container = discord.ui.Container(
             discord.ui.TextDisplay(content="## PŘIHLÁŠKY DO CLANU"),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
+
+            # 🇺🇸 Conditions
+            discord.ui.TextDisplay(
+                content=(
+                    "### 🇺🇸 Podmínky přijetí\n"
+                    "```\n"
+                    "- 2SP rebirths +\n"
+                    "- Play 24/7\n"
+                    "- 30% index\n"
+                    "- 10d playtime\n"
+                    "```"
+                )
+            ),
+            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
+
+            # 🇨🇿 Conditions
+            discord.ui.TextDisplay(
+                content=(
+                    "### 🇨🇿 Podmínky přijetí\n"
+                    "```\n"
+                    "- 2SP rebirthů +\n"
+                    "- Hrát 24/7\n"
+                    "- 30% index\n"
+                    "- 10d playtime\n"
+                    "```"
+                )
+            ),
+            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
+
             discord.ui.ActionRow(
                 discord.ui.Select(
                     custom_id="clan_select",
                     placeholder="Vyber clan",
                     options=[
-                        discord.SelectOption(label="HROT", value="HROT", description="🇨🇿 🇺🇸"),
-                        discord.SelectOption(label="HR2T", value="HR2T", description="🇨🇿"),
-                        discord.SelectOption(label="TGCM", value="TGCM", description="🇺🇸"),
+                        discord.SelectOption(label="HROT", value="HROT", description=":flag_cz: :flag_us:"),
+                        discord.SelectOption(label="HR2T", value="HR2T", description=":flag_cz:"),
+                        discord.SelectOption(label="TGCM", value="TGCM", description=":flag_us:"),
                     ],
                 )
             ),
