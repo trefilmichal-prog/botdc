@@ -426,7 +426,7 @@ class Components(discord.ui.LayoutView):
 	    discord.ui.ActionRow(
     	    	discord.ui.Select(
 	    		custom_id="clan_select",
-	    		placeholder="Vyber clan",
+	    		placeholder="Choose clan",
 	    		options=[
 	    			discord.SelectOption(
 	    				label="Main Clan HROT",
