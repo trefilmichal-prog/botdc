@@ -1,3 +1,4 @@
+import re
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -7,6 +8,31 @@ TICKET_CATEGORY_ID = 1440977431577235456
 
 # Role name that should have access to all tickets (optional)
 ADMIN_ROLE_NAME = "Admin"
+
+
+def _sanitize_nickname(value: str) -> str:
+    """Discord nicknames max out at 32 characters."""
+    value = (value or "").strip()
+    if not value:
+        return ""
+    return value[:32]
+
+
+def _slugify_channel_part(value: str) -> str:
+    """Create a safe channel-name fragment (lowercase, ascii-ish, hyphens)."""
+    value = (value or "").strip().lower()
+
+    # Normalize common separators to hyphen
+    value = re.sub(r"\s+", "-", value)
+    value = value.replace("_", "-")
+    value = value.replace("/", "-")
+    value = value.replace("\\", "-")
+
+    # Keep only a-z, 0-9 and hyphen. Strip everything else for safety.
+    value = re.sub(r"[^a-z0-9\-]", "", value)
+    value = re.sub(r"\-+", "-", value).strip("-")
+
+    return value or "applicant"
 
 
 class Components(discord.ui.LayoutView):
@@ -20,13 +46,13 @@ class Components(discord.ui.LayoutView):
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
 
             discord.ui.TextDisplay(
-                content="### 🇺🇸 Podmínky přijetí\n```\n- 2SP rebirths +\n- Play 24/7\n- 30% index\n- 10d playtime\n```"
+                content="### 🇺🇸 Podmínky přijetí\n```\n- 2SP rebirths +\n- Play 24/7\n- 30% index\n- 10d playtime\n```"  # noqa: E501
             ),
 
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
 
             discord.ui.TextDisplay(
-                content="### 🇨🇿 Podmínky přijetí\n```\n- 2SP rebirthů +\n- Hrát 24/7\n- 30% index\n- 10d playtime\n```"
+                content="### 🇨🇿 Podmínky přijetí\n```\n- 2SP rebirthů +\n- Hrát 24/7\n- 30% index\n- 10d playtime\n```"  # noqa: E501
             ),
 
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
@@ -68,8 +94,8 @@ class TicketStartView(discord.ui.LayoutView):
                 content=(
                     "### Co vyplnit\n"
                     "• **Roblox Display Name**\n"
-                    "• **Kolik máš rebirthů** (text)\n"
-                    "• **Kolik hodin denně můžeš hrát** (text)\n"
+                    "• **Kolik máš rebirthů**\n"
+                    "• **Kolik hodin denně můžeš hrát**\n"
                 )
             ),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
@@ -80,7 +106,7 @@ class TicketStartView(discord.ui.LayoutView):
                     "♻️ Tvoje Gamepassy (pokud vlastníš)\n"
                     "♻️ Tvoje Rebirthy\n"
                     "♻️ Tvojí Prestige\n\n"
-                    "Screeny pošli **jako přílohy** sem do ticketu (klidně více zpráv)."
+                    "Screeny pošli **jako přílohy** sem do ticketu (klidně více zpráv)."  # noqa: E501
                 )
             ),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
@@ -128,9 +154,9 @@ class ClanApplicationModal(discord.ui.Modal):
 
         self.display_name = discord.ui.TextInput(
             label="Roblox Display Name",
-            placeholder="Např. senpaicat",
+            placeholder="Např. senpaicat22",
             required=True,
-            max_length=50,
+            max_length=32,  # Discord nickname limit
         )
         self.rebirths = discord.ui.TextInput(
             label="Kolik máš rebirthů (text)",
@@ -160,6 +186,51 @@ class ClanApplicationModal(discord.ui.Modal):
             await interaction.response.send_message("Ticket kanál neexistuje.", ephemeral=True)
             return
 
+        roblox_display = (self.display_name.value or "").strip()
+        roblox_display_nick = _sanitize_nickname(roblox_display)
+
+        # 1) Set user's nickname on the server to the Roblox Display Name.
+        nick_ok = False
+        nick_err = None
+        try:
+            # In guild interactions, interaction.user is typically discord.Member.
+            member = interaction.user
+            if isinstance(member, discord.Member):
+                await member.edit(
+                    nick=roblox_display_nick,
+                    reason="Clan application: set nickname to Roblox Display Name",
+                )
+                nick_ok = True
+            else:
+                nick_err = "Nelze změnit jméno (uživatel není Member v guildu)."  # safety fallback
+        except discord.Forbidden:
+            nick_err = "Nemám práva na změnu přezdívky (Manage Nicknames / role hierarchy)."  # noqa: E501
+        except discord.HTTPException as e:
+            nick_err = f"Discord API chyba při změně přezdívky: {e}"
+
+        # 2) Rename ticket channel to include Roblox Display Name.
+        chan_ok = False
+        chan_err = None
+        try:
+            slug = _slugify_channel_part(roblox_display)
+            new_name = f"🟠přihlášky-{self.clan_value}-{slug}".lower()
+
+            # Discord channel name limit is 100 chars.
+            if len(new_name) > 100:
+                new_name = new_name[:100].rstrip("-")
+                if not new_name:
+                    new_name = "🟠přihlášky"
+
+            await ticket_channel.edit(
+                name=new_name,
+                reason="Clan application: rename ticket channel to Roblox Display Name",
+            )
+            chan_ok = True
+        except discord.Forbidden:
+            chan_err = "Nemám práva na přejmenování kanálu (Manage Channels)."  # noqa: E501
+        except discord.HTTPException as e:
+            chan_err = f"Discord API chyba při přejmenování kanálu: {e}"
+
         # Post application summary into ticket channel (Components V2 panel).
         summary_view = discord.ui.LayoutView(timeout=None)
         summary_container = discord.ui.Container(
@@ -168,18 +239,43 @@ class ClanApplicationModal(discord.ui.Modal):
             discord.ui.TextDisplay(content=f"**Clan:** {self.clan_value}"),
             discord.ui.TextDisplay(content=f"**Uživatel:** {interaction.user.mention}"),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
-            discord.ui.TextDisplay(content=f"**Roblox Display Name:** `{self.display_name.value}`"),
+            discord.ui.TextDisplay(content=f"**Roblox Display Name:** `{roblox_display}`"),
             discord.ui.TextDisplay(content=f"**Rebirthy:** `{self.rebirths.value}`"),
             discord.ui.TextDisplay(content=f"**Hodiny denně:** `{self.hours_per_day.value}`"),
+            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
+            discord.ui.TextDisplay(
+                content=(
+                    "### ✅ Automatické nastavení\n"
+                    f"• Přezdívka na serveru: **{'OK' if nick_ok else 'NE'}**\n"
+                    f"• Přejmenování ticketu: **{'OK' if chan_ok else 'NE'}**"
+                )
+            ),
         )
         summary_view.add_item(summary_container)
 
         await ticket_channel.send(content="", view=summary_view)
 
+        # If something failed, print the reason(s) into the ticket for staff/admin.
+        if (not nick_ok and nick_err) or (not chan_ok and chan_err):
+            warn_view = discord.ui.LayoutView(timeout=None)
+            warn_container = discord.ui.Container(
+                discord.ui.TextDisplay(content="## ⚠️ Poznámka pro adminy"),
+                discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
+            )
+            if not nick_ok and nick_err:
+                warn_container.add_item(discord.ui.TextDisplay(content=f"**Nick změna:** {nick_err}"))
+            if not chan_ok and chan_err:
+                warn_container.add_item(discord.ui.TextDisplay(content=f"**Kanál rename:** {chan_err}"))
+            warn_view.add_item(warn_container)
+            await ticket_channel.send(content="", view=warn_view)
+
         # Ask for screenshots + provide finalize button.
         await ticket_channel.send(content="", view=TicketFinalizeView(ticket_channel.id))
 
-        await interaction.response.send_message("✅ Přihláška byla odeslána do ticketu. Teď pošli screeny jako přílohy.", ephemeral=True)
+        await interaction.response.send_message(
+            "✅ Přihláška byla odeslána do ticketu. Teď pošli screeny jako přílohy.",
+            ephemeral=True,
+        )
 
 
 class ClanPanelCog(commands.Cog):
@@ -214,7 +310,7 @@ class ClanPanelCog(commands.Cog):
                 )
                 return
 
-            channel_name = f"ticket-{interaction.user.name}-{clan_value}".lower()
+            channel_name = f"🟠přihlášky-{clan_value}-{interaction.user.name}".lower()
 
             overwrites = {
                 guild.default_role: discord.PermissionOverwrite(view_channel=False),
