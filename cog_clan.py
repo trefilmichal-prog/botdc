@@ -429,7 +429,7 @@ class Components(discord.ui.LayoutView):
 	    		placeholder="Vyber clan",
 	    		options=[
 	    			discord.SelectOption(
-	    				label="Main Clan HROT",
+	    				label="🇨🇿🇺🇸 Main Clan HROT",
 	    				value="HROT",
 	    				description="\U0001F1E8\U0001F1FF & \U0001F1FA\U0001F1F8",
 	    			),
