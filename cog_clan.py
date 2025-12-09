@@ -13,6 +13,10 @@ ADMIN_ROLE_NAME = "Admin"
 ROLE_LANG_CZ = 1444075970649915586
 ROLE_LANG_EN = 1444075991118119024
 
+# HROT: member role depends on language role
+HROT_MEMBER_ROLE_CZ = 1440268327892025438
+HROT_MEMBER_ROLE_EN = 1444077881159450655
+
 # Status emojis used in ticket channel name
 STATUS_OPEN = "🟠"
 STATUS_ACCEPTED = "🟢"
@@ -90,6 +94,7 @@ I18N = {
         "applicant_left": "Žadatel už není na serveru.",
         "accept_no_role": "Pro tento clan není nastavená role.",
         "accept_role_missing": "Role pro přijetí nebyla nalezena.",
+        "accept_lang_missing": "Žadatel nemá jazykovou roli (CZ/EN) pro HROT.",
         "addrole_forbidden": "Nemám práva přidat roli (Manage Roles / hierarchie).",
         "addrole_api_err": "Discord API chyba při přidání role:",
         "accepted_msg": "✅ **PŘIJATO** — schválil",
@@ -162,6 +167,7 @@ I18N = {
         "applicant_left": "The applicant is no longer on the server.",
         "accept_no_role": "No member role is configured for this clan.",
         "accept_role_missing": "Member role for accept was not found.",
+        "accept_lang_missing": "Applicant is missing the language role (CZ/EN) for HROT.",
         "addrole_forbidden": "I can't add the role (Manage Roles / role hierarchy).",
         "addrole_api_err": "Discord API error while adding role:",
         "accepted_msg": "✅ **ACCEPTED** — approved by",
@@ -239,6 +245,25 @@ def _review_role_id_for_clan(clan_value: str):
 
 def _member_role_id_for_clan(clan_value: str):
     return CLAN_MEMBER_ROLE_IDS.get((clan_value or "").strip().lower())
+
+
+def _member_role_id_for_accept(clan_value: str, applicant: discord.Member):
+    """Return member role id for accept.
+
+    Special rule: For clan HROT only, the member role depends on applicant language role.
+    - If applicant has ROLE_LANG_CZ -> HROT_MEMBER_ROLE_CZ
+    - If applicant has ROLE_LANG_EN -> HROT_MEMBER_ROLE_EN
+    """
+    clan_key = (clan_value or "").strip().lower()
+    if clan_key == "hrot":
+        role_ids = {r.id for r in getattr(applicant, "roles", [])}
+        # EN priority to prevent wrong assignment if user has both language roles
+        if ROLE_LANG_EN in role_ids:
+            return HROT_MEMBER_ROLE_EN
+        if ROLE_LANG_CZ in role_ids:
+            return HROT_MEMBER_ROLE_CZ
+        return None
+    return _member_role_id_for_clan(clan_value)
 
 
 def _category_id_for_clan(clan_value: str):
@@ -801,9 +826,11 @@ class ClanPanelCog(commands.Cog):
                 return
 
             if action == "accept":
-                role_id = _member_role_id_for_clan(clan_value)
+                role_id = _member_role_id_for_accept(clan_value, applicant)
                 if not role_id:
-                    await interaction.response.send_message(_t(lang, "accept_no_role"), ephemeral=True)
+                    clan_key = (clan_value or "").strip().lower()
+                    msg_key = "accept_lang_missing" if clan_key == "hrot" else "accept_no_role"
+                    await interaction.response.send_message(_t(lang, msg_key), ephemeral=True)
                     return
 
                 role = guild.get_role(role_id)
