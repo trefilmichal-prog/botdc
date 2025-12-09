@@ -9,6 +9,12 @@ TICKET_CATEGORY_ID = 1440977431577235456
 # Optional admin role that should see all tickets
 ADMIN_ROLE_NAME = "Admin"
 
+# Status emojis used in ticket channel name
+STATUS_OPEN = "🟠"
+STATUS_ACCEPTED = "🟢"
+STATUS_DENIED = "🔴"
+STATUS_SET = (STATUS_OPEN, STATUS_ACCEPTED, STATUS_DENIED)
+
 # Clan -> "review" role id (leaders/officers) that can accept/deny and should see the ticket
 CLAN_REVIEW_ROLE_IDS = {
     "hrot": 1440268371152339065,
@@ -154,7 +160,29 @@ async def _move_ticket_to_clan_category(channel: discord.TextChannel, clan_value
     return True
 
 
-async def _rename_ticket_prefix(channel: discord.TextChannel, clan_value: str, player_name: str) -> bool:
+def _apply_status_to_name(name: str, status_emoji: str) -> str:
+    """Replace leading status emoji (🟠/🟢/🔴) with requested status emoji."""
+    if not name:
+        return name
+    if name[0] in STATUS_SET:
+        return status_emoji + name[1:]
+    # If it already starts with the word without emoji, prepend the status.
+    if name.startswith("přihlášky"):
+        return status_emoji + name
+    # Fallback: just prepend status
+    return status_emoji + name
+
+
+async def _set_ticket_status(channel: discord.TextChannel, status_emoji: str) -> bool:
+    """Update ticket status emoji in channel name."""
+    new_name = _apply_status_to_name(channel.name, status_emoji)
+    if new_name == channel.name:
+        return True
+    await channel.edit(name=new_name, reason="Clan ticket: update status emoji")
+    return True
+
+
+async def _rename_ticket_prefix(channel: discord.TextChannel, clan_value: str, player_name: str, status_emoji: str = STATUS_OPEN) -> bool:
     """Rename ticket to requested format.
 
     Example: 🟠přihlášky-hrot-senpaicat221
@@ -164,13 +192,13 @@ async def _rename_ticket_prefix(channel: discord.TextChannel, clan_value: str, p
         return False
 
     slug = _slugify_channel_part(player_name)
-    name = f"🟠přihlášky-{clan_key}-{slug}"
+    name = f"{status_emoji}přihlášky-{clan_key}-{slug}"
 
     # Channel name limit is 100.
     if len(name) > 100:
         name = name[:100].rstrip("-")
         if not name:
-            name = f"🟠přihlášky-{clan_key}"
+            name = f"{status_emoji}přihlášky-{clan_key}"
 
     if channel.name == name:
         return True
@@ -188,38 +216,14 @@ class Components(discord.ui.LayoutView):
         container = discord.ui.Container(
             discord.ui.TextDisplay(content="## PŘIHLÁŠKY DO CLANU"),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
-            discord.ui.TextDisplay(
-                content=(
-                    "### 🇺🇸 Podmínky přijetí\n"
-                    "```\n"
-                    "- 2SP rebirths +\n"
-                    "- Play 24/7\n"
-                    "- 30% index\n"
-                    "- 10d playtime\n"
-                    "```"
-                )
-            ),
-            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
-            discord.ui.TextDisplay(
-                content=(
-                    "### 🇨🇿 Podmínky přijetí\n"
-                    "```\n"
-                    "- 2SP rebirthů +\n"
-                    "- Hrát 24/7\n"
-                    "- 30% index\n"
-                    "- 10d playtime\n"
-                    "```"
-                )
-            ),
-            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
             discord.ui.ActionRow(
                 discord.ui.Select(
                     custom_id="clan_select",
                     placeholder="Vyber clan",
                     options=[
-                        discord.SelectOption(label="HROT", value="HROT", description="🇨🇿 & 🇺🇸"),
-                        discord.SelectOption(label="HR2T", value="HR2T", description="🇨🇿 only"),
-                        discord.SelectOption(label="TGCM", value="TGCM", description="🇺🇸 only"),
+                        discord.SelectOption(label="HROT", value="HROT", description="🇨🇿 🇺🇸"),
+                        discord.SelectOption(label="HR2T", value="HR2T", description="🇨🇿"),
+                        discord.SelectOption(label="TGCM", value="TGCM", description="🇺🇸"),
                     ],
                 )
             ),
@@ -399,7 +403,7 @@ class ClanApplicationModal(discord.ui.Modal):
         rename_ok = False
         rename_err = None
         try:
-            rename_ok = await _rename_ticket_prefix(ticket_channel, self.clan_value, roblox_display)
+            rename_ok = await _rename_ticket_prefix(ticket_channel, self.clan_value, roblox_display, STATUS_OPEN)
         except discord.Forbidden:
             rename_err = "Nemám práva na přejmenování kanálu (Manage Channels)."
         except discord.HTTPException as e:
@@ -699,6 +703,15 @@ class ClanPanelCog(commands.Cog):
                 except discord.HTTPException as e:
                     move_err = f"Discord API chyba při přesunu kanálu: {e}"
 
+                status_ok = False
+                status_err = None
+                try:
+                    status_ok = await _set_ticket_status(ticket_channel, STATUS_ACCEPTED)
+                except discord.Forbidden:
+                    status_err = "Nemám práva přejmenovat ticket (Manage Channels)."
+                except discord.HTTPException as e:
+                    status_err = f"Discord API chyba při přejmenování: {e}"
+
                 view = discord.ui.LayoutView(timeout=None)
                 container = discord.ui.Container(
                     discord.ui.TextDisplay(content="## ✅ Přijato"),
@@ -718,12 +731,26 @@ class ClanPanelCog(commands.Cog):
                 else:
                     container.add_item(discord.ui.TextDisplay(content=f"**Přesun do clan kategorie:** NE ({move_err})"))
 
+                if status_ok:
+                    container.add_item(discord.ui.TextDisplay(content="**Status emoji:** 🟢"))
+                else:
+                    container.add_item(discord.ui.TextDisplay(content=f"**Status emoji:** NE ({status_err})"))
+
                 view.add_item(container)
                 await ticket_channel.send(content="", view=view)
                 await interaction.response.send_message("✅ Přijato.", ephemeral=True)
                 return
 
             if action == "deny":
+                status_ok = False
+                status_err = None
+                try:
+                    status_ok = await _set_ticket_status(ticket_channel, STATUS_DENIED)
+                except discord.Forbidden:
+                    status_err = "Nemám práva přejmenovat ticket (Manage Channels)."
+                except discord.HTTPException as e:
+                    status_err = f"Discord API chyba při přejmenování: {e}"
+
                 view = discord.ui.LayoutView(timeout=None)
                 container = discord.ui.Container(
                     discord.ui.TextDisplay(content="## ⛔ Odmítnuto"),
@@ -733,6 +760,11 @@ class ClanPanelCog(commands.Cog):
                     discord.ui.TextDisplay(content=f"**Žadatel:** {applicant.mention}"),
                     discord.ui.TextDisplay(content="**Ticket:** zůstává otevřený pro komunikaci"),
                 )
+                if status_ok:
+                    container.add_item(discord.ui.TextDisplay(content="**Status emoji:** 🔴"))
+                else:
+                    container.add_item(discord.ui.TextDisplay(content=f"**Status emoji:** NE ({status_err})"))
+
                 view.add_item(container)
                 await ticket_channel.send(content="", view=view)
                 await interaction.response.send_message("⛔ Odmítnuto.", ephemeral=True)
