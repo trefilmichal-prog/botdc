@@ -399,9 +399,9 @@ class Components(discord.ui.LayoutView):
 
             discord.ui.TextDisplay(
                 content=(
-                    "### 🇺🇸 Acceptance Requirements\n"
+                    "### 🇺🇸 Requirements\n"
                     "```\n"
-                    "- 2SP rebirths +\n"
+                    "- 15SP rebirths +\n"
                     "- Play 24/7\n"
                     "- 30% index\n"
                     "- 10d playtime\n"
@@ -413,7 +413,7 @@ class Components(discord.ui.LayoutView):
                 content=(
                     "### 🇨🇿 Podmínky přijetí\n"
                     "```\n"
-                    "- 2SP rebirthů +\n"
+                    "- 15SP rebirthů +\n"
                     "- Hrát 24/7\n"
                     "- 30% index\n"
                     "- 10d playtime\n"
@@ -422,17 +422,30 @@ class Components(discord.ui.LayoutView):
             ),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
 
-            discord.ui.ActionRow(
-                discord.ui.Select(
-                    custom_id="clan_select",
-                    placeholder="Vyber clan",
-                    options=[
-                        discord.SelectOption(label="Main Clan HROT", value="HROT", description="🇨🇿 🇺🇲"),
-                        discord.SelectOption(label="Second Clan HR2T", value="HR2T", description="🇨🇿"),
-                        discord.SelectOption(label="Third Clan TGCM", value="TGCM", description="🇺🇲"),
-                    ],
-                )
-            ),
+	    discord.ui.ActionRow(
+    	    	discord.ui.Select(
+	    		custom_id="clan_select",
+	    		placeholder="Vyber clan",
+	    		options=[
+	    			discord.SelectOption(
+	    				label="Main Clan HROT",
+	    				value="HROT",
+	    				description="🇨🇿 🇺🇸",
+	    			),
+	    			discord.SelectOption(
+	    				label="Second Clan HR2T",
+	    				value="HR2T",
+	    				description="🇨🇿",
+	    			),
+	    			discord.SelectOption(
+	    				label="Third Clan TGCM",
+	    				value="TGCM",
+	    				description="🇺🇸",
+	    			),
+	    		],
+	    	)
+	    ),
+
         )
         self.add_item(container)
 
