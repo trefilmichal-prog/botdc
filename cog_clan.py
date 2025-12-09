@@ -431,17 +431,17 @@ class Components(discord.ui.LayoutView):
 	    			discord.SelectOption(
 	    				label="Main Clan HROT",
 	    				value="HROT",
-	    				description=f"{CZ_FLAG} {US_FLAG}",
+	    				description=" 🇨🇿 & 🇺🇸",
 	    			),
 	    			discord.SelectOption(
 	    				label="Second Clan HR2T",
 	    				value="HR2T",
-	    				description=f"{CZ_FLAG}",
+	    				description="only 🇨🇿",
 	    			),
 	    			discord.SelectOption(
 	    				label="Third Clan TGCM",
 	    				value="TGCM",
-	    				description=f"{US_FLAG}",
+	    				description="only 🇺🇸",
 	    			),
 	    		],
 	    	)
