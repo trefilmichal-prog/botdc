@@ -40,12 +40,18 @@ def _sanitize_nickname(value: str) -> str:
 
 
 def _slugify_channel_part(value: str) -> str:
-    """Return a safe channel-name fragment (lowercase a-z0-9-)."""
+    """Return a safe channel-name fragment.
+
+    - Lowercases
+    - Replaces whitespace and slashes with hyphens
+    - Keeps Unicode letters/digits/underscore (\w) and hyphen
+    - Drops punctuation/emojis that often break channel names
+    """
     value = (value or "").strip().lower()
     value = re.sub(r"\s+", "-", value)
-    value = value.replace("_", "-").replace("/", "-").replace("\\", "-")
-    value = re.sub(r"[^a-z0-9\-]", "", value)
-    value = re.sub(r"\-+", "-", value).strip("-")
+    value = value.replace("/", "-").replace("\\", "-")
+    value = re.sub(r"[^\w\-]", "", value, flags=re.UNICODE)
+    value = re.sub(r"[-_]{2,}", "-", value).strip("-_")
     return value or "applicant"
 
 
@@ -149,7 +155,10 @@ async def _move_ticket_to_clan_category(channel: discord.TextChannel, clan_value
 
 
 async def _rename_ticket_prefix(channel: discord.TextChannel, clan_value: str, player_name: str) -> bool:
-    """Rename ticket to: 🟠přihlášky-clan-jmeno (jmeno is slugified)."""
+    """Rename ticket to requested format.
+
+    Example: 🟠přihlášky-hrot-senpaicat221
+    """
     clan_key = (clan_value or "").strip().lower()
     if not clan_key:
         return False
@@ -317,7 +326,7 @@ class ClanApplicationModal(discord.ui.Modal):
 
         self.display_name = discord.ui.TextInput(
             label="Roblox Display Name",
-            placeholder="Např. senpaicat22",
+            placeholder="Např. senpaicat221",
             required=True,
             max_length=32,
         )
@@ -386,7 +395,7 @@ class ClanApplicationModal(discord.ui.Modal):
         except discord.NotFound:
             nick_err = "Uživatel nebyl nalezen (NotFound)."
 
-        # 2) Rename ticket channel to requested format: 🟠přihlášky-clan-jmenohrace
+        # 2) Rename ticket channel to: 🟠přihlášky-clan-jmenohrace
         rename_ok = False
         rename_err = None
         try:
@@ -406,7 +415,7 @@ class ClanApplicationModal(discord.ui.Modal):
         except discord.HTTPException as e:
             role_vis_err = f"Discord API chyba při nastavování permissions: {e}"
 
-        # Post application summary into ticket channel (Components V2 panel).
+        # Summary (Components V2)
         summary_view = discord.ui.LayoutView(timeout=None)
         summary_container = discord.ui.Container(
             discord.ui.TextDisplay(content="## 📄 Přihláška"),
@@ -430,10 +439,8 @@ class ClanApplicationModal(discord.ui.Modal):
         summary_view.add_item(summary_container)
         await ticket_channel.send(content="", view=summary_view)
 
-        # If something failed, print reason(s) into the ticket.
         if (not nick_ok) or (not rename_ok) or (not role_vis_ok):
             warn_view = discord.ui.LayoutView(timeout=None)
-
             warn_items = [
                 discord.ui.TextDisplay(content="## ⚠️ Poznámka pro adminy"),
                 discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
@@ -454,16 +461,14 @@ class ClanApplicationModal(discord.ui.Modal):
                     warn_items.append(discord.ui.TextDisplay(content=f"**Clan role přístup:** {role_vis_err}"))
                 else:
                     warn_items.append(
-                        discord.ui.TextDisplay(
-                            content="**Clan role přístup:** Clan role nebyla nalezena (zkontroluj ID role)."
-                        )
+                        discord.ui.TextDisplay(content="**Clan role přístup:** Clan role nebyla nalezena (zkontroluj ID role).")
                     )
 
             warn_container = discord.ui.Container(*warn_items)
             warn_view.add_item(warn_container)
             await ticket_channel.send(content="", view=warn_view)
 
-        # Ask for screenshots + provide finalize button (includes clan in custom_id)
+        # Finalize button (includes clan in custom_id)
         await ticket_channel.send(content="", view=TicketFinalizeView(ticket_channel.id, self.clan_value))
 
         await interaction.response.send_message(
@@ -488,7 +493,7 @@ class ClanPanelCog(commands.Cog):
         data = interaction.data or {}
         custom_id = data.get("custom_id", "")
 
-        # 1) Handle select -> create ticket channel
+        # 1) Select -> create ticket channel in intake category
         if custom_id == "clan_select":
             values = data.get("values") or []
             if not values:
@@ -506,10 +511,9 @@ class ClanPanelCog(commands.Cog):
                 await interaction.response.send_message("Vstupní kategorie neexistuje nebo nemám práva.", ephemeral=True)
                 return
 
-            # Store applicant + clan in topic for later accept/deny (persists across restarts)
             topic = f"clan_applicant={interaction.user.id};clan={clan_value}"
 
-            # Temporary name; will be renamed after modal submit to the requested format
+            # Temporary safe name; will be renamed after modal submit
             channel_name = f"ticket-{_slugify_channel_part(clan_value)}-{_slugify_channel_part(interaction.user.name)}"
 
             overwrites = {
@@ -522,7 +526,6 @@ class ClanPanelCog(commands.Cog):
                 ),
             }
 
-            # Admin role (optional)
             admin_role = discord.utils.get(guild.roles, name=ADMIN_ROLE_NAME)
             if admin_role:
                 overwrites[admin_role] = discord.PermissionOverwrite(
@@ -532,7 +535,6 @@ class ClanPanelCog(commands.Cog):
                     attach_files=True,
                 )
 
-            # Clan review role overwrite (so they have visibility immediately)
             review_role_id = _review_role_id_for_clan(clan_value)
             if review_role_id:
                 review_role = guild.get_role(review_role_id)
@@ -556,7 +558,7 @@ class ClanPanelCog(commands.Cog):
             await interaction.response.send_message(f"Ticket vytvořen: {ticket_channel.mention}", ephemeral=True)
             return
 
-        # 2) Handle "Vyplnit přihlášku" button -> open modal
+        # 2) "Vyplnit přihlášku" -> open modal
         if isinstance(custom_id, str) and custom_id.startswith("clan_apply|"):
             parts = custom_id.split("|", 2)
             if len(parts) != 3:
@@ -573,7 +575,7 @@ class ClanPanelCog(commands.Cog):
             await interaction.response.send_modal(ClanApplicationModal(ticket_channel_id=channel_id, clan_value=clan_value))
             return
 
-        # 3) Handle finalize button -> mention clan role + show review panel
+        # 3) Finalize -> mention review role + show review panel (NO moving here)
         if isinstance(custom_id, str) and custom_id.startswith("clan_finalize|"):
             parts = custom_id.split("|", 2)
             if len(parts) != 3:
@@ -597,12 +599,10 @@ class ClanPanelCog(commands.Cog):
                 await interaction.response.send_message("Ticket kanál neexistuje.", ephemeral=True)
                 return
 
-            # Prefer stored clan from topic
             _, topic_clan = _parse_ticket_topic(ticket_channel.topic or "")
             if topic_clan:
                 clan_value = topic_clan
 
-            # Ensure review role visibility again (in case overwrites were changed).
             try:
                 await _ensure_review_role_can_view(ticket_channel, clan_value)
             except Exception:
@@ -614,13 +614,11 @@ class ClanPanelCog(commands.Cog):
             else:
                 await ticket_channel.send(f"✅ {interaction.user.mention} označil/a přihlášku jako hotovou.")
 
-            # Send review panel for admins/clan roles
             await ticket_channel.send(content="", view=TicketReviewView(ticket_channel.id, clan_value))
-
             await interaction.response.send_message("✅ Označeno jako hotovo.", ephemeral=True)
             return
 
-        # 4) Handle review accept/deny
+        # 4) Review accept/deny
         if isinstance(custom_id, str) and custom_id.startswith("clan_review|"):
             parts = custom_id.split("|", 3)
             if len(parts) != 4:
@@ -644,10 +642,6 @@ class ClanPanelCog(commands.Cog):
                 await interaction.response.send_message("Neplatný uživatel.", ephemeral=True)
                 return
 
-            if not _is_reviewer(clicker, clan_value):
-                await interaction.response.send_message("Na toto nemáš oprávnění.", ephemeral=True)
-                return
-
             ticket_channel = guild.get_channel(channel_id)
             if ticket_channel is None or not isinstance(ticket_channel, discord.TextChannel):
                 await interaction.response.send_message("Ticket kanál neexistuje.", ephemeral=True)
@@ -656,6 +650,10 @@ class ClanPanelCog(commands.Cog):
             applicant_id, topic_clan = _parse_ticket_topic(ticket_channel.topic or "")
             if topic_clan:
                 clan_value = topic_clan
+
+            if not _is_reviewer(clicker, clan_value):
+                await interaction.response.send_message("Na toto nemáš oprávnění.", ephemeral=True)
+                return
 
             if not applicant_id:
                 await interaction.response.send_message("Nelze zjistit žadatele (chybí topic).", ephemeral=True)
@@ -692,7 +690,6 @@ class ClanPanelCog(commands.Cog):
                 except discord.HTTPException as e:
                     add_err = f"Discord API chyba při přidání role: {e}"
 
-                # Move ticket to clan category ONLY after ACCEPT
                 move_ok = False
                 move_err = None
                 try:
@@ -723,7 +720,6 @@ class ClanPanelCog(commands.Cog):
 
                 view.add_item(container)
                 await ticket_channel.send(content="", view=view)
-
                 await interaction.response.send_message("✅ Přijato.", ephemeral=True)
                 return
 
@@ -739,7 +735,6 @@ class ClanPanelCog(commands.Cog):
                 )
                 view.add_item(container)
                 await ticket_channel.send(content="", view=view)
-
                 await interaction.response.send_message("⛔ Odmítnuto.", ephemeral=True)
                 return
 
