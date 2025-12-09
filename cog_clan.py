@@ -431,7 +431,7 @@ class Components(discord.ui.LayoutView):
 	    			discord.SelectOption(
 	    				label="Main Clan HROT",
 	    				value="HROT",
-	    				description=" 🇨🇿 & 🇺🇸",
+	    				description="\U0001F1E8\U0001F1FF & \U0001F1FA\U0001F1F8",
 	    			),
 	    			discord.SelectOption(
 	    				label="Second Clan HR2T",
