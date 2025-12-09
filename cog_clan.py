@@ -257,11 +257,10 @@ def _member_role_id_for_accept(clan_value: str, applicant: discord.Member):
     clan_key = (clan_value or "").strip().lower()
     if clan_key == "hrot":
         role_ids = {r.id for r in getattr(applicant, "roles", [])}
-        # EN priority to prevent wrong assignment if user has both language roles
-        if ROLE_LANG_EN in role_ids:
-            return HROT_MEMBER_ROLE_EN
         if ROLE_LANG_CZ in role_ids:
             return HROT_MEMBER_ROLE_CZ
+        if ROLE_LANG_EN in role_ids:
+            return HROT_MEMBER_ROLE_EN
         return None
     return _member_role_id_for_clan(clan_value)
 
@@ -739,6 +738,10 @@ class ClanPanelCog(commands.Cog):
 
             member = interaction.user if isinstance(interaction.user, discord.Member) else None
             lang = _lang_for_member(member) if member else "cs"
+
+            # TGCM is EN-only: force EN for the application + ticket text
+            if str(clan_value).lower() == "tgcm":
+                lang = "en"
 
             await interaction.response.send_modal(ClanApplicationModal(clan_value=clan_value, lang=lang))
             return
