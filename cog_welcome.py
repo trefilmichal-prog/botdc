@@ -7,8 +7,7 @@ from discord.ext import commands
 WELCOME_CHANNEL_ID = 1440271167234510940
 ROLE_WELCOME_CZ = 1444075970649915586
 ROLE_WELCOME_EN = 1444075991118119024
-WELCOME_TEXT_EN = "Welcome in the Clan Server HROT"
-WELCOME_TEXT_CZ = "Vítej na Clan Server HROT"
+WELCOME_TEXT = "Welcome in the Clan Server HROT"
 
 
 class WelcomeCog(commands.Cog):
@@ -24,7 +23,7 @@ class WelcomeCog(commands.Cog):
         try:
             fetched = await self.bot.fetch_channel(WELCOME_CHANNEL_ID)
         except (discord.Forbidden, discord.HTTPException):
-            self.logger.warning("Nepodařilo se načíst uvítací kanál")
+            self.logger.warning("Could not load the welcome channel")
             return None
 
         if isinstance(fetched, discord.TextChannel):
@@ -39,7 +38,7 @@ class WelcomeCog(commands.Cog):
             timestamp=discord.utils.utcnow(),
         )
         embed.set_thumbnail(url=member.display_avatar.url)
-        embed.set_footer(text="Jsme rádi, že jsi tady!")
+        embed.set_footer(text="We're glad you're here!")
         return embed
 
     @commands.Cog.listener()
@@ -53,16 +52,8 @@ class WelcomeCog(commands.Cog):
             role.id for role in before.roles
         }
 
-        welcome_text = None
-        for role_id, text in (
-            (ROLE_WELCOME_CZ, WELCOME_TEXT_CZ),
-            (ROLE_WELCOME_EN, WELCOME_TEXT_EN),
-        ):
-            if role_id in added_role_ids:
-                welcome_text = text
-                break
-
-        if welcome_text is None:
+        welcome_role_ids = {ROLE_WELCOME_CZ, ROLE_WELCOME_EN}
+        if not (added_role_ids & welcome_role_ids):
             return
 
         channel = await self._get_welcome_channel()
@@ -70,7 +61,7 @@ class WelcomeCog(commands.Cog):
             return
 
         await channel.send(
-            content=after.mention, embed=self._build_embed(after, welcome_text)
+            content=after.mention, embed=self._build_embed(after, WELCOME_TEXT)
         )
 
 
