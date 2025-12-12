@@ -11,8 +11,7 @@ from discord import app_commands
 
 from config import (
     REMINDER_INTERVAL_HOURS,
-    SETUP_MANAGER_ROLE_ID,
-    SETUP_PANEL_ROLE_ID,
+    WOOD_ADMIN_ROLE_ID,
     STAFF_ROLE_ID,
     TICKET_VIEWER_ROLE_ID,
 )
@@ -83,12 +82,9 @@ def has_setup_panel_access(interaction: discord.Interaction) -> bool:
     if member.guild_permissions.administrator:
         return True
 
-    allowed_role_ids = {
-        SETUP_MANAGER_ROLE_ID,
-        SETUP_PANEL_ROLE_ID,
-        TICKET_VIEWER_ROLE_ID,
-    }
-    return any(role.id in allowed_role_ids for role in member.roles)
+    return WOOD_ADMIN_ROLE_ID != 0 and any(
+        role.id == WOOD_ADMIN_ROLE_ID for role in member.roles
+    )
 
 
 class WoodCog(commands.Cog, name="WoodCog"):

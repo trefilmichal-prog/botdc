@@ -50,6 +50,9 @@ STAFF_ROLE_ID = 0  # např. 123456789012345678
 # Role s přístupem do všech ticketů (clan i wood)
 TICKET_VIEWER_ROLE_ID = 1440268371152339065
 
+# Správce wood panelu – jediná role s přístupem k nastavení/resetu
+WOOD_ADMIN_ROLE_ID = 1440268371152339065
+
 # Připomínky materiálů
 REMINDER_INTERVAL_HOURS = 3
 INACTIVE_THRESHOLD_HOURS = 24
