@@ -259,5 +259,5 @@ class AttendanceCog(commands.Cog, name="Attendance"):
         raise error
 
 
-def setup(bot: commands.Bot) -> None:
-    bot.add_cog(AttendanceCog(bot))
+async def setup(bot: commands.Bot) -> None:
+    await bot.add_cog(AttendanceCog(bot))
