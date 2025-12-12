@@ -240,7 +240,12 @@ class AttendanceCog(commands.Cog, name="Attendance"):
 
         view = AttendancePanelView(self, session_id=None, role_id=role.id)
         embed = self.build_panel_embed(role, session)
-        await interaction.response.send_message(content=role.mention, embed=embed, view=view)
+        await interaction.response.send_message(
+            content=role.mention,
+            embed=embed,
+            view=view,
+            allowed_mentions=discord.AllowedMentions(roles=[role]),
+        )
         message = await interaction.original_response()
 
         self.sessions[message.id] = session
