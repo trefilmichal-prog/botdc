@@ -13,6 +13,7 @@ from discord.ext import commands
 
 from config import (
     AUTO_TRANSLATE_CHANNEL_ID,
+    AUTO_TRANSLATE_ENABLED,
     AUTO_TRANSLATE_TARGET_CHANNEL_ID,
     CLAN_MEMBER_ROLE_EN_ID,
     CLAN_MEMBER_ROLE_ID,
@@ -227,6 +228,9 @@ class AutoTranslateCog(commands.Cog):
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author.bot:
+            return
+
+        if not AUTO_TRANSLATE_ENABLED:
             return
 
         if message.channel.id != AUTO_TRANSLATE_CHANNEL_ID:
