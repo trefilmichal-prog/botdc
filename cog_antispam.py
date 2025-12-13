@@ -92,16 +92,10 @@ class AntiSpamCog(commands.Cog):
         except (discord.Forbidden, discord.HTTPException):
             pass
 
-        timeout_applied = False
-        if isinstance(message.author, discord.Member):
-            timeout_applied = await self._timeout_member(message.author, reason)
-
         if self._should_send_notice(message.author.id):
             notice = (
                 f"{message.author.mention}, prosím zpomal. Detekovali jsme spam ({reason})."
             )
-            if timeout_applied:
-                notice += " Uživatel byl dočasně umlčen."
 
             try:
                 await message.channel.send(notice, delete_after=15)
