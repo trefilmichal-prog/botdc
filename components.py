@@ -12,7 +12,6 @@ class Components(discord.ui.LayoutView):
     ):
         super().__init__(timeout=None)
 
-        online_list = list(online_members)
         offline_list = list(offline_members)
         unknown_list = list(unknown_members)
 
@@ -24,13 +23,8 @@ class Components(discord.ui.LayoutView):
             leaderboard_list = list(leaderboard_entries)
             leaderboard_dict = {"Leaderboard": leaderboard_list} if leaderboard_list else {}
 
-        online_section = "Online\n" + "\n".join(online_list) if online_list else "Online\nNikdo není online."
         offline_section = "Offline\n" + "\n".join(offline_list) if offline_list else "Offline\nNikdo není offline."
-        content_blocks = [
-            discord.ui.TextDisplay(content=online_section),
-            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
-            discord.ui.TextDisplay(content=offline_section),
-        ]
+        content_blocks = [discord.ui.TextDisplay(content=offline_section)]
 
         if unknown_list:
             unknown_section = "Neznámý\n" + "\n".join(unknown_list)
