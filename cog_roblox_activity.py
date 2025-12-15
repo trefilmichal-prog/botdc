@@ -660,6 +660,14 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             duration = detail["duration"] or "N/A"
             note = detail.get("note")
 
+            if status is False:
+                embed = discord.Embed(
+                    description=f"🔴 {detail['members_mentions']} Is offline! 💩",
+                    colour=discord.Color.red(),
+                )
+                player_embeds.append(embed)
+                continue
+
             icon = "🟢" if status is True else "🔴" if status is False else "⚪"
             status_label = (
                 "Online" if status is True else "Offline" if status is False else "Neznámý"
