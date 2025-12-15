@@ -741,18 +741,18 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 else discord.Color.light_grey()
             )
 
-            embed = discord.Embed(
-                title=f"{icon} **{username}**",
-                colour=colour,
-                description=f"Tracked accounts: {members_text}",
-            )
-
-            embed.add_field(name="Status", value=status_label, inline=True)
-            embed.add_field(name="Status duration", value=duration, inline=True)
+            content_lines = [
+                f"{icon} **{username}**",
+                f"Tracked accounts: {members_text}",
+                f"Status: {status_label}",
+                f"Status duration: {duration}",
+            ]
             if note:
-                embed.add_field(name="Note", value=note, inline=False)
-            embed.set_footer(text="Timers reset when the status changes between online and offline.")
-            player_embeds.append({"embed": embed, "content": None, "allowed_mentions": None})
+                content_lines.append(f"Note: {note}")
+
+            player_embeds.append(
+                {"embed": None, "content": "\n".join(content_lines), "allowed_mentions": None}
+            )
 
         summary_embed = discord.Embed(
             title="RCU Clan Wars activities",
