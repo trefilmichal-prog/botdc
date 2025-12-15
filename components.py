@@ -24,7 +24,9 @@ class Components(discord.ui.LayoutView):
             leaderboard_dict = {"Leaderboard": leaderboard_list} if leaderboard_list else {}
 
         offline_section = "Offline\n" + "\n".join(offline_list) if offline_list else "Offline\nNikdo není offline."
-        content_blocks = [discord.ui.TextDisplay(content=offline_section)]
+        content_blocks = [
+            discord.ui.TextDisplay(content=offline_section),
+        ]
 
         if unknown_list:
             unknown_section = "Neznámý\n" + "\n".join(unknown_list)
