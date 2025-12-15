@@ -47,7 +47,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
     async def cog_load(self):
         self._session = aiohttp.ClientSession()
-        self._roblox_cookie = get_setting(self._COOKIE_SETTING_KEY)
+        self._load_cookie_from_db()
         self._load_state_from_db()
         self.presence_notifier.start()
 
@@ -89,6 +89,16 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             self._logger.warning(
                 "Nepodařilo se přidat sloupec last_channel_report_at: %s", exc
             )
+
+    def _load_cookie_from_db(self) -> None:
+        value = get_setting(self._COOKIE_SETTING_KEY)
+        self._roblox_cookie = value.strip() if value else None
+
+    def _persist_cookie_to_db(self) -> None:
+        if self._roblox_cookie:
+            set_setting(self._COOKIE_SETTING_KEY, self._roblox_cookie)
+        else:
+            set_setting(self._COOKIE_SETTING_KEY, "")
 
     def _status_to_int(self, status: Optional[bool]) -> Optional[int]:
         if status is True:
@@ -326,6 +336,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         result: Dict[int, Optional[bool]] = {}
         ids = list(user_ids)
+        if not self._roblox_cookie:
+            self._load_cookie_from_db()
         if not self._roblox_cookie:
             self._logger.warning(
                 "Chybí Roblox ověřovací cookie – nelze získat stav přítomnosti."
@@ -933,7 +945,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             return
 
         self._roblox_cookie = cookie
-        set_setting(self._COOKIE_SETTING_KEY, self._roblox_cookie)
+        self._persist_cookie_to_db()
         await interaction.response.send_message(
             "Cookie byla uložena.", ephemeral=True
         )
