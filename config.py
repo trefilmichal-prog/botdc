@@ -107,6 +107,11 @@ CLAN2_MEMBER_ROLE_ID = 1444306127687778405
 # CLAN 3 – role pro přijaté členy
 CLAN3_MEMBER_ROLE_ID = 1447423249817403402
 
+# Roblox – universe ID hry Rebirth Champions Ultimate
+REBIRTH_CHAMPIONS_UNIVERSE_ID = 74260430392611
+# Roblox – kanál pro automatické hlášení aktivity
+ROBLOX_ACTIVITY_CHANNEL_ID = 1450010299905216543
+
 # CLAN – role pro ping nových uchazečů
 CLAN_APPLICATION_PING_ROLE_ID = 1440268371152339065
 # CLAN 2 – role pro ping nových uchazečů
