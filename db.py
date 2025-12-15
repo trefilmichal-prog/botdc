@@ -56,6 +56,49 @@ def init_db():
         """
     )
 
+    # Roblox sledování aktivity
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS roblox_tracking_state (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            tracking_enabled INTEGER NOT NULL,
+            session_started_at TEXT NOT NULL,
+            session_ended_at TEXT,
+            last_channel_report_at TEXT
+        )
+        """
+    )
+
+    try:
+        c.execute(
+            "ALTER TABLE roblox_tracking_state ADD COLUMN last_channel_report_at TEXT"
+        )
+    except sqlite3.OperationalError:
+        # Column already exists – ignore.
+        pass
+
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS roblox_duration_totals (
+            user_id INTEGER PRIMARY KEY,
+            online_seconds REAL NOT NULL DEFAULT 0,
+            offline_seconds REAL NOT NULL DEFAULT 0,
+            label TEXT
+        )
+        """
+    )
+
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS roblox_presence_state (
+            user_id INTEGER PRIMARY KEY,
+            status INTEGER,
+            last_change TEXT,
+            last_update TEXT
+        )
+        """
+    )
+
     c.execute(
         """
         CREATE TABLE IF NOT EXISTS clan_panels (
