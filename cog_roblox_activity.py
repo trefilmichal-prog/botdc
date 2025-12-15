@@ -390,13 +390,25 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
     async def _collect_tracked_members(
         self, guild: discord.Guild
     ) -> Dict[str, list[discord.Member]]:
-        tracked_roles = {CLAN_MEMBER_ROLE_ID, CLAN_MEMBER_ROLE_EN_ID}
+        tracked_roles = {
+            CLAN_MEMBER_ROLE_ID,
+            CLAN_MEMBER_ROLE_EN_ID,
+        }
+        if not guild.chunked:
+            try:
+                await guild.chunk(cache=True)
+            except discord.HTTPException:
+                pass
+
+        members_to_check: set[discord.Member] = set()
+        for role_id in tracked_roles:
+            role = guild.get_role(role_id)
+            if not role:
+                continue
+            members_to_check.update(member for member in role.members if not member.bot)
+
         usernames: Dict[str, list[discord.Member]] = defaultdict(list)
-        for member in guild.members:
-            if member.bot:
-                continue
-            if not any(role.id in tracked_roles for role in member.roles):
-                continue
+        for member in members_to_check:
             username = self._find_roblox_username(member)
             if not username:
                 continue
