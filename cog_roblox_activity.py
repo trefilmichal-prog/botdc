@@ -144,6 +144,54 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         return usernames
 
+    @staticmethod
+    def _chunk_lines(lines: list[str], limit: int = 1024) -> list[str]:
+        """Split a list of lines into strings that fit into embed field limits."""
+
+        chunks: list[str] = []
+        current: list[str] = []
+        current_len = 0
+
+        for line in lines:
+            line_len = len(line)
+            # If a single line is too long, truncate it hard to avoid API errors.
+            if line_len > limit:
+                line = line[: limit - 1] + "…"
+                line_len = len(line)
+
+            extra_len = line_len + (1 if current else 0)
+            if current_len + extra_len > limit:
+                chunks.append("\n".join(current))
+                current = [line]
+                current_len = line_len
+            else:
+                current.append(line)
+                current_len += extra_len
+
+        if current:
+            chunks.append("\n".join(current))
+
+        return chunks
+
+    def _add_lines_field(
+        self,
+        embed: discord.Embed,
+        name: str,
+        lines: list[str],
+        empty_message: str,
+    ) -> None:
+        """Add an embed field, splitting into multiple fields if necessary."""
+
+        if not lines:
+            if empty_message:
+                embed.add_field(name=name, value=empty_message, inline=False)
+            return
+
+        chunks = self._chunk_lines(lines)
+        for idx, chunk in enumerate(chunks):
+            field_name = name if idx == 0 else f"{name} (pokračování {idx})"
+            embed.add_field(name=field_name, value=chunk, inline=False)
+
     @app_commands.command(
         name="roblox_activity",
         description="Zkontroluje, kdo z členů clanu hraje Rebirth Champions Ultimate.",
@@ -209,32 +257,26 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             ),
         )
 
-        if playing_lines:
-            embed.add_field(
-                name="Ve hře",
-                value="\n".join(sorted(playing_lines)),
-                inline=False,
-            )
-        else:
-            embed.add_field(
-                name="Ve hře",
-                value="Nikdo z monitorovaných členů není právě ve hře.",
-                inline=False,
-            )
+        self._add_lines_field(
+            embed,
+            name="Ve hře",
+            lines=sorted(playing_lines),
+            empty_message="Nikdo z monitorovaných členů není právě ve hře.",
+        )
 
-        if idle_lines:
-            embed.add_field(
-                name="Mimo hru",
-                value="\n".join(sorted(idle_lines)),
-                inline=False,
-            )
+        self._add_lines_field(
+            embed,
+            name="Mimo hru",
+            lines=sorted(idle_lines),
+            empty_message="",  # When empty we simply omit the field.
+        )
 
-        if unresolved_lines:
-            embed.add_field(
-                name="Nepodařilo se ověřit",
-                value="\n".join(unresolved_lines),
-                inline=False,
-            )
+        self._add_lines_field(
+            embed,
+            name="Nepodařilo se ověřit",
+            lines=unresolved_lines,
+            empty_message="",  # When empty we simply omit the field.
+        )
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 
