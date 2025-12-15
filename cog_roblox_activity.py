@@ -453,6 +453,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         presence: Dict[int, Optional[bool]],
         missing_usernames: Set[str],
         now: datetime,
+        *,
+        mention_offline_only: bool,
     ) -> tuple[
         list[str],
         list[str],
@@ -467,18 +469,23 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         offline_notifications: list[tuple[discord.Member, str, float]] = []
 
         for username, members in tracked.items():
-            members_text = ", ".join(m.mention for m in members)
+            mentions_text = ", ".join(m.mention for m in members)
+            names_text = ", ".join(m.display_name for m in members)
             lower = username.lower()
             detail = {
                 "username": username,
-                "members_text": members_text,
+                "members_mentions": mentions_text,
+                "members_names": names_text,
+                "members_display": mentions_text,
                 "status": None,
                 "duration": "",
                 "note": None,
             }
 
             if lower not in resolved_ids:
-                message = f"`{username}` ({members_text}) – Roblox účet nenalezen"
+                message = (
+                    f"`{username}` ({mentions_text}) – Roblox účet nenalezen"
+                )
                 detail["note"] = "Roblox účet nenalezen"
                 unresolved_lines.append(message)
                 details.append(detail)
@@ -487,6 +494,12 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             user_id = resolved_ids[lower]
             is_online = presence.get(user_id)
             detail["status"] = is_online
+            members_text = (
+                names_text
+                if mention_offline_only and is_online is True
+                else mentions_text
+            )
+            detail["members_display"] = members_text
             if self._tracking_enabled and is_online is not None:
                 duration_seconds, went_offline, ended_online_duration = self._update_presence_tracking(
                     user_id, is_online, f"`{username}` ({members_text})", now
@@ -589,7 +602,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         await interaction.response.defer(ephemeral=True)
 
         player_embeds, summary_embed, offline_notifications = await self._build_presence_report(
-            interaction.guild
+            interaction.guild, mention_offline_only=True
         )
         if summary_embed is None:
             await interaction.followup.send(
@@ -606,7 +619,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         await interaction.followup.send(embed=summary_embed, ephemeral=True)
 
     async def _build_presence_report(
-        self, guild: discord.Guild
+        self, guild: discord.Guild, *, mention_offline_only: bool
     ) -> tuple[list[discord.Embed], Optional[discord.Embed], list[tuple[discord.Member, str, float]]]:
         tracked = await self._collect_tracked_members(guild)
         if not tracked:
@@ -624,7 +637,12 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             details,
             offline_notifications,
         ) = self._build_presence_details(
-            tracked, resolved_ids, presence, missing_usernames, now
+            tracked,
+            resolved_ids,
+            presence,
+            missing_usernames,
+            now,
+            mention_offline_only=mention_offline_only,
         )
 
         status_message = (
@@ -637,7 +655,9 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         for detail in details:
             username = detail["username"]
             status = detail["status"]
-            members_text = detail["members_text"]
+            members_text = detail.get("members_display") or detail.get(
+                "members_mentions"
+            )
             duration = detail["duration"] or "N/A"
             note = detail.get("note")
 
@@ -727,7 +747,9 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         if not isinstance(channel, discord.TextChannel):
             return
 
-        player_embeds, summary_embed, offline_notifications = await self._build_presence_report(channel.guild)
+        player_embeds, summary_embed, offline_notifications = await self._build_presence_report(
+            channel.guild, mention_offline_only=True
+        )
         await self._send_offline_notifications(offline_notifications)
 
         if summary_embed is None:
