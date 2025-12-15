@@ -1,14 +1,20 @@
 import logging
 import re
 from collections import defaultdict
-from typing import Dict, Iterable, List, Optional, Set
+from datetime import datetime, timezone
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import aiohttp
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
-from config import CLAN2_MEMBER_ROLE_ID, CLAN_MEMBER_ROLE_EN_ID, CLAN_MEMBER_ROLE_ID
+from config import (
+    CLAN2_MEMBER_ROLE_ID,
+    CLAN_MEMBER_ROLE_EN_ID,
+    CLAN_MEMBER_ROLE_ID,
+    ROBLOX_ACTIVITY_CHANNEL_ID,
+)
 
 
 ROBLOX_USERNAMES_URL = "https://users.roblox.com/v1/usernames/users"
@@ -21,13 +27,16 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         self.bot = bot
         self._logger = logging.getLogger(__name__)
         self._session: Optional[aiohttp.ClientSession] = None
+        self._presence_state: Dict[int, Tuple[Optional[bool], datetime]] = {}
 
     async def cog_load(self):
         self._session = aiohttp.ClientSession()
+        self.presence_notifier.start()
 
     async def cog_unload(self):
         if self._session and not self._session.closed:
             await self._session.close()
+        self.presence_notifier.cancel()
 
     def _find_roblox_username(self, member: discord.Member) -> Optional[str]:
         nickname = member.nick or member.global_name or member.name
@@ -139,6 +148,79 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         return usernames
 
+    def _format_timedelta(self, delta_seconds: float) -> str:
+        seconds = int(delta_seconds)
+        parts: list[str] = []
+
+        hours, seconds = divmod(seconds, 3600)
+        minutes, seconds = divmod(seconds, 60)
+
+        if hours:
+            parts.append(f"{hours}h")
+        if minutes:
+            parts.append(f"{minutes}m")
+        if seconds or not parts:
+            parts.append(f"{seconds}s")
+
+        return " ".join(parts)
+
+    def _record_and_format_duration(
+        self, user_id: int, status: Optional[bool], now: datetime
+    ) -> str:
+        previous = self._presence_state.get(user_id)
+        if previous is None or previous[0] != status:
+            self._presence_state[user_id] = (status, now)
+            delta = 0.0
+        else:
+            delta = (now - previous[1]).total_seconds()
+        return self._format_timedelta(delta)
+
+    def _build_status_lines(
+        self,
+        tracked: Dict[str, list[discord.Member]],
+        resolved_ids: Dict[str, int],
+        presence: Dict[int, Optional[bool]],
+        missing_usernames: Set[str],
+        now: datetime,
+    ) -> tuple[list[str], list[str], list[str]]:
+        online_lines: list[str] = []
+        offline_lines: list[str] = []
+        unresolved_lines: list[str] = []
+
+        for username, members in tracked.items():
+            members_text = ", ".join(m.mention for m in members)
+            lower = username.lower()
+            if lower not in resolved_ids:
+                unresolved_lines.append(
+                    f"`{username}` ({members_text}) – Roblox účet nenalezen"
+                )
+                continue
+
+            user_id = resolved_ids[lower]
+            is_online = presence.get(user_id)
+            duration = self._record_and_format_duration(user_id, is_online, now)
+
+            if is_online is True:
+                online_lines.append(
+                    f"🟢 `{username}` ({members_text}) – online {duration}"
+                )
+            elif is_online is False:
+                offline_lines.append(
+                    f"🔴 `{username}` ({members_text}) – offline {duration}"
+                )
+            else:
+                unresolved_lines.append(
+                    f"`{username}` ({members_text}) – status se nepodařilo zjistit"
+                )
+
+        if missing_usernames:
+            unresolved_lines.append(
+                "Nebylo možné získat data pro: "
+                + ", ".join(f"`{name}`" for name in sorted(missing_usernames))
+            )
+
+        return online_lines, offline_lines, unresolved_lines
+
     @staticmethod
     def _chunk_lines(lines: list[str], limit: int = 1024) -> list[str]:
         """Split a list of lines into strings that fit into embed field limits."""
@@ -201,47 +283,31 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         await interaction.response.defer(ephemeral=True)
 
-        tracked = await self._collect_tracked_members(interaction.guild)
-        if not tracked:
+        embed = await self._build_presence_embed(interaction.guild)
+        if embed is None:
             await interaction.followup.send(
                 "Nenašel jsem žádné členy s potřebnými rolemi a Roblox nickem v přezdívce.",
                 ephemeral=True,
             )
             return
 
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _build_presence_embed(
+        self, guild: discord.Guild
+    ) -> Optional[discord.Embed]:
+        tracked = await self._collect_tracked_members(guild)
+        if not tracked:
+            return None
+
         usernames = list(tracked.keys())
         resolved_ids, missing_usernames = await self._fetch_user_ids(usernames)
         presence = await self._fetch_presence(resolved_ids.values()) if resolved_ids else {}
+        now = datetime.now(timezone.utc)
 
-        online_lines: list[str] = []
-        offline_lines: list[str] = []
-        unresolved_lines: list[str] = []
-
-        for username, members in tracked.items():
-            members_text = ", ".join(m.mention for m in members)
-            lower = username.lower()
-            if lower not in resolved_ids:
-                unresolved_lines.append(
-                    f"`{username}` ({members_text}) – Roblox účet nenalezen"
-                )
-                continue
-
-            user_id = resolved_ids[lower]
-            is_online = presence.get(user_id)
-            if is_online is True:
-                online_lines.append(f"`{username}` ({members_text})")
-            elif is_online is False:
-                offline_lines.append(f"`{username}` ({members_text})")
-            else:
-                unresolved_lines.append(
-                    f"`{username}` ({members_text}) – status se nepodařilo zjistit"
-                )
-
-        if missing_usernames:
-            unresolved_lines.append(
-                "Nebylo možné získat data pro: "
-                + ", ".join(f"`{name}`" for name in sorted(missing_usernames))
-            )
+        online_lines, offline_lines, unresolved_lines = self._build_status_lines(
+            tracked, resolved_ids, presence, missing_usernames, now
+        )
 
         embed = discord.Embed(
             title="Kontrola přítomnosti na Robloxu",
@@ -273,7 +339,27 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             empty_message="",  # When empty we simply omit the field.
         )
 
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        embed.set_footer(text="Automatická kontrola každých 10 minut. Stav se resetuje při změně.")
+        return embed
+
+    @tasks.loop(minutes=10)
+    async def presence_notifier(self):
+        channel = self.bot.get_channel(ROBLOX_ACTIVITY_CHANNEL_ID)
+        if not isinstance(channel, discord.TextChannel):
+            return
+
+        embed = await self._build_presence_embed(channel.guild)
+        if embed is None:
+            await channel.send(
+                "Nenašel jsem žádné členy s potřebnými rolemi a Roblox nickem v přezdívce."
+            )
+            return
+
+        await channel.send(embed=embed)
+
+    @presence_notifier.before_loop
+    async def _wait_for_ready(self):
+        await self.bot.wait_until_ready()
 
 
 async def setup(bot: commands.Bot):
