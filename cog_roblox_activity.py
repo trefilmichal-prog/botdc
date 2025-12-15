@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from collections import defaultdict
@@ -33,6 +34,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         self._tracking_enabled: bool = True
         self._session_started_at: datetime = datetime.now(timezone.utc)
         self._session_ended_at: Optional[datetime] = None
+        self._last_channel_report: Optional[datetime] = None
 
     async def cog_load(self):
         self._session = aiohttp.ClientSession()
@@ -342,7 +344,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
     def _update_presence_tracking(
         self, user_id: int, status: Optional[bool], label: str, now: datetime
-    ) -> float:
+    ) -> tuple[float, bool, Optional[float]]:
         self._user_labels[user_id] = label
 
         state = self._presence_state.get(user_id)
@@ -352,11 +354,13 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 "last_change": now,
                 "last_update": now,
             }
-            return 0.0
+            return 0.0, False, None
 
         previous_status = state.get("status")
         last_change = state.get("last_change", now) or now
         last_update = state.get("last_update", now) or now
+        offline_transition = False
+        ended_online_duration: Optional[float] = None
 
         elapsed = (now - last_update).total_seconds()
         if previous_status is True:
@@ -365,6 +369,9 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             self._duration_totals[user_id]["offline"] += elapsed
 
         if status != previous_status:
+            if previous_status is True and status is False:
+                offline_transition = True
+                ended_online_duration = (now - last_change).total_seconds()
             last_change = now
 
         self._presence_state[user_id] = {
@@ -375,7 +382,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         self._persist_user_state(user_id)
 
-        return (now - last_change).total_seconds()
+        return (now - last_change).total_seconds(), offline_transition, ended_online_duration
 
     def _finalize_totals(self, now: datetime) -> None:
         if not self._tracking_enabled:
@@ -397,36 +404,62 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         self._persist_all_state()
 
-    def _build_status_lines(
+    def _build_presence_details(
         self,
         tracked: Dict[str, list[discord.Member]],
         resolved_ids: Dict[str, int],
         presence: Dict[int, Optional[bool]],
         missing_usernames: Set[str],
         now: datetime,
-    ) -> tuple[list[str], list[str], list[str]]:
+    ) -> tuple[
+        list[str],
+        list[str],
+        list[str],
+        list[dict],
+        list[tuple[discord.Member, str, float]],
+    ]:
         online_lines: list[str] = []
         offline_lines: list[str] = []
         unresolved_lines: list[str] = []
+        details: list[dict] = []
+        offline_notifications: list[tuple[discord.Member, str, float]] = []
 
         for username, members in tracked.items():
             members_text = ", ".join(m.mention for m in members)
             lower = username.lower()
+            detail = {
+                "username": username,
+                "members_text": members_text,
+                "status": None,
+                "duration": "",
+                "note": None,
+            }
+
             if lower not in resolved_ids:
-                unresolved_lines.append(
-                    f"`{username}` ({members_text}) – Roblox účet nenalezen"
-                )
+                message = f"`{username}` ({members_text}) – Roblox účet nenalezen"
+                detail["note"] = "Roblox účet nenalezen"
+                unresolved_lines.append(message)
+                details.append(detail)
                 continue
 
             user_id = resolved_ids[lower]
             is_online = presence.get(user_id)
+            detail["status"] = is_online
             if self._tracking_enabled and is_online is not None:
-                duration_seconds = self._update_presence_tracking(
+                duration_seconds, went_offline, ended_online_duration = self._update_presence_tracking(
                     user_id, is_online, f"`{username}` ({members_text})", now
                 )
+                if went_offline:
+                    session_seconds = ended_online_duration or 0.0
+                    for member in members:
+                        offline_notifications.append(
+                            (member, username, session_seconds)
+                        )
                 duration = self._format_timedelta(duration_seconds)
             else:
                 duration = "sledování vypnuto"
+
+            detail["duration"] = duration
 
             if is_online is True:
                 online_lines.append(
@@ -441,13 +474,15 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                     f"`{username}` ({members_text}) – status se nepodařilo zjistit"
                 )
 
+            details.append(detail)
+
         if missing_usernames:
             unresolved_lines.append(
                 "Nebylo možné získat data pro: "
                 + ", ".join(f"`{name}`" for name in sorted(missing_usernames))
             )
 
-        return online_lines, offline_lines, unresolved_lines
+        return online_lines, offline_lines, unresolved_lines, details, offline_notifications
 
     @staticmethod
     def _chunk_lines(lines: list[str], limit: int = 1024) -> list[str]:
@@ -511,39 +546,85 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         await interaction.response.defer(ephemeral=True)
 
-        embed = await self._build_presence_embed(interaction.guild)
-        if embed is None:
+        player_embeds, summary_embed, offline_notifications = await self._build_presence_report(
+            interaction.guild
+        )
+        if summary_embed is None:
             await interaction.followup.send(
                 "Nenašel jsem žádné členy s potřebnými rolemi a Roblox nickem v přezdívce.",
                 ephemeral=True,
             )
             return
 
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await self._send_offline_notifications(offline_notifications)
 
-    async def _build_presence_embed(
+        for embed in player_embeds:
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        await interaction.followup.send(embed=summary_embed, ephemeral=True)
+
+    async def _build_presence_report(
         self, guild: discord.Guild
-    ) -> Optional[discord.Embed]:
+    ) -> tuple[list[discord.Embed], Optional[discord.Embed], list[tuple[discord.Member, str, float]]]:
         tracked = await self._collect_tracked_members(guild)
         if not tracked:
-            return None
+            return [], None, []
 
         usernames = list(tracked.keys())
         resolved_ids, missing_usernames = await self._fetch_user_ids(usernames)
         presence = await self._fetch_presence(resolved_ids.values()) if resolved_ids else {}
         now = datetime.now(timezone.utc)
 
-        online_lines, offline_lines, unresolved_lines = self._build_status_lines(
+        (
+            online_lines,
+            offline_lines,
+            unresolved_lines,
+            details,
+            offline_notifications,
+        ) = self._build_presence_details(
             tracked, resolved_ids, presence, missing_usernames, now
         )
 
         status_message = (
-            "Sledování je aktivní a probíhá každých 10 minut."
+            "Sledování je aktivní: kontrola každých 5 minut, hlášení do kanálu každých 30 minut."
             if self._tracking_enabled
             else "Sledování je vypnuté. Zapněte ho příkazem /roblox_tracking."
         )
 
-        embed = discord.Embed(
+        player_embeds: list[discord.Embed] = []
+        for detail in details:
+            username = detail["username"]
+            status = detail["status"]
+            members_text = detail["members_text"]
+            duration = detail["duration"] or "N/A"
+            note = detail.get("note")
+
+            icon = "🟢" if status is True else "🔴" if status is False else "⚪"
+            status_label = (
+                "Online" if status is True else "Offline" if status is False else "Neznámý"
+            )
+            colour = (
+                discord.Color.green()
+                if status is True
+                else discord.Color.red()
+                if status is False
+                else discord.Color.light_grey()
+            )
+
+            embed = discord.Embed(
+                title=f"{icon} {username}",
+                colour=colour,
+                description=f"Sledované účty: {members_text}",
+            )
+
+            embed.add_field(name="Status", value=status_label, inline=True)
+            embed.add_field(name="Trvání stavu", value=duration, inline=True)
+            if note:
+                embed.add_field(name="Poznámka", value=note, inline=False)
+            embed.set_footer(text="Časy se resetují při změně stavu online/offline.")
+            player_embeds.append(embed)
+
+        summary_embed = discord.Embed(
             title="Kontrola přítomnosti na Robloxu",
             colour=discord.Color.blurple(),
             description=(
@@ -554,30 +635,48 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         )
 
         self._add_lines_field(
-            embed,
+            summary_embed,
             name="Online",
             lines=sorted(online_lines),
             empty_message="Nikdo z monitorovaných členů není právě online na Robloxu.",
         )
 
         self._add_lines_field(
-            embed,
+            summary_embed,
             name="Offline",
             lines=sorted(offline_lines),
             empty_message="",  # When empty we simply omit the field.
         )
 
         self._add_lines_field(
-            embed,
+            summary_embed,
             name="Nepodařilo se ověřit",
             lines=unresolved_lines,
             empty_message="",  # When empty we simply omit the field.
         )
 
-        embed.set_footer(text="Časy se resetují při změně stavu online/offline.")
-        return embed
+        summary_embed.set_footer(
+            text="Časy se resetují při změně stavu online/offline."
+        )
+        return player_embeds, summary_embed, offline_notifications
 
-    @tasks.loop(minutes=10)
+    async def _send_offline_notifications(
+        self, notifications: list[tuple[discord.Member, str, float]]
+    ) -> None:
+        for member, username, session_seconds in notifications:
+            try:
+                duration_text = self._format_timedelta(session_seconds)
+                await member.send(
+                    f"Tvůj Roblox status pro `{username}` se změnil na offline. "
+                    f"Poslední online úsek trval {duration_text}."
+                )
+            except discord.HTTPException as exc:
+                self._logger.warning(
+                    "Nepodařilo se odeslat DM o odhlášení %s: %s", member.id, exc
+                )
+            await asyncio.sleep(0.2)
+
+    @tasks.loop(minutes=5)
     async def presence_notifier(self):
         if not self._tracking_enabled:
             return
@@ -586,14 +685,32 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         if not isinstance(channel, discord.TextChannel):
             return
 
-        embed = await self._build_presence_embed(channel.guild)
-        if embed is None:
-            await channel.send(
-                "Nenašel jsem žádné členy s potřebnými rolemi a Roblox nickem v přezdívce."
-            )
+        player_embeds, summary_embed, offline_notifications = await self._build_presence_report(channel.guild)
+        await self._send_offline_notifications(offline_notifications)
+
+        if summary_embed is None:
             return
 
-        await channel.send(embed=embed)
+        now = datetime.now(timezone.utc)
+        should_send = False
+        if self._last_channel_report is None:
+            should_send = True
+        else:
+            should_send = (now - self._last_channel_report).total_seconds() >= 30 * 60
+
+        if not should_send:
+            return
+
+        self._last_channel_report = now
+
+        for embed in player_embeds:
+            try:
+                await channel.send(embed=embed)
+            except discord.HTTPException as exc:
+                self._logger.warning("Nepodařilo se odeslat embed pro hráče: %s", exc)
+            await asyncio.sleep(0.3)
+
+        await channel.send(embed=summary_embed)
 
     @presence_notifier.before_loop
     async def _wait_for_ready(self):
@@ -607,6 +724,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         self._presence_state.clear()
         self._duration_totals.clear()
         self._user_labels.clear()
+        self._last_channel_report = None
         self._clear_persistence()
         self._persist_tracking_state()
 
