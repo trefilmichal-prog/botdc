@@ -608,14 +608,23 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         await self._send_offline_notifications(offline_notifications)
 
-        for embed in player_embeds:
-            await interaction.followup.send(embed=embed, ephemeral=True)
+        for message in player_embeds:
+            await interaction.followup.send(
+                content=message.get("content"),
+                embed=message.get("embed"),
+                allowed_mentions=message.get("allowed_mentions"),
+                ephemeral=True,
+            )
 
         await interaction.followup.send(embed=summary_embed, ephemeral=True)
 
     async def _build_presence_report(
         self, guild: discord.Guild, *, mention_offline_only: bool
-    ) -> tuple[list[discord.Embed], Optional[discord.Embed], list[tuple[discord.Member, str, float]]]:
+    ) -> tuple[
+        list[dict],
+        Optional[discord.Embed],
+        list[tuple[discord.Member, str, float]],
+    ]:
         tracked = await self._collect_tracked_members(guild)
         if not tracked:
             return [], None, []
@@ -646,7 +655,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             else "Sledování je vypnuté. Zapněte ho příkazem /roblox_tracking."
         )
 
-        player_embeds: list[discord.Embed] = []
+        player_embeds: list[dict] = []
         for detail in details:
             username = detail["username"]
             status = detail["status"]
@@ -661,7 +670,15 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                     description=f"🔴 {detail['members_mentions']} Is offline! 💩",
                     colour=discord.Color.red(),
                 )
-                player_embeds.append(embed)
+                player_embeds.append(
+                    {
+                        "embed": embed,
+                        "content": detail["members_mentions"],
+                        "allowed_mentions": discord.AllowedMentions(
+                            everyone=False, roles=False, users=True
+                        ),
+                    }
+                )
                 continue
 
             icon = "🟢" if status is True else "🔴" if status is False else "⚪"
@@ -687,7 +704,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             if note:
                 embed.add_field(name="Poznámka", value=note, inline=False)
             embed.set_footer(text="Časy se resetují při změně stavu online/offline.")
-            player_embeds.append(embed)
+            player_embeds.append({"embed": embed, "content": None, "allowed_mentions": None})
 
         summary_embed = discord.Embed(
             title="Kontrola přítomnosti na Robloxu",
@@ -771,9 +788,13 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         self._last_channel_report = now
         self._persist_tracking_state()
 
-        for embed in player_embeds:
+        for message in player_embeds:
             try:
-                await channel.send(embed=embed)
+                await channel.send(
+                    content=message.get("content"),
+                    embed=message.get("embed"),
+                    allowed_mentions=message.get("allowed_mentions"),
+                )
             except discord.HTTPException as exc:
                 self._logger.warning("Nepodařilo se odeslat embed pro hráče: %s", exc)
             await asyncio.sleep(0.3)
