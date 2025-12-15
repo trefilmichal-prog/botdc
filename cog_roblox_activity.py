@@ -469,8 +469,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         offline_notifications: list[tuple[discord.Member, str, float]] = []
 
         for username, members in tracked.items():
-            mentions_text = ", ".join(m.mention for m in members)
-            names_text = ", ".join(m.display_name for m in members)
+            mentions_text = ", ".join(f"**{m.mention}**" for m in members)
+            names_text = ", ".join(f"**{m.display_name}**" for m in members)
             summary_text = names_text
             lower = username.lower()
             detail = {
@@ -484,7 +484,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             }
 
             if lower not in resolved_ids:
-                message = f"`{username}` – {summary_text} – Roblox účet nenalezen"
+                message = f"**{username}** – {summary_text} – Roblox účet nenalezen"
                 detail["note"] = "Roblox účet nenalezen"
                 unresolved_lines.append(message)
                 details.append(detail)
@@ -501,7 +501,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             detail["members_display"] = members_text
             if self._tracking_enabled and is_online is not None:
                 duration_seconds, went_offline, ended_online_duration = self._update_presence_tracking(
-                    user_id, is_online, f"`{username}` – {summary_text}", now
+                    user_id, is_online, f"**{username}** – {summary_text}", now
                 )
                 if went_offline:
                     session_seconds = ended_online_duration or 0.0
@@ -517,15 +517,15 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
             if is_online is True:
                 online_lines.append(
-                    f"🟢 `{username}` – {summary_text} – online {duration}"
+                    f"🟢 **{username}** – {summary_text} – online {duration}"
                 )
             elif is_online is False:
                 offline_lines.append(
-                    f"🔴 `{username}` – {summary_text} – offline {duration}"
+                    f"🔴 **{username}** – {summary_text} – offline {duration}"
                 )
             else:
                 unresolved_lines.append(
-                    f"`{username}` – {summary_text} – status se nepodařilo zjistit"
+                    f"**{username}** – {summary_text} – status se nepodařilo zjistit"
                 )
 
             details.append(detail)
@@ -533,7 +533,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         if missing_usernames:
             unresolved_lines.append(
                 "Nebylo možné získat data pro: "
-                + ", ".join(f"`{name}`" for name in sorted(missing_usernames))
+                + ", ".join(f"**{name}**" for name in sorted(missing_usernames))
             )
 
         return online_lines, offline_lines, unresolved_lines, details, offline_notifications
@@ -681,7 +681,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             )
 
             embed = discord.Embed(
-                title=f"{icon} {username}",
+                title=f"{icon} **{username}**",
                 colour=colour,
                 description=f"Sledované účty: {members_text}",
             )
@@ -736,7 +736,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             try:
                 duration_text = self._format_timedelta(session_seconds)
                 await member.send(
-                    f"Tvůj Roblox status pro `{username}` se změnil na offline. "
+                    f"Tvůj Roblox status pro **{username}** se změnil na offline. "
                     f"Poslední online úsek trval {duration_text}."
                 )
             except discord.HTTPException as exc:
