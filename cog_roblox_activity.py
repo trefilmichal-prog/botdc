@@ -10,8 +10,13 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from config import CLAN_MEMBER_ROLE_EN_ID, CLAN_MEMBER_ROLE_ID, ROBLOX_ACTIVITY_CHANNEL_ID
-from db import get_connection
+from config import (
+    CLAN_MEMBER_ROLE_EN_ID,
+    CLAN_MEMBER_ROLE_ID,
+    REBIRTH_CHAMPIONS_UNIVERSE_ID,
+    ROBLOX_ACTIVITY_CHANNEL_ID,
+)
+from db import get_connection, get_setting, set_setting
 
 
 ROBLOX_USERNAMES_URL = "https://users.roblox.com/v1/usernames/users"
@@ -20,10 +25,14 @@ ROBLOX_USERNAME_REGEX = re.compile(r"[A-Za-z0-9_]{3,20}")
 
 
 class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
+    _COOKIE_SETTING_KEY = "roblox_presence_cookie"
+    _AUTHORIZED_COOKIE_USER_ID = 369810917673795586
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._logger = logging.getLogger(__name__)
         self._session: Optional[aiohttp.ClientSession] = None
+        self._roblox_cookie: Optional[str] = None
         self._presence_state: Dict[
             int, Dict[str, Optional[datetime | bool]]
         ] = {}
@@ -38,6 +47,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
     async def cog_load(self):
         self._session = aiohttp.ClientSession()
+        self._roblox_cookie = get_setting(self._COOKIE_SETTING_KEY)
         self._load_state_from_db()
         self.presence_notifier.start()
 
@@ -316,11 +326,21 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         result: Dict[int, Optional[bool]] = {}
         ids = list(user_ids)
+        if not self._roblox_cookie:
+            self._logger.warning(
+                "Chybí Roblox ověřovací cookie – nelze získat stav přítomnosti."
+            )
+            for user_id in ids:
+                result[user_id] = None
+            return result
         for i in range(0, len(ids), 100):
             batch = ids[i : i + 100]
             try:
                 async with self._session.post(
-                    ROBLOX_PRESENCE_URL, json={"userIds": batch}, timeout=20
+                    ROBLOX_PRESENCE_URL,
+                    json={"userIds": batch},
+                    timeout=20,
+                    headers={"Cookie": f".ROBLOSECURITY={self._roblox_cookie}"},
                 ) as resp:
                     if resp.status != 200:
                         self._logger.warning(
@@ -343,11 +363,15 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
                 # Presence types: 0=offline, 1=online, 2=in-game, 3=in-studio.
                 presence_type = entry.get("userPresenceType")
+                place_id = entry.get("placeId")
                 if presence_type is None:
                     result[int(user_id)] = None
                     continue
 
-                result[int(user_id)] = presence_type != 0
+                result[int(user_id)] = (
+                    presence_type != 0
+                    and place_id == REBIRTH_CHAMPIONS_UNIVERSE_ID
+                )
 
         return result
 
@@ -889,6 +913,30 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         self._add_lines_field(embed, "Souhrn", lines, "")
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="cookie",
+        description="Uloží Roblox cookie pro ověřování přítomnosti.",
+    )
+    async def set_cookie(self, interaction: discord.Interaction, value: str):
+        if interaction.user.id != self._AUTHORIZED_COOKIE_USER_ID:
+            await interaction.response.send_message(
+                "Nemáš oprávnění uložit cookie.", ephemeral=True
+            )
+            return
+
+        cookie = value.strip()
+        if not cookie:
+            await interaction.response.send_message(
+                "Cookie nemůže být prázdná.", ephemeral=True
+            )
+            return
+
+        self._roblox_cookie = cookie
+        set_setting(self._COOKIE_SETTING_KEY, self._roblox_cookie)
+        await interaction.response.send_message(
+            "Cookie byla uložena.", ephemeral=True
+        )
 
 
 async def setup(bot: commands.Bot):
