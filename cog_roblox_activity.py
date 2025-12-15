@@ -9,12 +9,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from config import (
-    CLAN2_MEMBER_ROLE_ID,
-    CLAN_MEMBER_ROLE_EN_ID,
-    CLAN_MEMBER_ROLE_ID,
-    ROBLOX_ACTIVITY_CHANNEL_ID,
-)
+from config import CLAN_MEMBER_ROLE_EN_ID, CLAN_MEMBER_ROLE_ID, ROBLOX_ACTIVITY_CHANNEL_ID
 
 
 ROBLOX_USERNAMES_URL = "https://users.roblox.com/v1/usernames/users"
@@ -27,7 +22,16 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         self.bot = bot
         self._logger = logging.getLogger(__name__)
         self._session: Optional[aiohttp.ClientSession] = None
-        self._presence_state: Dict[int, Tuple[Optional[bool], datetime]] = {}
+        self._presence_state: Dict[
+            int, Dict[str, Optional[datetime | bool]]
+        ] = {}
+        self._duration_totals: Dict[int, Dict[str, float]] = defaultdict(
+            lambda: {"online": 0.0, "offline": 0.0}
+        )
+        self._user_labels: Dict[int, str] = {}
+        self._tracking_enabled: bool = True
+        self._session_started_at: datetime = datetime.now(timezone.utc)
+        self._session_ended_at: Optional[datetime] = None
 
     async def cog_load(self):
         self._session = aiohttp.ClientSession()
@@ -130,11 +134,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
     async def _collect_tracked_members(
         self, guild: discord.Guild
     ) -> Dict[str, list[discord.Member]]:
-        tracked_roles = {
-            CLAN_MEMBER_ROLE_ID,
-            CLAN_MEMBER_ROLE_EN_ID,
-            CLAN2_MEMBER_ROLE_ID,
-        }
+        tracked_roles = {CLAN_MEMBER_ROLE_ID, CLAN_MEMBER_ROLE_EN_ID}
         usernames: Dict[str, list[discord.Member]] = defaultdict(list)
         for member in guild.members:
             if member.bot:
@@ -164,16 +164,58 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         return " ".join(parts)
 
-    def _record_and_format_duration(
-        self, user_id: int, status: Optional[bool], now: datetime
-    ) -> str:
-        previous = self._presence_state.get(user_id)
-        if previous is None or previous[0] != status:
-            self._presence_state[user_id] = (status, now)
-            delta = 0.0
-        else:
-            delta = (now - previous[1]).total_seconds()
-        return self._format_timedelta(delta)
+    def _update_presence_tracking(
+        self, user_id: int, status: Optional[bool], label: str, now: datetime
+    ) -> float:
+        self._user_labels[user_id] = label
+
+        state = self._presence_state.get(user_id)
+        if state is None:
+            self._presence_state[user_id] = {
+                "status": status,
+                "last_change": now,
+                "last_update": now,
+            }
+            return 0.0
+
+        previous_status = state.get("status")
+        last_change = state.get("last_change", now) or now
+        last_update = state.get("last_update", now) or now
+
+        elapsed = (now - last_update).total_seconds()
+        if previous_status is True:
+            self._duration_totals[user_id]["online"] += elapsed
+        elif previous_status is False:
+            self._duration_totals[user_id]["offline"] += elapsed
+
+        if status != previous_status:
+            last_change = now
+
+        self._presence_state[user_id] = {
+            "status": status,
+            "last_change": last_change,
+            "last_update": now,
+        }
+
+        return (now - last_change).total_seconds()
+
+    def _finalize_totals(self, now: datetime) -> None:
+        if not self._tracking_enabled:
+            return
+
+        for user_id, state in list(self._presence_state.items()):
+            status = state.get("status")
+            last_update = state.get("last_update", now) or now
+            elapsed = (now - last_update).total_seconds()
+            if elapsed <= 0:
+                continue
+
+            if status is True:
+                self._duration_totals[user_id]["online"] += elapsed
+            elif status is False:
+                self._duration_totals[user_id]["offline"] += elapsed
+
+            state["last_update"] = now
 
     def _build_status_lines(
         self,
@@ -198,7 +240,13 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
             user_id = resolved_ids[lower]
             is_online = presence.get(user_id)
-            duration = self._record_and_format_duration(user_id, is_online, now)
+            if self._tracking_enabled and is_online is not None:
+                duration_seconds = self._update_presence_tracking(
+                    user_id, is_online, f"`{username}` ({members_text})", now
+                )
+                duration = self._format_timedelta(duration_seconds)
+            else:
+                duration = "sledování vypnuto"
 
             if is_online is True:
                 online_lines.append(
@@ -309,12 +357,19 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             tracked, resolved_ids, presence, missing_usernames, now
         )
 
+        status_message = (
+            "Sledování je aktivní a probíhá každých 10 minut."
+            if self._tracking_enabled
+            else "Sledování je vypnuté. Zapněte ho příkazem /roblox_tracking."
+        )
+
         embed = discord.Embed(
             title="Kontrola přítomnosti na Robloxu",
             colour=discord.Color.blurple(),
             description=(
-                "Monitorované role: HROT, HROT EN a HR2T. "
-                "Nick v přezdívce musí obsahovat Roblox uživatelské jméno."
+                "Monitorované role: HROT a HROT EN. "
+                "Nick v přezdívce musí obsahovat Roblox uživatelské jméno. "
+                + status_message
             ),
         )
 
@@ -339,11 +394,14 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             empty_message="",  # When empty we simply omit the field.
         )
 
-        embed.set_footer(text="Automatická kontrola každých 10 minut. Stav se resetuje při změně.")
+        embed.set_footer(text="Časy se resetují při změně stavu online/offline.")
         return embed
 
     @tasks.loop(minutes=10)
     async def presence_notifier(self):
+        if not self._tracking_enabled:
+            return
+
         channel = self.bot.get_channel(ROBLOX_ACTIVITY_CHANNEL_ID)
         if not isinstance(channel, discord.TextChannel):
             return
@@ -360,6 +418,87 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
     @presence_notifier.before_loop
     async def _wait_for_ready(self):
         await self.bot.wait_until_ready()
+
+    def _start_tracking_session(self) -> None:
+        now = datetime.now(timezone.utc)
+        self._tracking_enabled = True
+        self._session_started_at = now
+        self._session_ended_at = None
+        self._presence_state.clear()
+        self._duration_totals.clear()
+        self._user_labels.clear()
+
+    def _stop_tracking_session(self) -> None:
+        if not self._tracking_enabled:
+            return
+
+        now = datetime.now(timezone.utc)
+        self._finalize_totals(now)
+        self._tracking_enabled = False
+        self._session_ended_at = now
+
+    def _format_range(self) -> str:
+        start = self._session_started_at.astimezone(timezone.utc)
+        end_time = self._session_ended_at
+        if end_time:
+            end_time = end_time.astimezone(timezone.utc)
+            return f"{start:%Y-%m-%d %H:%M UTC} – {end_time:%Y-%m-%d %H:%M UTC}"
+        return f"{start:%Y-%m-%d %H:%M UTC} – právě teď"
+
+    @app_commands.command(
+        name="roblox_tracking",
+        description="Zapne nebo vypne sledování Roblox aktivity.",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def roblox_tracking(self, interaction: discord.Interaction, enabled: bool):
+        if enabled:
+            self._start_tracking_session()
+            message = (
+                "Sledování Roblox aktivity bylo zapnuto a statistiky byly resetovány."
+            )
+        else:
+            self._stop_tracking_session()
+            message = (
+                "Sledování Roblox aktivity bylo vypnuto. Souhrn lze zobrazit příkazem "
+                "/roblox_leaderboard."
+            )
+
+        await interaction.response.send_message(message, ephemeral=True)
+
+    @app_commands.command(
+        name="roblox_leaderboard",
+        description="Zobrazí celkový čas online a offline od posledního zapnutí sledování.",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def roblox_leaderboard(self, interaction: discord.Interaction):
+        if self._tracking_enabled:
+            self._finalize_totals(datetime.now(timezone.utc))
+
+        if not self._duration_totals:
+            await interaction.response.send_message(
+                "Není k dispozici žádný záznam pro leaderboard. Zapněte sledování a počkejte na kontrolu.",
+                ephemeral=True,
+            )
+            return
+
+        lines: list[str] = []
+        for user_id, totals in sorted(
+            self._duration_totals.items(),
+            key=lambda item: item[1]["online"],
+            reverse=True,
+        ):
+            label = self._user_labels.get(user_id, f"ID {user_id}")
+            online_text = self._format_timedelta(totals["online"])
+            offline_text = self._format_timedelta(totals["offline"])
+            lines.append(f"{label}: 🟢 {online_text} | 🔴 {offline_text}")
+
+        embed = discord.Embed(
+            title="Roblox leaderboard", colour=discord.Color.green()
+        )
+        embed.description = f"Rozsah měření: {self._format_range()}"
+        self._add_lines_field(embed, "Souhrn", lines, "")
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
