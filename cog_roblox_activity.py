@@ -484,7 +484,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             }
 
             if lower not in resolved_ids:
-                message = f"`{username}` ({summary_text}) – Roblox účet nenalezen"
+                message = f"`{username}` – {summary_text} – Roblox účet nenalezen"
                 detail["note"] = "Roblox účet nenalezen"
                 unresolved_lines.append(message)
                 details.append(detail)
@@ -501,7 +501,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             detail["members_display"] = members_text
             if self._tracking_enabled and is_online is not None:
                 duration_seconds, went_offline, ended_online_duration = self._update_presence_tracking(
-                    user_id, is_online, f"`{username}` ({summary_text})", now
+                    user_id, is_online, f"`{username}` – {summary_text}", now
                 )
                 if went_offline:
                     session_seconds = ended_online_duration or 0.0
@@ -517,15 +517,15 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
             if is_online is True:
                 online_lines.append(
-                    f"🟢 `{username}` ({summary_text}) – online {duration}"
+                    f"🟢 `{username}` – {summary_text} – online {duration}"
                 )
             elif is_online is False:
                 offline_lines.append(
-                    f"🔴 `{username}` ({summary_text}) – offline {duration}"
+                    f"🔴 `{username}` – {summary_text} – offline {duration}"
                 )
             else:
                 unresolved_lines.append(
-                    f"`{username}` ({summary_text}) – status se nepodařilo zjistit"
+                    f"`{username}` – {summary_text} – status se nepodařilo zjistit"
                 )
 
             details.append(detail)
