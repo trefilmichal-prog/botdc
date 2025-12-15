@@ -65,6 +65,21 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             self._logger.warning("Nešlo načíst časovou hodnotu: %s", value)
             return None
 
+    def _ensure_tracking_table_columns(self, cursor) -> None:
+        cursor.execute("PRAGMA table_info(roblox_tracking_state)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if "last_channel_report_at" in columns:
+            return
+
+        try:
+            cursor.execute(
+                "ALTER TABLE roblox_tracking_state ADD COLUMN last_channel_report_at TEXT"
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._logger.warning(
+                "Nepodařilo se přidat sloupec last_channel_report_at: %s", exc
+            )
+
     def _status_to_int(self, status: Optional[bool]) -> Optional[int]:
         if status is True:
             return 1
@@ -81,12 +96,14 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         conn = get_connection()
         cursor = conn.cursor()
 
+        self._ensure_tracking_table_columns(cursor)
+
         cursor.execute(
-            "SELECT tracking_enabled, session_started_at, session_ended_at FROM roblox_tracking_state WHERE id = 1"
+            "SELECT tracking_enabled, session_started_at, session_ended_at, last_channel_report_at FROM roblox_tracking_state WHERE id = 1"
         )
         row = cursor.fetchone()
         if row:
-            tracking_enabled, started_at, ended_at = row
+            tracking_enabled, started_at, ended_at, last_report_at = row
             try:
                 self._tracking_enabled = bool(int(tracking_enabled))
             except (TypeError, ValueError):
@@ -95,14 +112,16 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 self._parse_datetime(started_at) or datetime.now(timezone.utc)
             )
             self._session_ended_at = self._parse_datetime(ended_at)
+            self._last_channel_report = self._parse_datetime(last_report_at)
         else:
             now = datetime.now(timezone.utc)
             self._tracking_enabled = True
             self._session_started_at = now
             self._session_ended_at = None
+            self._last_channel_report = None
             cursor.execute(
-                "INSERT INTO roblox_tracking_state (id, tracking_enabled, session_started_at, session_ended_at) VALUES (1, ?, ?, ?)",
-                (1, self._serialize_datetime(now), None),
+                "INSERT INTO roblox_tracking_state (id, tracking_enabled, session_started_at, session_ended_at, last_channel_report_at) VALUES (1, ?, ?, ?, ?)",
+                (1, self._serialize_datetime(now), None, None),
             )
 
         cursor.execute(
@@ -126,6 +145,27 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 "last_update": self._parse_datetime(last_update),
             }
 
+        if self._tracking_enabled and self._presence_state:
+            now = datetime.now(timezone.utc)
+            for user_id, state in list(self._presence_state.items()):
+                status = state.get("status")
+                last_update = state.get("last_update")
+                if status is None or last_update is None:
+                    continue
+
+                elapsed = (now - last_update).total_seconds()
+                if elapsed <= 0:
+                    continue
+
+                if status is True:
+                    self._duration_totals[user_id]["online"] += elapsed
+                elif status is False:
+                    self._duration_totals[user_id]["offline"] += elapsed
+
+                state["last_update"] = now
+
+            self._persist_all_state()
+
         conn.commit()
         conn.close()
 
@@ -137,17 +177,19 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         conn.execute(
             """
-            INSERT INTO roblox_tracking_state (id, tracking_enabled, session_started_at, session_ended_at)
-            VALUES (1, ?, ?, ?)
+            INSERT INTO roblox_tracking_state (id, tracking_enabled, session_started_at, session_ended_at, last_channel_report_at)
+            VALUES (1, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 tracking_enabled = excluded.tracking_enabled,
                 session_started_at = excluded.session_started_at,
-                session_ended_at = excluded.session_ended_at
+                session_ended_at = excluded.session_ended_at,
+                last_channel_report_at = excluded.last_channel_report_at
             """,
             (
                 1 if self._tracking_enabled else 0,
                 self._serialize_datetime(self._session_started_at),
                 self._serialize_datetime(self._session_ended_at),
+                self._serialize_datetime(self._last_channel_report),
             ),
         )
 
@@ -702,6 +744,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             return
 
         self._last_channel_report = now
+        self._persist_tracking_state()
 
         for embed in player_embeds:
             try:

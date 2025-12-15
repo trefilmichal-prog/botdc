@@ -63,10 +63,19 @@ def init_db():
             id INTEGER PRIMARY KEY CHECK (id = 1),
             tracking_enabled INTEGER NOT NULL,
             session_started_at TEXT NOT NULL,
-            session_ended_at TEXT
+            session_ended_at TEXT,
+            last_channel_report_at TEXT
         )
         """
     )
+
+    try:
+        c.execute(
+            "ALTER TABLE roblox_tracking_state ADD COLUMN last_channel_report_at TEXT"
+        )
+    except sqlite3.OperationalError:
+        # Column already exists – ignore.
+        pass
 
     c.execute(
         """
