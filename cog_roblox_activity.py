@@ -698,9 +698,9 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         )
 
         status_message = (
-            "Sledování je aktivní: kontrola každých 5 minut, hlášení do kanálu každých 30 minut."
+            "Monitoring is active: checks every 5 minutes, channel reports every 30 minutes."
             if self._tracking_enabled
-            else "Sledování je vypnuté. Zapněte ho příkazem /roblox_tracking."
+            else "Monitoring is disabled. Enable it with /roblox_tracking."
         )
 
         player_embeds: list[dict] = []
@@ -715,7 +715,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
             if status is False:
                 embed = discord.Embed(
-                    description=f"🔴 {detail['members_mentions']} Is offline! 💩",
+                    description=f"🔴 {detail['members_mentions']} is offline! 💩",
                     colour=discord.Color.red(),
                 )
                 player_embeds.append(
@@ -731,7 +731,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
             icon = "🟢" if status is True else "🔴" if status is False else "⚪"
             status_label = (
-                "Online" if status is True else "Offline" if status is False else "Neznámý"
+                "Online" if status is True else "Offline" if status is False else "Unknown"
             )
             colour = (
                 discord.Color.green()
@@ -744,23 +744,23 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             embed = discord.Embed(
                 title=f"{icon} **{username}**",
                 colour=colour,
-                description=f"Sledované účty: {members_text}",
+                description=f"Tracked accounts: {members_text}",
             )
 
             embed.add_field(name="Status", value=status_label, inline=True)
-            embed.add_field(name="Trvání stavu", value=duration, inline=True)
+            embed.add_field(name="Status duration", value=duration, inline=True)
             if note:
-                embed.add_field(name="Poznámka", value=note, inline=False)
-            embed.set_footer(text="Časy se resetují při změně stavu online/offline.")
+                embed.add_field(name="Note", value=note, inline=False)
+            embed.set_footer(text="Timers reset when the status changes between online and offline.")
             player_embeds.append({"embed": embed, "content": None, "allowed_mentions": None})
 
         summary_embed = discord.Embed(
-            title="Kontrola přítomnosti na Robloxu",
+            title="RCU Clan Wars activities",
             colour=discord.Color.blurple(),
             description=(
-                "Monitorované role: HROT a HROT EN. "
-                "Nick v přezdívce musí obsahovat Roblox uživatelské jméno. "
-                + status_message
+                "RCU Clan Wars activity monitoring. "
+                "Nicknames must include the Roblox username. "
+                f"{status_message}"
             ),
         )
 
@@ -768,7 +768,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             summary_embed,
             name="Online",
             lines=sorted(online_lines),
-            empty_message="Nikdo z monitorovaných členů není právě online na Robloxu.",
+            empty_message="No monitored members are currently online on Roblox.",
         )
 
         self._add_lines_field(
@@ -780,13 +780,13 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         self._add_lines_field(
             summary_embed,
-            name="Nepodařilo se ověřit",
+            name="Unable to verify",
             lines=unresolved_lines,
             empty_message="",  # When empty we simply omit the field.
         )
 
         summary_embed.set_footer(
-            text="Časy se resetují při změně stavu online/offline."
+            text="Timers reset when the status changes between online and offline."
         )
         return player_embeds, summary_embed, offline_notifications
 
@@ -797,12 +797,12 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             try:
                 duration_text = self._format_timedelta(session_seconds)
                 await member.send(
-                    f"Tvůj Roblox status pro **{username}** se změnil na offline. "
-                    f"Poslední online úsek trval {duration_text}."
+                    f"Your Roblox status for **{username}** changed to offline. "
+                    f"The last online session lasted {duration_text}."
                 )
             except discord.HTTPException as exc:
                 self._logger.warning(
-                    "Nepodařilo se odeslat DM o odhlášení %s: %s", member.id, exc
+                    "Failed to send offline DM %s: %s", member.id, exc
                 )
             await asyncio.sleep(0.2)
 
