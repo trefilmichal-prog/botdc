@@ -471,7 +471,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         for username, members in tracked.items():
             mentions_text = ", ".join(f"**{m.mention}**" for m in members)
             names_text = ", ".join(f"**{m.display_name}**" for m in members)
-            summary_text = names_text
+            summary_text = f"**{username}**"
             lower = username.lower()
             detail = {
                 "username": username,
@@ -484,7 +484,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             }
 
             if lower not in resolved_ids:
-                message = f"**{username}** – {summary_text} – Roblox účet nenalezen"
+                message = f"**{username}** – Roblox účet nenalezen"
                 detail["note"] = "Roblox účet nenalezen"
                 unresolved_lines.append(message)
                 details.append(detail)
@@ -516,16 +516,12 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             detail["duration"] = duration
 
             if is_online is True:
-                online_lines.append(
-                    f"🟢 **{username}** – {summary_text} – online {duration}"
-                )
+                online_lines.append(f"🟢 **{username}** – online {duration}")
             elif is_online is False:
-                offline_lines.append(
-                    f"🔴 **{username}** – {summary_text} – offline {duration}"
-                )
+                offline_lines.append(f"🔴 **{username}** – offline {duration}")
             else:
                 unresolved_lines.append(
-                    f"**{username}** – {summary_text} – status se nepodařilo zjistit"
+                    f"**{username}** – status se nepodařilo zjistit"
                 )
 
             details.append(detail)
