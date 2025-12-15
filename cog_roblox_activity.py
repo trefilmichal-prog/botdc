@@ -8,12 +8,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from config import (
-    CLAN2_MEMBER_ROLE_ID,
-    CLAN_MEMBER_ROLE_EN_ID,
-    CLAN_MEMBER_ROLE_ID,
-    REBIRTH_CHAMPIONS_UNIVERSE_ID,
-)
+from config import CLAN2_MEMBER_ROLE_ID, CLAN_MEMBER_ROLE_EN_ID, CLAN_MEMBER_ROLE_ID
 
 
 ROBLOX_USERNAMES_URL = "https://users.roblox.com/v1/usernames/users"
@@ -112,14 +107,14 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 user_id = entry.get("userId")
                 if user_id is None:
                     continue
-                universe_id = entry.get("universeId")
-                place_id = entry.get("placeId")
-                is_playing = (
-                    entry.get("userPresenceType") == 2
-                    and (universe_id == REBIRTH_CHAMPIONS_UNIVERSE_ID
-                         or place_id == REBIRTH_CHAMPIONS_UNIVERSE_ID)
-                )
-                result[int(user_id)] = bool(is_playing)
+
+                # Presence types: 0=offline, 1=online, 2=in-game, 3=in-studio.
+                presence_type = entry.get("userPresenceType")
+                if presence_type is None:
+                    result[int(user_id)] = None
+                    continue
+
+                result[int(user_id)] = presence_type != 0
 
         return result
 
@@ -218,8 +213,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         resolved_ids, missing_usernames = await self._fetch_user_ids(usernames)
         presence = await self._fetch_presence(resolved_ids.values()) if resolved_ids else {}
 
-        playing_lines: list[str] = []
-        idle_lines: list[str] = []
+        online_lines: list[str] = []
+        offline_lines: list[str] = []
         unresolved_lines: list[str] = []
 
         for username, members in tracked.items():
@@ -232,11 +227,11 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 continue
 
             user_id = resolved_ids[lower]
-            is_playing = presence.get(user_id)
-            if is_playing is True:
-                playing_lines.append(f"`{username}` ({members_text})")
-            elif is_playing is False:
-                idle_lines.append(f"`{username}` ({members_text})")
+            is_online = presence.get(user_id)
+            if is_online is True:
+                online_lines.append(f"`{username}` ({members_text})")
+            elif is_online is False:
+                offline_lines.append(f"`{username}` ({members_text})")
             else:
                 unresolved_lines.append(
                     f"`{username}` ({members_text}) – status se nepodařilo zjistit"
@@ -249,25 +244,25 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             )
 
         embed = discord.Embed(
-            title="Kontrola aktivity v Rebirth Champions Ultimate",
+            title="Kontrola přítomnosti na Robloxu",
             colour=discord.Color.blurple(),
             description=(
                 "Monitorované role: HROT, HROT EN a HR2T. "
-                "Nick v přezdívce musí odpovídat Roblox uživatelskému jménu."
+                "Nick v přezdívce musí obsahovat Roblox uživatelské jméno."
             ),
         )
 
         self._add_lines_field(
             embed,
-            name="Ve hře",
-            lines=sorted(playing_lines),
-            empty_message="Nikdo z monitorovaných členů není právě ve hře.",
+            name="Online",
+            lines=sorted(online_lines),
+            empty_message="Nikdo z monitorovaných členů není právě online na Robloxu.",
         )
 
         self._add_lines_field(
             embed,
-            name="Mimo hru",
-            lines=sorted(idle_lines),
+            name="Offline",
+            lines=sorted(offline_lines),
             empty_message="",  # When empty we simply omit the field.
         )
 
