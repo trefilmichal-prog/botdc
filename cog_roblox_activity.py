@@ -10,6 +10,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from config import CLAN_MEMBER_ROLE_EN_ID, CLAN_MEMBER_ROLE_ID, ROBLOX_ACTIVITY_CHANNEL_ID
+from db import get_connection
 
 
 ROBLOX_USERNAMES_URL = "https://users.roblox.com/v1/usernames/users"
@@ -35,12 +36,187 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
     async def cog_load(self):
         self._session = aiohttp.ClientSession()
+        self._load_state_from_db()
         self.presence_notifier.start()
 
     async def cog_unload(self):
+        if self._tracking_enabled:
+            self._finalize_totals(datetime.now(timezone.utc))
+        else:
+            self._persist_all_state()
+
         if self._session and not self._session.closed:
             await self._session.close()
         self.presence_notifier.cancel()
+
+    def _serialize_datetime(self, dt: Optional[datetime]) -> Optional[str]:
+        if not dt:
+            return None
+        return dt.astimezone(timezone.utc).isoformat()
+
+    def _parse_datetime(self, value: Optional[str]) -> Optional[datetime]:
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            self._logger.warning("Nešlo načíst časovou hodnotu: %s", value)
+            return None
+
+    def _status_to_int(self, status: Optional[bool]) -> Optional[int]:
+        if status is True:
+            return 1
+        if status is False:
+            return 0
+        return None
+
+    def _int_to_status(self, value: Optional[int]) -> Optional[bool]:
+        if value is None:
+            return None
+        return bool(int(value))
+
+    def _load_state_from_db(self) -> None:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "SELECT tracking_enabled, session_started_at, session_ended_at FROM roblox_tracking_state WHERE id = 1"
+        )
+        row = cursor.fetchone()
+        if row:
+            tracking_enabled, started_at, ended_at = row
+            try:
+                self._tracking_enabled = bool(int(tracking_enabled))
+            except (TypeError, ValueError):
+                self._tracking_enabled = True
+            self._session_started_at = (
+                self._parse_datetime(started_at) or datetime.now(timezone.utc)
+            )
+            self._session_ended_at = self._parse_datetime(ended_at)
+        else:
+            now = datetime.now(timezone.utc)
+            self._tracking_enabled = True
+            self._session_started_at = now
+            self._session_ended_at = None
+            cursor.execute(
+                "INSERT INTO roblox_tracking_state (id, tracking_enabled, session_started_at, session_ended_at) VALUES (1, ?, ?, ?)",
+                (1, self._serialize_datetime(now), None),
+            )
+
+        cursor.execute(
+            "SELECT user_id, online_seconds, offline_seconds, label FROM roblox_duration_totals"
+        )
+        for user_id, online_seconds, offline_seconds, label in cursor.fetchall():
+            self._duration_totals[int(user_id)] = {
+                "online": float(online_seconds or 0),
+                "offline": float(offline_seconds or 0),
+            }
+            if label:
+                self._user_labels[int(user_id)] = label
+
+        cursor.execute(
+            "SELECT user_id, status, last_change, last_update FROM roblox_presence_state"
+        )
+        for user_id, status, last_change, last_update in cursor.fetchall():
+            self._presence_state[int(user_id)] = {
+                "status": self._int_to_status(status),
+                "last_change": self._parse_datetime(last_change),
+                "last_update": self._parse_datetime(last_update),
+            }
+
+        conn.commit()
+        conn.close()
+
+    def _persist_tracking_state(self, conn=None) -> None:
+        should_close = False
+        if conn is None:
+            conn = get_connection()
+            should_close = True
+
+        conn.execute(
+            """
+            INSERT INTO roblox_tracking_state (id, tracking_enabled, session_started_at, session_ended_at)
+            VALUES (1, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                tracking_enabled = excluded.tracking_enabled,
+                session_started_at = excluded.session_started_at,
+                session_ended_at = excluded.session_ended_at
+            """,
+            (
+                1 if self._tracking_enabled else 0,
+                self._serialize_datetime(self._session_started_at),
+                self._serialize_datetime(self._session_ended_at),
+            ),
+        )
+
+        if should_close:
+            conn.commit()
+            conn.close()
+
+    def _persist_user_state(self, user_id: int, conn=None) -> None:
+        should_close = False
+        if conn is None:
+            conn = get_connection()
+            should_close = True
+
+        state = self._presence_state.get(user_id, {})
+        totals = self._duration_totals.get(user_id, {"online": 0.0, "offline": 0.0})
+        label = self._user_labels.get(user_id)
+
+        conn.execute(
+            """
+            INSERT INTO roblox_presence_state (user_id, status, last_change, last_update)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                status = excluded.status,
+                last_change = excluded.last_change,
+                last_update = excluded.last_update
+            """,
+            (
+                user_id,
+                self._status_to_int(state.get("status")),
+                self._serialize_datetime(state.get("last_change")),
+                self._serialize_datetime(state.get("last_update")),
+            ),
+        )
+
+        conn.execute(
+            """
+            INSERT INTO roblox_duration_totals (user_id, online_seconds, offline_seconds, label)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                online_seconds = excluded.online_seconds,
+                offline_seconds = excluded.offline_seconds,
+                label = excluded.label
+            """,
+            (user_id, totals["online"], totals["offline"], label),
+        )
+
+        if should_close:
+            conn.commit()
+            conn.close()
+
+    def _persist_all_state(self) -> None:
+        conn = get_connection()
+        try:
+            with conn:
+                self._persist_tracking_state(conn)
+                for user_id in set(
+                    list(self._presence_state.keys()) + list(self._duration_totals.keys())
+                ):
+                    self._persist_user_state(user_id, conn)
+        finally:
+            conn.close()
+
+    def _clear_persistence(self) -> None:
+        conn = get_connection()
+        try:
+            with conn:
+                conn.execute("DELETE FROM roblox_presence_state")
+                conn.execute("DELETE FROM roblox_duration_totals")
+                conn.execute("DELETE FROM roblox_tracking_state WHERE id = 1")
+        finally:
+            conn.close()
 
     def _find_roblox_username(self, member: discord.Member) -> Optional[str]:
         nickname = member.nick or member.global_name or member.name
@@ -197,6 +373,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             "last_update": now,
         }
 
+        self._persist_user_state(user_id)
+
         return (now - last_change).total_seconds()
 
     def _finalize_totals(self, now: datetime) -> None:
@@ -216,6 +394,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 self._duration_totals[user_id]["offline"] += elapsed
 
             state["last_update"] = now
+
+        self._persist_all_state()
 
     def _build_status_lines(
         self,
@@ -427,6 +607,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         self._presence_state.clear()
         self._duration_totals.clear()
         self._user_labels.clear()
+        self._clear_persistence()
+        self._persist_tracking_state()
 
     def _stop_tracking_session(self) -> None:
         if not self._tracking_enabled:
@@ -436,6 +618,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         self._finalize_totals(now)
         self._tracking_enabled = False
         self._session_ended_at = now
+        self._persist_tracking_state()
 
     def _format_range(self) -> str:
         start = self._session_started_at.astimezone(timezone.utc)
