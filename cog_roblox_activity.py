@@ -759,6 +759,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             colour=discord.Color.blurple(),
             description=(
                 "RCU Clan Wars activity monitoring. "
+                "Monitored roles: HROT and HROT EN. "
                 "Nicknames must include the Roblox username. "
                 f"{status_message}"
             ),
