@@ -765,6 +765,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         unresolved_lines: list[str],
     ) -> Optional[discord.ui.LayoutView]:
         sections: list[discord.ui.TextDisplay] = [
+            discord.ui.TextDisplay(content="Souhrn aktivity Roblox clanu"),
+            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
             discord.ui.TextDisplay(content="RCU Clan Wars activities"),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
             discord.ui.TextDisplay(
@@ -864,7 +866,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 self._logger.warning("Nepodařilo se odeslat zprávu pro hráče: %s", exc)
             await asyncio.sleep(0.3)
 
-        await channel.send(content="Souhrn aktivity Roblox clanu:", view=summary_view)
+        await channel.send(view=summary_view)
 
     @presence_notifier.before_loop
     async def _wait_for_ready(self):
@@ -968,7 +970,6 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         leaderboard_view.add_item(discord.ui.Container(*leaderboard_items))
 
         await interaction.response.send_message(
-            content="Souhrn hraného času Roblox:",
             view=leaderboard_view,
             ephemeral=True,
         )
@@ -998,5 +999,3 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         )
 
 
-async def setup(bot: commands.Bot):
-    await bot.add_cog(RobloxActivityCog(bot))
