@@ -25,6 +25,7 @@ ROBLOX_AUTH_USER_URL = "https://users.roblox.com/v1/users/authenticated"
 ROBLOX_FRIEND_STATUS_URL = (
     "https://friends.roblox.com/v1/users/{user_id}/friends/statuses"
 )
+ROBLOX_MY_FRIEND_STATUS_URL = "https://friends.roblox.com/v1/my/friends/statuses"
 ROBLOX_USERNAME_REGEX = re.compile(r"[A-Za-z0-9_]{3,20}")
 
 
@@ -462,66 +463,78 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 result[uid] = None
             return result
 
-        auth_user_id = await self._fetch_authenticated_user_id()
-        if not auth_user_id:
-            for uid in ids:
-                result[uid] = None
-            return result
-
-        url = ROBLOX_FRIEND_STATUS_URL.format(user_id=auth_user_id)
         headers = {"Cookie": f".ROBLOSECURITY={self._roblox_cookie}"}
 
-        for i in range(0, len(ids), 100):
-            batch = ids[i : i + 100]
-            try:
-                async with self._session.post(
-                    url, json={"userIds": batch}, headers=headers, timeout=20
-                ) as resp:
-                    if resp.status == 404:
-                        self._logger.warning(
-                            "Roblox friends status API returned 404 for user %s; "
-                            "skipping connection checks",
-                            auth_user_id,
-                        )
-                        self._authenticated_user_id = None
-                        self._skip_connection_checks = True
-                        for uid in ids[i:]:
-                            result[uid] = None
-                        break
-                    if resp.status != 200:
-                        self._logger.warning(
-                            "Roblox friends status API returned %s", resp.status
-                        )
-                        for uid in batch:
-                            result[uid] = None
-                        continue
-                    data = await resp.json()
-            except aiohttp.ClientError as exc:
-                self._logger.warning("Roblox friends status API error: %s", exc)
-                for uid in batch:
-                    result[uid] = None
-                continue
-
-            payload_entries = data.get("data")
-            if not isinstance(payload_entries, list):
-                self._logger.warning(
-                    "Unexpected friends status payload shape: %s", data
-                )
-                for uid in batch:
-                    result[uid] = None
-                continue
-
-            for entry in payload_entries:
-                target_id = entry.get("id") or entry.get("userId")
-                status = entry.get("status") or entry.get("friendStatus")
-                if target_id is None:
+        async def _populate_from_endpoint(url: str) -> str:
+            for i in range(0, len(ids), 100):
+                batch = ids[i : i + 100]
+                try:
+                    async with self._session.post(
+                        url, json={"userIds": batch}, headers=headers, timeout=20
+                    ) as resp:
+                        if resp.status == 404:
+                            return "not_found"
+                        if resp.status != 200:
+                            self._logger.warning(
+                                "Roblox friends status API returned %s", resp.status
+                            )
+                            for uid in batch:
+                                result[uid] = None
+                            continue
+                        data = await resp.json()
+                except aiohttp.ClientError as exc:
+                    self._logger.warning("Roblox friends status API error: %s", exc)
+                    for uid in batch:
+                        result[uid] = None
                     continue
-                connection = None
-                if isinstance(status, str):
-                    connection = status.lower() == "friend"
-                result[int(target_id)] = connection
 
-            for uid in batch:
+                payload_entries = data.get("data")
+                if not isinstance(payload_entries, list):
+                    self._logger.warning(
+                        "Unexpected friends status payload shape: %s", data
+                    )
+                    for uid in batch:
+                        result[uid] = None
+                    continue
+
+                for entry in payload_entries:
+                    target_id = entry.get("id") or entry.get("userId")
+                    status = entry.get("status") or entry.get("friendStatus")
+                    if target_id is None:
+                        continue
+                    connection = None
+                    if isinstance(status, str):
+                        connection = status.lower() == "friend"
+                    result[int(target_id)] = connection
+
+                for uid in batch:
+                    result.setdefault(uid, None)
+
+            return "ok"
+
+        endpoint_used = ROBLOX_MY_FRIEND_STATUS_URL
+        outcome = await _populate_from_endpoint(endpoint_used)
+
+        if outcome == "not_found":
+            endpoint_used = None
+            auth_user_id = await self._fetch_authenticated_user_id()
+            if not auth_user_id:
+                for uid in ids:
+                    result.setdefault(uid, None)
+                return result
+
+            endpoint_used = ROBLOX_FRIEND_STATUS_URL.format(user_id=auth_user_id)
+            outcome = await _populate_from_endpoint(endpoint_used)
+
+        if outcome == "not_found" and endpoint_used:
+            self._logger.warning(
+                "Roblox friends status API returned 404 for endpoint %s; "
+                "skipping connection checks",
+                endpoint_used,
+            )
+            self._authenticated_user_id = None
+            self._skip_connection_checks = True
+            for uid in ids:
                 result.setdefault(uid, None)
 
         return result
