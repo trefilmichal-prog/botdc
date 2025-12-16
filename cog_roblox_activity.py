@@ -466,6 +466,16 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 async with self._session.post(
                     url, json={"userIds": batch}, headers=headers, timeout=20
                 ) as resp:
+                    if resp.status == 404:
+                        self._logger.warning(
+                            "Roblox friends status API returned 404 for user %s; "
+                            "skipping connection checks",
+                            auth_user_id,
+                        )
+                        self._authenticated_user_id = None
+                        for uid in ids[i:]:
+                            result[uid] = None
+                        break
                     if resp.status != 200:
                         self._logger.warning(
                             "Roblox friends status API returned %s", resp.status
