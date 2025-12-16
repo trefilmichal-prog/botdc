@@ -21,12 +21,17 @@ from db import get_connection, get_setting, set_setting
 
 ROBLOX_USERNAMES_URL = "https://users.roblox.com/v1/usernames/users"
 ROBLOX_PRESENCE_URL = "https://presence.roblox.com/v1/presence/users"
+ROBLOX_AUTH_USER_URL = "https://users.roblox.com/v1/users/authenticated"
+ROBLOX_FRIEND_STATUS_URL = (
+    "https://friends.roblox.com/v1/users/{user_id}/friends/statuses"
+)
 ROBLOX_USERNAME_REGEX = re.compile(r"[A-Za-z0-9_]{3,20}")
 
 
 class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
     _COOKIE_SETTING_KEY = "roblox_presence_cookie"
     _AUTHORIZED_COOKIE_USER_ID = 369810917673795586
+    _AUTHENTICATED_USER_OVERRIDE_ID = 4_470_228_128
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -44,6 +49,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         self._session_started_at: datetime = datetime.now(timezone.utc)
         self._session_ended_at: Optional[datetime] = None
         self._last_channel_report: Optional[datetime] = None
+        self._authenticated_user_id: Optional[int] = None
+        self._skip_connection_checks: bool = False
 
     async def cog_load(self):
         self._session = aiohttp.ClientSession()
@@ -387,6 +394,138 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         return result
 
+    async def _fetch_authenticated_user_id(self) -> Optional[int]:
+        if self._authenticated_user_id is not None:
+            return self._authenticated_user_id
+
+        if self._AUTHENTICATED_USER_OVERRIDE_ID:
+            self._authenticated_user_id = self._AUTHENTICATED_USER_OVERRIDE_ID
+            return self._authenticated_user_id
+
+        if not self._roblox_cookie:
+            self._load_cookie_from_db()
+
+        if not self._roblox_cookie:
+            return None
+
+        if not self._session:
+            raise RuntimeError("RobloxActivityCog session is not initialized")
+
+        try:
+            async with self._session.get(
+                ROBLOX_AUTH_USER_URL,
+                headers={"Cookie": f".ROBLOSECURITY={self._roblox_cookie}"},
+                timeout=20,
+            ) as resp:
+                if resp.status != 200:
+                    self._logger.warning(
+                        "Roblox authenticated user API returned %s", resp.status
+                    )
+                    return None
+                data = await resp.json()
+        except aiohttp.ClientError as exc:
+            self._logger.warning("Roblox authenticated user API error: %s", exc)
+            return None
+
+        user_id = data.get("id")
+        if not isinstance(user_id, int):
+            self._logger.warning("Unexpected authenticated user payload: %s", data)
+            return None
+
+        self._authenticated_user_id = user_id
+        return user_id
+
+    async def _fetch_connection_statuses(
+        self, user_ids: Iterable[int]
+    ) -> Dict[int, Optional[bool]]:
+        result: Dict[int, Optional[bool]] = {}
+        ids = [int(uid) for uid in set(user_ids)]
+        if not ids:
+            return result
+
+        if self._skip_connection_checks:
+            for uid in ids:
+                result[uid] = None
+            return result
+
+        if not self._session:
+            raise RuntimeError("RobloxActivityCog session is not initialized")
+
+        if not self._roblox_cookie:
+            self._load_cookie_from_db()
+
+        if not self._roblox_cookie:
+            self._logger.warning(
+                "Chybí Roblox ověřovací cookie – nelze zjistit friends status."
+            )
+            for uid in ids:
+                result[uid] = None
+            return result
+
+        auth_user_id = await self._fetch_authenticated_user_id()
+        if not auth_user_id:
+            for uid in ids:
+                result[uid] = None
+            return result
+
+        url = ROBLOX_FRIEND_STATUS_URL.format(user_id=auth_user_id)
+        headers = {"Cookie": f".ROBLOSECURITY={self._roblox_cookie}"}
+
+        for i in range(0, len(ids), 100):
+            batch = ids[i : i + 100]
+            try:
+                async with self._session.post(
+                    url, json={"userIds": batch}, headers=headers, timeout=20
+                ) as resp:
+                    if resp.status == 404:
+                        self._logger.warning(
+                            "Roblox friends status API returned 404 for user %s; "
+                            "skipping connection checks",
+                            auth_user_id,
+                        )
+                        self._authenticated_user_id = None
+                        self._skip_connection_checks = True
+                        for uid in ids[i:]:
+                            result[uid] = None
+                        break
+                    if resp.status != 200:
+                        self._logger.warning(
+                            "Roblox friends status API returned %s", resp.status
+                        )
+                        for uid in batch:
+                            result[uid] = None
+                        continue
+                    data = await resp.json()
+            except aiohttp.ClientError as exc:
+                self._logger.warning("Roblox friends status API error: %s", exc)
+                for uid in batch:
+                    result[uid] = None
+                continue
+
+            payload_entries = data.get("data")
+            if not isinstance(payload_entries, list):
+                self._logger.warning(
+                    "Unexpected friends status payload shape: %s", data
+                )
+                for uid in batch:
+                    result[uid] = None
+                continue
+
+            for entry in payload_entries:
+                target_id = entry.get("id") or entry.get("userId")
+                status = entry.get("status") or entry.get("friendStatus")
+                if target_id is None:
+                    continue
+                connection = None
+                if isinstance(status, str):
+                    connection = status.lower() == "friend"
+                result[int(target_id)] = connection
+
+            for uid in batch:
+                result.setdefault(uid, None)
+
+        return result
+
     async def _collect_tracked_members(
         self, guild: discord.Guild
     ) -> Dict[str, list[discord.Member]]:
@@ -503,6 +642,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         now: datetime,
         *,
         mention_offline_only: bool,
+        connections: Dict[int, Optional[bool]],
     ) -> tuple[
         list[str],
         list[str],
@@ -566,7 +706,15 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             if is_online is True:
                 online_lines.append(f"🟢 **{username}** – online {duration}")
             elif is_online is False:
-                offline_lines.append(f"🔴 **{username}** – offline {duration}")
+                connection_status = connections.get(user_id)
+                note = None
+                if connection_status is False:
+                    note = "Hráč není v tvých Roblox connections."
+                detail["note"] = note
+                status_text = f"🔴 **{username}** – offline {duration}"
+                if note:
+                    status_text = f"{status_text} ({note})"
+                offline_lines.append(status_text)
             else:
                 unresolved_lines.append(
                     f"**{username}** – status se nepodařilo zjistit"
@@ -663,6 +811,12 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         usernames = list(tracked.keys())
         resolved_ids, missing_usernames = await self._fetch_user_ids(usernames)
         presence = await self._fetch_presence(resolved_ids.values()) if resolved_ids else {}
+        offline_ids = [
+            resolved_ids[name]
+            for name in resolved_ids
+            if presence.get(resolved_ids[name]) is False
+        ]
+        connections = await self._fetch_connection_statuses(offline_ids)
         now = datetime.now(timezone.utc)
 
         (
@@ -678,6 +832,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             missing_usernames,
             now,
             mention_offline_only=mention_offline_only,
+            connections=connections,
         )
 
         status_message = (
@@ -700,12 +855,13 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 continue
 
             if status is False:
+                note_suffix = f" {note}" if note else ""
                 player_embeds.append(
                     {
                         "view": None,
                         "content": (
                             f"🔴 **{username}** je offline. "
-                            f"Sledované účty: {members_text}."
+                            f"Sledované účty: {members_text}.{note_suffix}"
                         ),
                         "allowed_mentions": discord.AllowedMentions(
                             everyone=False, roles=False, users=True
