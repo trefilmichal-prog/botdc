@@ -732,6 +732,23 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 )
                 continue
 
+            if status is None:
+                embed = discord.Embed(
+                    description=(
+                        f"⚪ {detail['members_mentions']} has an unknown status. "
+                        "Roblox presence could not be verified."
+                    ),
+                    colour=discord.Color.light_grey(),
+                )
+                player_embeds.append(
+                    {
+                        "embed": embed,
+                        "content": None,
+                        "allowed_mentions": None,
+                    }
+                )
+                continue
+
             icon = "🟢" if status is True else "🔴" if status is False else "⚪"
             status_label = (
                 "Online" if status is True else "Offline" if status is False else "Unknown"
@@ -764,7 +781,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 "RCU Clan Wars activity monitoring. "
                 "Monitored roles: HROT and HROT EN. "
                 "Nicknames must include the Roblox username. "
-                f"{status_message} Reports include offline and unknown statuses."
+                f"{status_message} Reports exclude online players and include offline or unknown statuses."
             ),
         )
 
