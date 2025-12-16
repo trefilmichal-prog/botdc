@@ -875,7 +875,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         )
 
         status_message = (
-            "Monitoring is active: checks and reports every 5 minutes."
+            "Monitoring is active: checks every 5 minutes; reports every 30 minutes."
             if self._tracking_enabled
             else "Monitoring is disabled. Enable it with /roblox_tracking."
         )
@@ -1038,8 +1038,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         if not isinstance(channel, discord.TextChannel):
             return
 
-        player_embeds, summary_view, offline_notifications = await self._build_presence_report(
-            channel.guild, mention_offline_only=True
+        player_embeds, summary_view, offline_notifications = (
+            await self._build_presence_report(channel.guild, mention_offline_only=True)
         )
         await self._send_offline_notifications(offline_notifications)
 
@@ -1047,6 +1047,14 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             return
 
         now = datetime.now(timezone.utc)
+        should_report = (
+            self._last_channel_report is None
+            or (now - self._last_channel_report).total_seconds() >= 30 * 60
+        )
+
+        if not should_report:
+            return
+
         self._last_channel_report = now
         self._persist_tracking_state()
 
