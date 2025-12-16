@@ -584,7 +584,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
     @staticmethod
     def _chunk_lines(lines: list[str], limit: int = 1024) -> list[str]:
-        """Split a list of lines into strings that fit into embed field limits."""
+        """Split lines into chunks that stay within a safe character limit."""
 
         chunks: list[str] = []
         current: list[str] = []
@@ -611,25 +611,6 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         return chunks
 
-    def _add_lines_field(
-        self,
-        embed: discord.Embed,
-        name: str,
-        lines: list[str],
-        empty_message: str,
-    ) -> None:
-        """Add an embed field, splitting into multiple fields if necessary."""
-
-        if not lines:
-            if empty_message:
-                embed.add_field(name=name, value=empty_message, inline=False)
-            return
-
-        chunks = self._chunk_lines(lines)
-        for idx, chunk in enumerate(chunks):
-            field_name = name if idx == 0 else f"{name} (pokračování {idx})"
-            embed.add_field(name=field_name, value=chunk, inline=False)
-
     @app_commands.command(
         name="roblox_activity",
         description="Zkontroluje, kdo z členů clanu hraje Rebirth Champions Ultimate.",
@@ -644,10 +625,10 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         await interaction.response.defer(ephemeral=True)
 
-        player_embeds, summary_embed, offline_notifications = await self._build_presence_report(
+        player_embeds, summary_view, offline_notifications = await self._build_presence_report(
             interaction.guild, mention_offline_only=True
         )
-        if summary_embed is None:
+        if summary_view is None:
             await interaction.followup.send(
                 "Nenašel jsem žádné členy s potřebnými rolemi a Roblox nickem v přezdívce.",
                 ephemeral=True,
@@ -659,18 +640,20 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         for message in player_embeds:
             await interaction.followup.send(
                 content=message.get("content"),
-                embed=message.get("embed"),
+                view=message.get("view"),
                 allowed_mentions=message.get("allowed_mentions"),
                 ephemeral=True,
             )
 
-        await interaction.followup.send(embed=summary_embed, ephemeral=True)
+        await interaction.followup.send(
+            content="Souhrn aktivity Roblox clanu:", view=summary_view, ephemeral=True
+        )
 
     async def _build_presence_report(
         self, guild: discord.Guild, *, mention_offline_only: bool
     ) -> tuple[
         list[dict],
-        Optional[discord.Embed],
+        Optional[discord.ui.LayoutView],
         list[tuple[discord.Member, str, float]],
     ]:
         tracked = await self._collect_tracked_members(guild)
@@ -683,7 +666,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         now = datetime.now(timezone.utc)
 
         (
-            _,
+            online_lines,
             offline_lines,
             unresolved_lines,
             details,
@@ -717,14 +700,13 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 continue
 
             if status is False:
-                embed = discord.Embed(
-                    description=f"🔴 {detail['members_mentions']} is offline! 💩",
-                    colour=discord.Color.red(),
-                )
                 player_embeds.append(
                     {
-                        "embed": embed,
-                        "content": detail["members_mentions"],
+                        "view": None,
+                        "content": (
+                            f"🔴 **{username}** je offline. "
+                            f"Sledované účty: {members_text}."
+                        ),
                         "allowed_mentions": discord.AllowedMentions(
                             everyone=False, roles=False, users=True
                         ),
@@ -733,17 +715,13 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 continue
 
             if status is None:
-                embed = discord.Embed(
-                    description=(
-                        f"⚪ {detail['members_mentions']} has an unknown status. "
-                        "Roblox presence could not be verified."
-                    ),
-                    colour=discord.Color.light_grey(),
-                )
                 player_embeds.append(
                     {
-                        "embed": embed,
-                        "content": None,
+                        "view": None,
+                        "content": (
+                            "⚪ Status hráče se nepodařilo ověřit. "
+                            f"Sledované účty: {members_text}."
+                        ),
                         "allowed_mentions": None,
                     }
                 )
@@ -753,14 +731,6 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             status_label = (
                 "Online" if status is True else "Offline" if status is False else "Unknown"
             )
-            colour = (
-                discord.Color.green()
-                if status is True
-                else discord.Color.red()
-                if status is False
-                else discord.Color.light_grey()
-            )
-
             content_lines = [
                 f"{icon} **{username}**",
                 f"Tracked accounts: {members_text}",
@@ -771,38 +741,82 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 content_lines.append(f"Note: {note}")
 
             player_embeds.append(
-                {"embed": None, "content": "\n".join(content_lines), "allowed_mentions": None}
+                {
+                    "view": None,
+                    "content": "\n".join(content_lines),
+                    "allowed_mentions": None,
+                }
             )
 
-        summary_embed = discord.Embed(
-            title="RCU Clan Wars activities",
-            colour=discord.Color.blurple(),
-            description=(
-                "RCU Clan Wars activity monitoring. "
-                "Monitored roles: HROT and HROT EN. "
-                "Nicknames must include the Roblox username. "
-                f"{status_message} Reports exclude online players and include offline or unknown statuses."
+        summary_view = self._build_summary_view(
+            status_message,
+            online_lines,
+            offline_lines,
+            unresolved_lines,
+        )
+
+        return player_embeds, summary_view, offline_notifications
+
+    def _build_summary_view(
+        self,
+        status_message: str,
+        online_lines: list[str],
+        offline_lines: list[str],
+        unresolved_lines: list[str],
+    ) -> Optional[discord.ui.LayoutView]:
+        sections: list[discord.ui.TextDisplay] = [
+            discord.ui.TextDisplay(content="Souhrn aktivity Roblox clanu"),
+            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
+            discord.ui.TextDisplay(content="RCU Clan Wars activities"),
+            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
+            discord.ui.TextDisplay(
+                content=(
+                    "RCU Clan Wars activity monitoring. "
+                    "Monitored roles: HROT and HROT EN. "
+                    "Nicknames must include the Roblox username. "
+                    f"{status_message}"
+                )
             ),
+        ]
+
+        def _maybe_add_section(title: str, lines: list[str]):
+            if not lines:
+                return
+            chunks = self._chunk_lines(sorted(lines))
+            for idx, chunk in enumerate(chunks):
+                heading = title if idx == 0 else f"{title} (pokračování {idx})"
+                sections.extend(
+                    [
+                        discord.ui.Separator(
+                            visible=True, spacing=discord.SeparatorSpacing.large
+                        ),
+                        discord.ui.TextDisplay(
+                            content=f"{heading}\n" + "\n".join(chunk.split("\n"))
+                        ),
+                    ]
+                )
+
+        _maybe_add_section("Online", online_lines)
+        _maybe_add_section("Offline", offline_lines)
+        _maybe_add_section("Nepodařilo se ověřit", unresolved_lines)
+
+        if len(sections) == 3 and not any(
+            [online_lines, offline_lines, unresolved_lines]
+        ):
+            return None
+
+        sections.append(
+            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large)
+        )
+        sections.append(
+            discord.ui.TextDisplay(
+                content="Timers reset when the status changes between online and offline."
+            )
         )
 
-        self._add_lines_field(
-            summary_embed,
-            name="Offline",
-            lines=sorted(offline_lines),
-            empty_message="",  # When empty we simply omit the field.
-        )
-
-        self._add_lines_field(
-            summary_embed,
-            name="Unable to verify",
-            lines=unresolved_lines,
-            empty_message="",  # When empty we simply omit the field.
-        )
-
-        summary_embed.set_footer(
-            text="Timers reset when the status changes between online and offline."
-        )
-        return player_embeds, summary_embed, offline_notifications
+        summary_view = discord.ui.LayoutView(timeout=None)
+        summary_view.add_item(discord.ui.Container(*sections))
+        return summary_view
 
     async def _send_offline_notifications(
         self, notifications: list[tuple[discord.Member, str, float]]
@@ -829,12 +843,12 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         if not isinstance(channel, discord.TextChannel):
             return
 
-        player_embeds, summary_embed, offline_notifications = await self._build_presence_report(
+        player_embeds, summary_view, offline_notifications = await self._build_presence_report(
             channel.guild, mention_offline_only=True
         )
         await self._send_offline_notifications(offline_notifications)
 
-        if summary_embed is None:
+        if summary_view is None:
             return
 
         now = datetime.now(timezone.utc)
@@ -845,14 +859,14 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             try:
                 await channel.send(
                     content=message.get("content"),
-                    embed=message.get("embed"),
+                    view=message.get("view"),
                     allowed_mentions=message.get("allowed_mentions"),
                 )
             except discord.HTTPException as exc:
-                self._logger.warning("Nepodařilo se odeslat embed pro hráče: %s", exc)
+                self._logger.warning("Nepodařilo se odeslat zprávu pro hráče: %s", exc)
             await asyncio.sleep(0.3)
 
-        await channel.send(embed=summary_embed)
+        await channel.send(view=summary_view)
 
     @presence_notifier.before_loop
     async def _wait_for_ready(self):
@@ -935,13 +949,30 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             offline_text = self._format_timedelta(totals["offline"])
             lines.append(f"{label}: 🟢 {online_text} | 🔴 {offline_text}")
 
-        embed = discord.Embed(
-            title="Roblox leaderboard", colour=discord.Color.green()
-        )
-        embed.description = f"Rozsah měření: {self._format_range()}"
-        self._add_lines_field(embed, "Souhrn", lines, "")
+        leaderboard_view = discord.ui.LayoutView(timeout=None)
+        leaderboard_items = [
+            discord.ui.TextDisplay(content="Roblox leaderboard"),
+            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
+            discord.ui.TextDisplay(content=f"Rozsah měření: {self._format_range()}"),
+        ]
 
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        for idx, chunk in enumerate(self._chunk_lines(lines)):
+            heading = "Souhrn" if idx == 0 else f"Souhrn (pokračování {idx})"
+            leaderboard_items.extend(
+                [
+                    discord.ui.Separator(
+                        visible=True, spacing=discord.SeparatorSpacing.large
+                    ),
+                    discord.ui.TextDisplay(content=f"{heading}\n" + chunk),
+                ]
+            )
+
+        leaderboard_view.add_item(discord.ui.Container(*leaderboard_items))
+
+        await interaction.response.send_message(
+            view=leaderboard_view,
+            ephemeral=True,
+        )
 
     @app_commands.command(
         name="cookie",
@@ -968,5 +999,3 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         )
 
 
-async def setup(bot: commands.Bot):
-    await bot.add_cog(RobloxActivityCog(bot))

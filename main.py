@@ -6,6 +6,8 @@ from zoneinfo import ZoneInfo
 import discord
 from discord.ext import commands
 
+from cog_roblox_activity import RobloxActivityCog
+
 from config import TOKEN
 from db import init_db
 
@@ -64,7 +66,8 @@ class MyBot(commands.Bot):
         await self.load_extension("cog_updater")
         await self.load_extension("cog_welcome")
         await self.load_extension("cog_attendance")
-        await self.load_extension("cog_roblox_activity")
+
+        await self.add_cog(RobloxActivityCog(self))
 
         # sync slash commandů
         await self.tree.sync()
