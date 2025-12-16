@@ -1029,7 +1029,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 )
             await asyncio.sleep(0.2)
 
-    @tasks.loop(minutes=5)
+    @tasks.loop(minutes=30)
     async def presence_notifier(self):
         if not self._tracking_enabled:
             return
