@@ -473,7 +473,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 if normalized in {"notfriend", "none", "unknown"}:
                     return False
                 if "request" in normalized or "pending" in normalized:
-                    return None
+                    return False
                 return None
 
             try:
@@ -484,7 +484,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             if numeric in {3, 4}:
                 return True
             if numeric in {1, 2}:  # outgoing or incoming request – treat as pending
-                return None
+                return False
             if numeric == 0:
                 return False
             return None
