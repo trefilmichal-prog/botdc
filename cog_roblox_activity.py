@@ -465,6 +465,26 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         headers = {"Cookie": f".ROBLOSECURITY={self._roblox_cookie}"}
 
+        def _interpret_friend_status(value) -> Optional[bool]:
+            if isinstance(value, str):
+                normalized = value.strip().lower()
+                if normalized in {"friend", "friends", "isfriend", "isfriends"}:
+                    return True
+                if normalized in {"notfriend", "none", "unknown"}:
+                    return False
+                return None
+
+            try:
+                numeric = int(value)
+            except (TypeError, ValueError):
+                return None
+
+            if numeric in {3, 4}:
+                return True
+            if numeric in {1, 2}:
+                return False
+            return None
+
         async def _populate_from_endpoint(url: str) -> str:
             for i in range(0, len(ids), 100):
                 batch = ids[i : i + 100]
@@ -505,10 +525,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                     status = entry.get("status") or entry.get("friendStatus")
                     if target_id is None:
                         continue
-                    connection = None
-                    if isinstance(status, str):
-                        connection = status.lower() == "friend"
-                    result[int(target_id)] = connection
+                    result[int(target_id)] = _interpret_friend_status(status)
 
                 for uid in batch:
                     result.setdefault(uid, None)
