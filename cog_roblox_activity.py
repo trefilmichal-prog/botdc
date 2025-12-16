@@ -80,7 +80,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         try:
             return datetime.fromisoformat(value)
         except ValueError:
-            self._logger.warning("Nešlo načíst časovou hodnotu: %s", value)
+            self._logger.warning("Failed to parse datetime value: %s", value)
             return None
 
     def _ensure_tracking_table_columns(self, cursor) -> None:
@@ -95,7 +95,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             )
         except Exception as exc:  # noqa: BLE001
             self._logger.warning(
-                "Nepodařilo se přidat sloupec last_channel_report_at: %s", exc
+                "Could not add last_channel_report_at column: %s", exc
             )
 
     def _load_cookie_from_db(self) -> None:
@@ -348,7 +348,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             self._load_cookie_from_db()
         if not self._roblox_cookie:
             self._logger.warning(
-                "Chybí Roblox ověřovací cookie – nelze získat stav přítomnosti."
+                "Missing Roblox authentication cookie – cannot retrieve presence status."
             )
             for user_id in ids:
                 result[user_id] = None
@@ -457,7 +457,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         if not self._roblox_cookie:
             self._logger.warning(
-                "Chybí Roblox ověřovací cookie – nelze zjistit friends status."
+                "Missing Roblox authentication cookie – cannot retrieve friends status."
             )
             for uid in ids:
                 result[uid] = None
@@ -709,8 +709,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             }
 
             if lower not in resolved_ids:
-                message = f"**{username}** – Roblox účet nenalezen"
-                detail["note"] = "Roblox účet nenalezen"
+                message = f"**{username}** – Roblox account not found"
+                detail["note"] = "Roblox account not found"
                 unresolved_lines.append(message)
                 details.append(detail)
                 continue
@@ -736,7 +736,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                         )
                 duration = self._format_timedelta(duration_seconds)
             else:
-                duration = "sledování vypnuto"
+                duration = "tracking disabled"
 
             detail["duration"] = duration
 
@@ -746,7 +746,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 connection_status = connections.get(user_id)
                 note = None
                 if connection_status is False:
-                    note = "Hráč není v tvých Roblox connections."
+                    note = "Player is not friends with senpaicat22"
                 detail["note"] = note
                 status_text = f"🔴 **{username}** – offline {duration}"
                 if note:
@@ -754,14 +754,14 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 offline_lines.append(status_text)
             else:
                 unresolved_lines.append(
-                    f"**{username}** – status se nepodařilo zjistit"
+                    f"**{username}** – status could not be determined"
                 )
 
             details.append(detail)
 
         if missing_usernames:
             unresolved_lines.append(
-                "Nebylo možné získat data pro: "
+                "Could not retrieve data for: "
                 + ", ".join(f"**{name}**" for name in sorted(missing_usernames))
             )
 
@@ -798,13 +798,13 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
     @app_commands.command(
         name="roblox_activity",
-        description="Zkontroluje, kdo z členů clanu hraje Rebirth Champions Ultimate.",
+        description="Check which clan members are playing Rebirth Champions Ultimate.",
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def roblox_activity(self, interaction: discord.Interaction):
         if not interaction.guild:
             await interaction.response.send_message(
-                "Tento příkaz lze použít pouze na serveru.", ephemeral=True
+                "This command can only be used in a server.", ephemeral=True
             )
             return
 
@@ -815,7 +815,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         )
         if summary_view is None:
             await interaction.followup.send(
-                "Nenašel jsem žádné členy s potřebnými rolemi a Roblox nickem v přezdívce.",
+                "No members with the required roles and a Roblox nickname in their display name were found.",
                 ephemeral=True,
             )
             return
@@ -831,7 +831,9 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             )
 
         await interaction.followup.send(
-            content="Souhrn aktivity Roblox clanu:", view=summary_view, ephemeral=True
+            content="Roblox clan activity summary:",
+            view=summary_view,
+            ephemeral=True,
         )
 
     async def _build_presence_report(
@@ -897,8 +899,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                     {
                         "view": None,
                         "content": (
-                            f"🔴 **{username}** je offline. "
-                            f"Sledované účty: {members_text}.{note_suffix}"
+                            f"🔴 **{username}** is offline. "
+                            f"Tracked accounts: {members_text}.{note_suffix}"
                         ),
                         "allowed_mentions": discord.AllowedMentions(
                             everyone=False, roles=False, users=True
@@ -912,8 +914,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                     {
                         "view": None,
                         "content": (
-                            "⚪ Status hráče se nepodařilo ověřit. "
-                            f"Sledované účty: {members_text}."
+                            "⚪ The player's status could not be verified. "
+                            f"Tracked accounts: {members_text}."
                         ),
                         "allowed_mentions": None,
                     }
@@ -958,7 +960,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         unresolved_lines: list[str],
     ) -> Optional[discord.ui.LayoutView]:
         sections: list[discord.ui.TextDisplay] = [
-            discord.ui.TextDisplay(content="Souhrn aktivity Roblox clanu"),
+            discord.ui.TextDisplay(content="Roblox clan activity summary"),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
             discord.ui.TextDisplay(content="RCU Clan Wars activities"),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
@@ -977,7 +979,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 return
             chunks = self._chunk_lines(sorted(lines))
             for idx, chunk in enumerate(chunks):
-                heading = title if idx == 0 else f"{title} (pokračování {idx})"
+                heading = title if idx == 0 else f"{title} (continued {idx})"
                 sections.extend(
                     [
                         discord.ui.Separator(
@@ -991,7 +993,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         _maybe_add_section("Online", online_lines)
         _maybe_add_section("Offline", offline_lines)
-        _maybe_add_section("Nepodařilo se ověřit", unresolved_lines)
+        _maybe_add_section("Could not verify", unresolved_lines)
 
         if len(sections) == 3 and not any(
             [online_lines, offline_lines, unresolved_lines]
@@ -1056,7 +1058,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                     allowed_mentions=message.get("allowed_mentions"),
                 )
             except discord.HTTPException as exc:
-                self._logger.warning("Nepodařilo se odeslat zprávu pro hráče: %s", exc)
+                self._logger.warning("Failed to send message for player: %s", exc)
             await asyncio.sleep(0.3)
 
         await channel.send(view=summary_view)
@@ -1093,23 +1095,23 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         if end_time:
             end_time = end_time.astimezone(timezone.utc)
             return f"{start:%Y-%m-%d %H:%M UTC} – {end_time:%Y-%m-%d %H:%M UTC}"
-        return f"{start:%Y-%m-%d %H:%M UTC} – právě teď"
+        return f"{start:%Y-%m-%d %H:%M UTC} – right now"
 
     @app_commands.command(
         name="roblox_tracking",
-        description="Zapne nebo vypne sledování Roblox aktivity.",
+        description="Enable or disable Roblox activity tracking.",
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def roblox_tracking(self, interaction: discord.Interaction, enabled: bool):
         if enabled:
             self._start_tracking_session()
             message = (
-                "Sledování Roblox aktivity bylo zapnuto a statistiky byly resetovány."
+                "Roblox activity tracking has been enabled and statistics have been reset."
             )
         else:
             self._stop_tracking_session()
             message = (
-                "Sledování Roblox aktivity bylo vypnuto. Souhrn lze zobrazit příkazem "
+                "Roblox activity tracking has been disabled. View the summary with "
                 "/roblox_leaderboard."
             )
 
@@ -1117,7 +1119,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
     @app_commands.command(
         name="roblox_leaderboard",
-        description="Zobrazí celkový čas online a offline od posledního zapnutí sledování.",
+        description="Show total online and offline time since tracking was last enabled.",
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def roblox_leaderboard(self, interaction: discord.Interaction):
@@ -1126,7 +1128,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         if not self._duration_totals:
             await interaction.response.send_message(
-                "Není k dispozici žádný záznam pro leaderboard. Zapněte sledování a počkejte na kontrolu.",
+                "No leaderboard data is available. Enable tracking and wait for a check.",
                 ephemeral=True,
             )
             return
@@ -1146,11 +1148,11 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         leaderboard_items = [
             discord.ui.TextDisplay(content="Roblox leaderboard"),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
-            discord.ui.TextDisplay(content=f"Rozsah měření: {self._format_range()}"),
+            discord.ui.TextDisplay(content=f"Measurement range: {self._format_range()}"),
         ]
 
         for idx, chunk in enumerate(self._chunk_lines(lines)):
-            heading = "Souhrn" if idx == 0 else f"Souhrn (pokračování {idx})"
+            heading = "Summary" if idx == 0 else f"Summary (continued {idx})"
             leaderboard_items.extend(
                 [
                     discord.ui.Separator(
@@ -1169,26 +1171,26 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
     @app_commands.command(
         name="cookie",
-        description="Uloží Roblox cookie pro ověřování přítomnosti.",
+        description="Store the Roblox cookie for presence authentication.",
     )
     async def set_cookie(self, interaction: discord.Interaction, value: str):
         if interaction.user.id != self._AUTHORIZED_COOKIE_USER_ID:
             await interaction.response.send_message(
-                "Nemáš oprávnění uložit cookie.", ephemeral=True
+                "You are not authorized to store the cookie.", ephemeral=True
             )
             return
 
         cookie = value.strip()
         if not cookie:
             await interaction.response.send_message(
-                "Cookie nemůže být prázdná.", ephemeral=True
+                "Cookie cannot be empty.", ephemeral=True
             )
             return
 
         self._roblox_cookie = cookie
         self._persist_cookie_to_db()
         await interaction.response.send_message(
-            "Cookie byla uložena.", ephemeral=True
+            "Cookie has been saved.", ephemeral=True
         )
 
 
