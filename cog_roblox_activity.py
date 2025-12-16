@@ -50,6 +50,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         self._session_ended_at: Optional[datetime] = None
         self._last_channel_report: Optional[datetime] = None
         self._authenticated_user_id: Optional[int] = None
+        self._skip_connection_checks: bool = False
 
     async def cog_load(self):
         self._session = aiohttp.ClientSession()
@@ -442,6 +443,11 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         if not ids:
             return result
 
+        if self._skip_connection_checks:
+            for uid in ids:
+                result[uid] = None
+            return result
+
         if not self._session:
             raise RuntimeError("RobloxActivityCog session is not initialized")
 
@@ -478,6 +484,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                             auth_user_id,
                         )
                         self._authenticated_user_id = None
+                        self._skip_connection_checks = True
                         for uid in ids[i:]:
                             result[uid] = None
                         break
