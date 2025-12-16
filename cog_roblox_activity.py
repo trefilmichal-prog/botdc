@@ -897,14 +897,15 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 note_suffix = f" {note}" if note else ""
                 player_embeds.append(
                     {
-                        "view": None,
-                        "content": (
-                            f"🔴 **{username}** is offline. "
-                            f"Tracked accounts: {members_text}.{note_suffix}"
+                        "view": self._build_player_status_view(
+                            username,
+                            members_text,
+                            status_label="is offline",
+                            icon="🔴",
+                            note=note,
                         ),
-                        "allowed_mentions": discord.AllowedMentions(
-                            everyone=False, roles=False, users=True
-                        ),
+                        "content": None,
+                        "allowed_mentions": None,
                     }
                 )
                 continue
@@ -912,11 +913,13 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             if status is None:
                 player_embeds.append(
                     {
-                        "view": None,
-                        "content": (
-                            "⚪ The player's status could not be verified. "
-                            f"Tracked accounts: {members_text}."
+                        "view": self._build_player_status_view(
+                            username,
+                            members_text,
+                            status_label="could not be verified",
+                            icon="⚪",
                         ),
+                        "content": None,
                         "allowed_mentions": None,
                     }
                 )
@@ -951,6 +954,37 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         )
 
         return player_embeds, summary_view, offline_notifications
+
+    def _build_player_status_view(
+        self,
+        username: str,
+        members_text: str,
+        *,
+        status_label: str,
+        icon: str,
+        note: Optional[str] = None,
+    ) -> discord.ui.LayoutView:
+        sections: list[discord.ui.LayoutViewItem] = [
+            discord.ui.TextDisplay(content=f"{icon} **{username}** {status_label}.")
+        ]
+
+        sections.append(
+            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.medium)
+        )
+        sections.append(
+            discord.ui.TextDisplay(content=f"Tracked accounts: {members_text}.")
+        )
+
+        if note:
+            sections.append(
+                discord.ui.TextDisplay(
+                    content=f"Note: {note}" if note else ""
+                )
+            )
+
+        view = discord.ui.LayoutView(timeout=None)
+        view.add_item(discord.ui.Container(*sections))
+        return view
 
     def _build_summary_view(
         self,
