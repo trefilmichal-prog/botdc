@@ -469,8 +469,11 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             for i in range(0, len(ids), 100):
                 batch = ids[i : i + 100]
                 try:
-                    async with self._session.post(
-                        url, json={"userIds": batch}, headers=headers, timeout=20
+                    async with self._session.get(
+                        url,
+                        params={"userIds": batch},
+                        headers=headers,
+                        timeout=20,
                     ) as resp:
                         if resp.status == 404:
                             return "not_found"
