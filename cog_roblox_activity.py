@@ -683,7 +683,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         now = datetime.now(timezone.utc)
 
         (
-            online_lines,
+            _,
             offline_lines,
             unresolved_lines,
             details,
@@ -698,7 +698,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         )
 
         status_message = (
-            "Monitoring is active: checks every 5 minutes, channel reports every 30 minutes."
+            "Monitoring is active: checks and reports every 5 minutes."
             if self._tracking_enabled
             else "Monitoring is disabled. Enable it with /roblox_tracking."
         )
@@ -713,6 +713,9 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             duration = detail["duration"] or "N/A"
             note = detail.get("note")
 
+            if status is True:
+                continue
+
             if status is False:
                 embed = discord.Embed(
                     description=f"🔴 {detail['members_mentions']} is offline! 💩",
@@ -725,6 +728,23 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                         "allowed_mentions": discord.AllowedMentions(
                             everyone=False, roles=False, users=True
                         ),
+                    }
+                )
+                continue
+
+            if status is None:
+                embed = discord.Embed(
+                    description=(
+                        f"⚪ {detail['members_mentions']} has an unknown status. "
+                        "Roblox presence could not be verified."
+                    ),
+                    colour=discord.Color.light_grey(),
+                )
+                player_embeds.append(
+                    {
+                        "embed": embed,
+                        "content": None,
+                        "allowed_mentions": None,
                     }
                 )
                 continue
@@ -761,15 +781,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 "RCU Clan Wars activity monitoring. "
                 "Monitored roles: HROT and HROT EN. "
                 "Nicknames must include the Roblox username. "
-                f"{status_message}"
+                f"{status_message} Reports exclude online players and include offline or unknown statuses."
             ),
-        )
-
-        self._add_lines_field(
-            summary_embed,
-            name="Online",
-            lines=sorted(online_lines),
-            empty_message="No monitored members are currently online on Roblox.",
         )
 
         self._add_lines_field(
@@ -825,15 +838,6 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             return
 
         now = datetime.now(timezone.utc)
-        should_send = False
-        if self._last_channel_report is None:
-            should_send = True
-        else:
-            should_send = (now - self._last_channel_report).total_seconds() >= 30 * 60
-
-        if not should_send:
-            return
-
         self._last_channel_report = now
         self._persist_tracking_state()
 
