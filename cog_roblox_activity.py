@@ -31,6 +31,7 @@ ROBLOX_USERNAME_REGEX = re.compile(r"[A-Za-z0-9_]{3,20}")
 class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
     _COOKIE_SETTING_KEY = "roblox_presence_cookie"
     _AUTHORIZED_COOKIE_USER_ID = 369810917673795586
+    _AUTHENTICATED_USER_OVERRIDE_ID = 4_470_228_128
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -394,6 +395,10 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
     async def _fetch_authenticated_user_id(self) -> Optional[int]:
         if self._authenticated_user_id is not None:
+            return self._authenticated_user_id
+
+        if self._AUTHENTICATED_USER_OVERRIDE_ID:
+            self._authenticated_user_id = self._AUTHENTICATED_USER_OVERRIDE_ID
             return self._authenticated_user_id
 
         if not self._roblox_cookie:
