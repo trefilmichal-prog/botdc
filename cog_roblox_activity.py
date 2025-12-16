@@ -968,9 +968,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             discord.ui.TextDisplay(content=f"{icon} **{username}** {status_label}.")
         ]
 
-        sections.append(
-            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.medium)
-        )
+        sections.append(discord.ui.Separator(visible=True))
         sections.append(
             discord.ui.TextDisplay(content=f"Tracked accounts: {members_text}.")
         )
@@ -995,9 +993,9 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
     ) -> Optional[discord.ui.LayoutView]:
         sections: list[discord.ui.TextDisplay] = [
             discord.ui.TextDisplay(content="Roblox clan activity summary"),
-            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
+            discord.ui.Separator(visible=True),
             discord.ui.TextDisplay(content="RCU Clan Wars activities"),
-            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
+            discord.ui.Separator(visible=True),
             discord.ui.TextDisplay(
                 content=(
                     "RCU Clan Wars activity monitoring. "
@@ -1016,9 +1014,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 heading = title if idx == 0 else f"{title} (continued {idx})"
                 sections.extend(
                     [
-                        discord.ui.Separator(
-                            visible=True, spacing=discord.SeparatorSpacing.large
-                        ),
+                        discord.ui.Separator(visible=True),
                         discord.ui.TextDisplay(
                             content=f"{heading}\n" + "\n".join(chunk.split("\n"))
                         ),
@@ -1034,9 +1030,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         ):
             return None
 
-        sections.append(
-            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large)
-        )
+        sections.append(discord.ui.Separator(visible=True))
         sections.append(
             discord.ui.TextDisplay(
                 content="Timers reset when the status changes between online and offline."
@@ -1189,7 +1183,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         leaderboard_view = discord.ui.LayoutView(timeout=None)
         leaderboard_items = [
             discord.ui.TextDisplay(content="Roblox leaderboard"),
-            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
+            discord.ui.Separator(visible=True),
             discord.ui.TextDisplay(content=f"Measurement range: {self._format_range()}"),
         ]
 
@@ -1197,9 +1191,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             heading = "Summary" if idx == 0 else f"Summary (continued {idx})"
             leaderboard_items.extend(
                 [
-                    discord.ui.Separator(
-                        visible=True, spacing=discord.SeparatorSpacing.large
-                    ),
+                    discord.ui.Separator(visible=True),
                     discord.ui.TextDisplay(content=f"{heading}\n" + chunk),
                 ]
             )
