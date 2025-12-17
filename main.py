@@ -7,6 +7,7 @@ import discord
 from discord.ext import commands
 
 from cog_attendance import AttendanceCog
+from cog_clan import ClanPanelCog
 from cog_giveaway import GiveawayCog
 from cog_roblox_activity import RobloxActivityCog
 
@@ -53,7 +54,6 @@ class MyBot(commands.Bot):
         await self.load_extension("cog_wood")
         await self.load_extension("cog_timers")
         await self.load_extension("cog_shop")
-        await self.load_extension("cog_clan")  # <-- nový modul pro přihlášky do klanu
         await self.load_extension("cog_clan_stats")
         await self.load_extension("cog_basic")
         await self.load_extension("cog_leaderboard")
@@ -68,6 +68,7 @@ class MyBot(commands.Bot):
         await self.load_extension("cog_welcome")
 
         await self.add_cog(GiveawayCog(self))
+        await self.add_cog(ClanPanelCog(self))
         await self.add_cog(AttendanceCog(self))
 
         await self.add_cog(RobloxActivityCog(self))
