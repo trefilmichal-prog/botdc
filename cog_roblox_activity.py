@@ -26,7 +26,10 @@ ROBLOX_FRIEND_STATUS_URL = (
     "https://friends.roblox.com/v1/users/{user_id}/friends/statuses"
 )
 ROBLOX_MY_FRIEND_STATUS_URL = "https://friends.roblox.com/v1/my/friends/statuses"
-ROBLOX_USERNAME_REGEX = re.compile(r"[A-Za-z0-9_]{3,20}")
+# Some Roblox-related usernames in our community exceed the usual 20-character
+# limit (e.g., "roblox_user_1463871864" has 22 characters). Allow a slightly
+# larger range so we can still pick them up from member nicknames.
+ROBLOX_USERNAME_REGEX = re.compile(r"[A-Za-z0-9_]{3,26}")
 
 
 class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
