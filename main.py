@@ -70,8 +70,6 @@ class MyBot(commands.Bot):
         await self.add_cog(GiveawayCog(self))
         await self.add_cog(AttendanceCog(self))
 
-        await self.add_cog(GiveawayCog(self))
-
         await self.add_cog(RobloxActivityCog(self))
 
         # sync slash commandů

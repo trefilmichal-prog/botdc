@@ -575,8 +575,9 @@ class GiveawayView(discord.ui.LayoutView):
         self.cog = cog
 
         summary_container = discord.ui.Container(
-            discord.ui.TextDisplay(label="🎁 Giveaway", value="Připoj se nebo ukonči podle potřeby."),
-            discord.ui.TextDisplay(label="Status", value="Aktivní"),
+            discord.ui.TextDisplay(value="🎁 Giveaway"),
+            discord.ui.TextDisplay(value="Připoj se nebo ukonči podle potřeby."),
+            discord.ui.TextDisplay(value="Status: Aktivní"),
         )
 
         actions = discord.ui.ActionRow()
