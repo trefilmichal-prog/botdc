@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 import discord
 from discord.ext import commands
 
+from cog_attendance import AttendanceCog
 from cog_giveaway import GiveawayCog
 from cog_roblox_activity import RobloxActivityCog
 
@@ -65,7 +66,9 @@ class MyBot(commands.Bot):
         await self.load_extension("cog_time_status")
         await self.load_extension("cog_updater")
         await self.load_extension("cog_welcome")
-        await self.load_extension("cog_attendance")
+
+        await self.add_cog(GiveawayCog(self))
+        await self.add_cog(AttendanceCog(self))
 
         await self.add_cog(GiveawayCog(self))
 
