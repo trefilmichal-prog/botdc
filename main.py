@@ -6,6 +6,8 @@ from zoneinfo import ZoneInfo
 import discord
 from discord.ext import commands
 
+from cog_attendance import AttendanceCog
+from cog_giveaway import GiveawayCog
 from cog_roblox_activity import RobloxActivityCog
 
 from config import TOKEN
@@ -50,7 +52,6 @@ class MyBot(commands.Bot):
         await self.load_extension("cog_xp")
         await self.load_extension("cog_wood")
         await self.load_extension("cog_timers")
-        await self.load_extension("cog_giveaway")
         await self.load_extension("cog_shop")
         await self.load_extension("cog_clan")  # <-- nový modul pro přihlášky do klanu
         await self.load_extension("cog_clan_stats")
@@ -65,7 +66,9 @@ class MyBot(commands.Bot):
         await self.load_extension("cog_time_status")
         await self.load_extension("cog_updater")
         await self.load_extension("cog_welcome")
-        await self.load_extension("cog_attendance")
+
+        await self.add_cog(GiveawayCog(self))
+        await self.add_cog(AttendanceCog(self))
 
         await self.add_cog(RobloxActivityCog(self))
 
