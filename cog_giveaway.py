@@ -174,8 +174,8 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 continue
 
             self.active_giveaways[message_id] = state
-            view = GiveawayView(self)
-            await message.edit(content=_format_giveaway_content(state), view=view)
+            view = GiveawayView(self, state)
+            await message.edit(view=view)
 
             self.bot.loop.create_task(self.schedule_giveaway_auto_end(message_id))
 
@@ -204,8 +204,8 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
             return None
 
         self.active_giveaways[message.id] = state
-        view = GiveawayView(self)
-        await message.edit(content=_format_giveaway_content(state), view=view)
+        view = GiveawayView(self, state)
+        await message.edit(view=view)
 
         self.bot.loop.create_task(self.schedule_giveaway_auto_end(message.id))
         return state
@@ -245,7 +245,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
             self.active_giveaways.pop(message_id, None)
             return
 
-        view = GiveawayView(self)
+        view = GiveawayView(self, state)
         await self.finalize_giveaway(message, state, view)
 
         await channel.send(
@@ -300,7 +300,10 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 if isinstance(child, discord.ui.Button):
                     child.disabled = True
 
-            await message.edit(content=summary, view=view)
+            view.update_summary(summary)
+            view.set_status("Status: Ukončeno")
+
+            await message.edit(view=view)
 
             delete_giveaway_state(message.id)
             self.active_giveaways.pop(message.id, None)
@@ -308,11 +311,11 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
 
         participants_list = list(eligible_participants)
 
-        await message.edit(
-            content=_format_giveaway_content(state)
-            + "\n\n🎲 Losuji výherce...",
-            view=view,
+        view.set_status("Status: Losuji výherce...")
+        view.update_summary(
+            _format_giveaway_content(state) + "\n\n🎲 Losuji výherce..."
         )
+        await message.edit(view=view)
         await asyncio.sleep(0.8)
 
         gtype: GiveawayType = state["type"]
@@ -361,7 +364,10 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
             if isinstance(child, discord.ui.Button):
                 child.disabled = True
 
-        await message.edit(content=summary, view=view)
+        view.update_summary(summary)
+        view.set_status("Status: Ukončeno")
+
+        await message.edit(view=view)
 
         for uid in winners_ids:
             user = self.bot.get_user(uid)
@@ -549,13 +555,12 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 "block_admins": block_admins,
             }
 
-        view = GiveawayView(self)
+        view = GiveawayView(self, state)
 
-        content_prefix = ""
         if GIVEAWAY_PING_ROLE_ID and mention_ping_role:
-            content_prefix = f"<@&{GIVEAWAY_PING_ROLE_ID}>\n"
+            await channel.send(f"<@&{GIVEAWAY_PING_ROLE_ID}>")
 
-        msg = await channel.send(content=content_prefix + _format_giveaway_content(state), view=view)
+        msg = await channel.send(view=view)
 
         self.active_giveaways[msg.id] = state
 
@@ -570,14 +575,16 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
 
 
 class GiveawayView(discord.ui.LayoutView):
-    def __init__(self, cog: GiveawayCog):
+    def __init__(self, cog: GiveawayCog, state: Dict[str, Any]):
         super().__init__(timeout=None)
         self.cog = cog
+        self.content_display = discord.ui.TextDisplay(_format_giveaway_content(state))
+        self.status_display = discord.ui.TextDisplay("Status: Aktivní")
 
         summary_container = discord.ui.Container(
             discord.ui.TextDisplay("🎁 Giveaway"),
-            discord.ui.TextDisplay("Připoj se nebo ukonči podle potřeby."),
-            discord.ui.TextDisplay("Status: Aktivní"),
+            self.content_display,
+            self.status_display,
         )
 
         self.join_button = discord.ui.Button(
@@ -599,6 +606,12 @@ class GiveawayView(discord.ui.LayoutView):
         self.add_item(summary_container)
         self.add_item(discord.ui.Separator())
         self.add_item(actions)
+
+    def update_summary(self, text: str):
+        self.content_display.value = text
+
+    def set_status(self, text: str):
+        self.status_display.value = text
 
     async def join_giveaway(self, interaction: discord.Interaction):
         message = interaction.message
@@ -640,7 +653,8 @@ class GiveawayView(discord.ui.LayoutView):
 
         save_giveaway_state(message.id, state)
 
-        await message.edit(content=_format_giveaway_content(state), view=self)
+        self.update_summary(_format_giveaway_content(state))
+        await message.edit(view=self)
         await interaction.response.send_message(
             "Přihlásil ses do giveaway.",
             ephemeral=True,
