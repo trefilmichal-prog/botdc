@@ -4,21 +4,21 @@ import asyncio
 import random
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
 
 import discord
-from discord.ext import commands
 from discord import app_commands
+from discord.ext import commands
 
 from config import (
-    GIVEAWAY_PING_ROLE_ID,
     DEFAULT_GIVEAWAY_DURATION_MINUTES,
+    GIVEAWAY_PING_ROLE_ID,
     SETUP_MANAGER_ROLE_ID,
 )
 from db import (
     delete_giveaway_state,
-    get_setting,
     get_active_giveaway,
+    get_setting,
     load_active_giveaways,
     save_giveaway_state,
     set_setting,
@@ -28,29 +28,96 @@ from db import (
 class GiveawayType(str, Enum):
     COIN = "coin"
     PET = "pet"
-    SCREEN = "screen"  # screen giveaway – X výherců, bez pevné hodnoty
+    SCREEN = "screen"
+
+
+def _format_timestamp(dt: datetime) -> str:
+    dt_utc = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return f"<t:{int(dt_utc.timestamp())}:R> (<t:{int(dt_utc.timestamp())}:f>)"
+
+
+def _format_participants(participants: set[int]) -> str:
+    count = len(participants)
+    return f"👥 Účastníků: **{count}**"
+
+
+def _base_intro(state: Dict[str, Any]) -> list[str]:
+    intro: list[str] = [
+        f"🎯 Typ giveaway: **{state['type'].value}**",
+        f"👑 Pořádá: <@{state['host_id']}>",
+        f"⏳ Končí: {_format_timestamp(state['end_at'])}",
+    ]
+
+    if state.get("block_admins"):
+        intro.append("🚫 Administrátoři se nemohou přihlásit.")
+
+    return intro
+
+
+def _format_giveaway_content(state: Dict[str, Any]) -> str:
+    intro = _base_intro(state)
+
+    if state["type"] == GiveawayType.COIN:
+        amount: int = state["amount"]
+        intro.extend(
+            [
+                f"💰 Celkem coinů: **{amount}**",
+                "🥇 Coiny se rozdělí mezi až 3 hráče.",
+                _format_participants(state.get("participants", set())),
+            ]
+        )
+    elif state["type"] == GiveawayType.PET:
+        pet_name: str = state["pet_name"]
+        click_value: str = state["click_value"]
+        intro.extend(
+            [
+                f"🐾 Pet: **{pet_name}**",
+                f"⚡ Hodnota: `{click_value}`",
+                _format_participants(state.get("participants", set())),
+            ]
+        )
+    else:
+        winners_count: int = state.get("winners_count", 3)
+        intro.extend(
+            [
+                "📸 Giveaway podle přiloženého obrázku.",
+                f"🥇 Losuje se až **{winners_count}** výherců.",
+                _format_participants(state.get("participants", set())),
+            ]
+        )
+
+    image_url = state.get("image_url")
+    if image_url:
+        intro.append(f"🖼️ Obrázek: {image_url}")
+
+    return "\n".join(intro)
+
+
+def _format_result_content(state: Dict[str, Any], winners: list[int], extra: str) -> str:
+    base = _base_intro(state)
+    base.append(extra)
+    if winners:
+        base.append("🎉 Výherci:")
+        base.extend([f"• <@{uid}>" for uid in winners])
+    else:
+        base.append("⚠️ Nebyl nalezen žádný platný výherce.")
+
+    return "\n".join(base)
 
 
 class GiveawayCog(commands.Cog, name="GiveawayCog"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # message_id -> stav giveaway
         self.active_giveaways: Dict[int, Dict[str, Any]] = {}
-
         self._restored = False
 
     @staticmethod
     def _ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
         if dt is None:
             return None
-
         if dt.tzinfo is None:
             return dt.replace(tzinfo=timezone.utc)
-
         return dt.astimezone(timezone.utc)
-
-        # persistentní view pro giveaway tlačítka
-        self.bot.add_view(GiveawayView(self))
 
     async def cog_load(self):
         await self.restore_active_giveaways()
@@ -58,8 +125,6 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
     @commands.Cog.listener()
     async def on_ready(self):
         await self.restore_active_giveaways()
-
-    # ---------- INTERNÍ HELPERY ----------
 
     async def _get_text_channel(self, channel_id: Optional[int]) -> Optional[discord.TextChannel]:
         if channel_id is None:
@@ -109,55 +174,90 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 continue
 
             self.active_giveaways[message_id] = state
-            view = GiveawayView(self)
-
-            participants: set[int] = state.get("participants", set())
-            if message.embeds:
-                embed = message.embeds[0].copy()
-                embed.set_footer(text=f"Počet účastníků: {len(participants)}")
-                await message.edit(embed=embed, view=view)
-            else:
+            view = GiveawayView(self, state)
+            try:
                 await message.edit(view=view)
+            except discord.HTTPException as exc:
+                if exc.code == 50035 and "content" in (exc.text or ""):
+                    await self._recreate_giveaway_message(channel, state, message_id, message)
+                    continue
+                delete_giveaway_state(message_id)
+                self.active_giveaways.pop(message_id, None)
+                continue
 
             self.bot.loop.create_task(self.schedule_giveaway_auto_end(message_id))
 
-    async def restore_single_giveaway(self, message: Optional[discord.Message]):
+    async def restore_single_giveaway(
+        self, message: Optional[discord.Message]
+    ) -> tuple[Optional[Dict[str, Any]], Optional[discord.Message]]:
         if message is None:
-            return None
+            return None, None
 
         if message.id in self.active_giveaways:
-            return self.active_giveaways[message.id]
+            return self.active_giveaways[message.id], message
 
         state = get_active_giveaway(message.id)
         if state is None:
-            return None
+            return None, None
 
         try:
             state["type"] = GiveawayType(state["type"])
         except Exception:
             delete_giveaway_state(message.id)
-            return None
+            return None, None
 
         state["end_at"] = self._ensure_utc(state.get("end_at"))
 
         channel = message.channel
         if not isinstance(channel, discord.TextChannel):
             delete_giveaway_state(message.id)
-            return None
+            return None, None
 
         self.active_giveaways[message.id] = state
-        view = GiveawayView(self)
-
-        participants: set[int] = state.get("participants", set())
-        if message.embeds:
-            embed = message.embeds[0].copy()
-            embed.set_footer(text=f"Počet účastníků: {len(participants)}")
-            await message.edit(embed=embed, view=view)
-        else:
+        view = GiveawayView(self, state)
+        try:
             await message.edit(view=view)
+            self.bot.loop.create_task(self.schedule_giveaway_auto_end(message.id))
+            return state, message
+        except discord.HTTPException as exc:
+            if exc.code == 50035 and "content" in (exc.text or ""):
+                new_message = await self._recreate_giveaway_message(
+                    channel, state, message.id, message
+                )
+                return state if new_message else None, new_message
 
-        self.bot.loop.create_task(self.schedule_giveaway_auto_end(message.id))
-        return state
+            delete_giveaway_state(message.id)
+            self.active_giveaways.pop(message.id, None)
+            return None, None
+
+    async def _recreate_giveaway_message(
+        self,
+        channel: discord.TextChannel,
+        state: Dict[str, Any],
+        old_message_id: int,
+        old_message: Optional[discord.Message] = None,
+    ) -> Optional[discord.Message]:
+        view = GiveawayView(self, state)
+
+        try:
+            new_message = await channel.send(view=view)
+        except discord.HTTPException:
+            return None
+
+        try:
+            if old_message is not None:
+                await old_message.delete()
+        except (discord.HTTPException, discord.Forbidden, discord.NotFound):
+            pass
+
+        delete_giveaway_state(old_message_id)
+        self.active_giveaways.pop(old_message_id, None)
+
+        self.active_giveaways[new_message.id] = state
+        save_giveaway_state(new_message.id, state)
+        self.bot.loop.create_task(self.schedule_giveaway_auto_end(new_message.id))
+
+        return new_message
 
     async def schedule_giveaway_auto_end(self, message_id: int):
         state = self.active_giveaways.get(message_id)
@@ -194,61 +294,15 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
             self.active_giveaways.pop(message_id, None)
             return
 
-        view = GiveawayView(self)
-        await self.finalize_giveaway(message, state, view)
+        await self.finalize_giveaway(message, state)
 
         await channel.send(
             f"Giveaway byla **automaticky ukončena** po {state.get('duration')} minutách, "
-            f"výherci jsou zobrazeni v embedu."
+            "výherci jsou uvedeni v hlavním příspěvku."
         )
-
-    def _create_giveaway_embed(
-        self,
-        *,
-        title: str,
-        color: int,
-        intro_lines: list[str],
-        end_at: datetime,
-        host: discord.abc.User,
-        extra_fields: Optional[list[tuple[str, str]]] = None,
-        footer_note: str = "Počet účastníků: 0",
-        block_admins: bool = False,
-    ) -> discord.Embed:
-        embed = discord.Embed(title=title, color=color)
-
-        end_at_utc = self._ensure_utc(end_at)
-        end_ts = int(end_at_utc.timestamp())
-        description_lines = intro_lines + ["✅ Klikni na tlačítko níže a připoj se."]
-        embed.description = "\n".join(description_lines)
-
-        embed.add_field(name="Pořádá", value=host.mention, inline=True)
-        embed.add_field(
-            name="Končí",
-            value=f"<t:{end_ts}:R> (<t:{end_ts}:f>)",
-            inline=True,
-        )
-
-        if block_admins:
-            embed.add_field(
-                name="Omezení",
-                value="Administrátoři se do giveaway nemohou přihlásit.",
-                inline=False,
-            )
-
-        if extra_fields:
-            for name, value in extra_fields:
-                embed.add_field(name=name, value=value, inline=False)
-
-        if footer_note:
-            embed.set_footer(text=footer_note)
-
-        return embed
 
     async def finalize_giveaway(
-        self,
-        message: discord.Message,
-        state: Dict[str, Any],
-        view: "GiveawayView",
+        self, message: discord.Message, state: Dict[str, Any]
     ):
         if state.get("ended"):
             return
@@ -261,10 +315,6 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
             return
 
         state["ended"] = True
-
-        embed = message.embeds[0] if message.embeds else discord.Embed(color=0xFFD700)
-        embed = embed.copy()
-        embed.color = 0xFFA500
 
         guild = message.guild
         guild_name = guild.name if guild else "serveru"
@@ -286,17 +336,19 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
             eligible_participants.append(uid)
 
         if not eligible_participants:
-            embed.title = "🎁 Giveaway ukončena"
-            embed.description = (
-                "Nebyl nalezen žádný platný účastník pro losování. Giveaway končí bez výherce."
+            summary = _format_result_content(
+                state,
+                [],
+                "Nebyl nalezen žádný platný účastník pro losování. Giveaway končí bez výherce.",
             )
-            embed.color = 0x808080
-            embed.set_footer(text="Žádní platní účastníci")
-
-            for child in view.children:
-                child.disabled = True
-
-            await message.edit(embed=embed, view=view)
+            result_view = GiveawayView(
+                self,
+                state,
+                status_text="Status: Ukončeno",
+                summary_text=summary,
+                ended=True,
+            )
+            await message.edit(view=result_view)
 
             delete_giveaway_state(message.id)
             self.active_giveaways.pop(message.id, None)
@@ -304,15 +356,14 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
 
         participants_list = list(eligible_participants)
 
-        # vizuální „rolování“
-        for _ in range(5):
-            candidate_id = random.choice(participants_list)
-            embed.description = (
-                "🎲 **Losuji výherce...**\n"
-                f"Aktuální kandidát: <@{candidate_id}>"
-            )
-            await message.edit(embed=embed, view=view)
-            await asyncio.sleep(0.8)
+        rolling_view = GiveawayView(
+            self,
+            state,
+            status_text="Status: Losuji výherce...",
+            summary_text=_format_giveaway_content(state) + "\n\n🎲 Losuji výherce...",
+        )
+        await message.edit(view=rolling_view)
+        await asyncio.sleep(0.8)
 
         gtype: GiveawayType = state["type"]
         winners_ids: List[int] = []
@@ -330,9 +381,11 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 share = base + (1 if idx < remainder else 0)
                 winners_lines.append(f"• <@{uid}> – **{share}** coinů")
 
-            extra_message = f"Celkem rozdáno: **{amount}** coinů mezi {winners_count} hráče."
-            embed.title = "🎉 Coin giveaway – výsledky"
-            embed.description = extra_message + "\n\n" + "\n".join(winners_lines)
+            extra_message = (
+                f"Celkem rozdáno: **{amount}** coinů mezi {winners_count} hráče.\n"
+                + "\n".join(winners_lines)
+            )
+            summary = _format_result_content(state, winners_ids, extra_message)
 
         elif gtype == GiveawayType.PET:
             pet_name: str = state["pet_name"]
@@ -340,34 +393,30 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
             winner_id = random.choice(participants_list)
             winners_ids = [winner_id]
 
-            embed.title = "🎉 Pet giveaway – výsledky"
-            embed.description = (
-                f"Výherce peta **{pet_name}** (click hodnota: `{click_value}`):\n\n"
-                f"🥇 <@{winner_id}>"
+            extra_message = (
+                f"Výherce peta **{pet_name}** (hodnota `{click_value}`) je <@{winner_id}>."
             )
+            summary = _format_result_content(state, winners_ids, extra_message)
 
-        else:  # SCREEN
+        else:
             configured = int(state.get("winners_count", 3))
             winners_count = min(configured, len(participants_list))
             winners_ids = random.sample(participants_list, winners_count)
-            winners_lines = [f"• <@{uid}>" for uid in winners_ids]
-
-            embed.title = "🎉 Screen giveaway – výsledky"
-            embed.description = (
-                f"Výherci z giveaway (nastaveno {configured} výherců, losováno {winners_count}):\n\n"
-                + "\n".join(winners_lines)
+            extra_message = (
+                f"Výherci z giveaway (nastaveno {configured} výherců, losováno {winners_count})."
             )
+            summary = _format_result_content(state, winners_ids, extra_message)
 
-        embed.color = 0x00CC66
-        embed.set_footer(text=f"Účastníků celkem: {len(participants_list)}")
+        result_view = GiveawayView(
+            self,
+            state,
+            status_text="Status: Ukončeno",
+            summary_text=summary,
+            ended=True,
+        )
 
-        # vypnout tlačítka
-        for child in view.children:
-            child.disabled = True
+        await message.edit(view=result_view)
 
-        await message.edit(embed=embed, view=view)
-
-        # DM výhercům
         for uid in winners_ids:
             user = self.bot.get_user(uid)
             if user is None and guild is not None:
@@ -378,7 +427,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
 
             try:
                 if gtype == GiveawayType.COIN:
-                    amount: int = state["amount"]
+                    amount = state["amount"]
                     winners_count = len(winners_ids)
                     base = amount // winners_count
                     remainder = amount % winners_count
@@ -392,17 +441,18 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                     )
 
                 elif gtype == GiveawayType.PET:
-                    pet_name: str = state["pet_name"]
-                    click_value: str = state["click_value"]
+                    pet_name = state["pet_name"]
+                    click_value = state["click_value"]
                     dm_text = (
                         f"Ahoj, gratuluji! Vyhrál jsi v **pet giveaway** na serveru **{guild_name}**.\n"
                         f"Dostáváš peta **{pet_name}** (click hodnota: `{click_value}`).\n"
                         f"Prosím, ozvi se {host_mention} na serveru (přezdívka / předání výhry)."
                     )
-                else:  # SCREEN
+
+                else:
                     dm_text = (
                         f"Ahoj, gratuluji! Vyhrál jsi v **screen giveaway** na serveru **{guild_name}**.\n"
-                        f"Odměny jsou vidět v obrázku v giveaway.\n"
+                        "Odměny jsou vidět v obrázku v giveaway.\n"
                         f"Prosím, ozvi se {host_mention} na serveru (přezdívka / domluva ohledně výhry)."
                     )
 
@@ -412,8 +462,6 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
 
         delete_giveaway_state(message.id)
         self.active_giveaways.pop(message.id, None)
-
-    # ---------- SLASH COMMANDS ----------
 
     @app_commands.command(
         name="setupgiveaway",
@@ -494,7 +542,8 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
         duration = int(duration_minutes) if duration_minutes is not None else DEFAULT_GIVEAWAY_DURATION_MINUTES
         end_at = datetime.now(timezone.utc) + timedelta(minutes=duration)
 
-        # ---------------------- COIN ----------------------
+        state: Dict[str, Any]
+
         if typ == GiveawayType.COIN:
             if amount is None:
                 await interaction.response.send_message(
@@ -503,26 +552,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 )
                 return
 
-            embed = self._create_giveaway_embed(
-                title="🎁 Coin giveaway",
-                color=0xFFD700,
-                intro_lines=[
-                    f"💰 **{amount} coinů** je připraveno pro výherce.",
-                    "🥇 Coiny budou náhodně rozděleny až mezi 3 hráče.",
-                    f"⏳ Giveaway končí za {duration} minut.",
-                ],
-                extra_fields=[
-                    (
-                        "Jak se losuje",
-                        "Výhry se rozdělí rovnoměrně, prvním losovaným připadne případný zbytek coinů.",
-                    )
-                ],
-                end_at=end_at,
-                host=interaction.user,
-                block_admins=block_admins,
-            )
-
-            state: Dict[str, Any] = {
+            state = {
                 "type": GiveawayType.COIN,
                 "amount": int(amount),
                 "participants": set(),
@@ -535,34 +565,13 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 "block_admins": block_admins,
             }
 
-        # ---------------------- PET -----------------------
         elif typ == GiveawayType.PET:
-            if not pet_name or not click_value:
+            if pet_name is None or click_value is None:
                 await interaction.response.send_message(
-                    "Pro typ `pet` jsou povinné parametry `pet_name` i `click_value`.",
+                    "Pro typ `pet` jsou povinné parametry `pet_name` a `click_value`.",
                     ephemeral=True,
                 )
                 return
-
-            embed = self._create_giveaway_embed(
-                title="🎁 Pet giveaway",
-                color=0xFF69B4,
-                intro_lines=[
-                    f"🐾 Pet **{pet_name}** čeká na nového majitele!",
-                    f"⚡ Click hodnota: `{click_value}`.",
-                    "🥇 Náhodně bude vylosován 1 výherce.",
-                    f"⏳ Giveaway končí za {duration} minut.",
-                ],
-                extra_fields=[
-                    (
-                        "Co získáš",
-                        "Výherce obdrží peta včetně jeho click hodnoty. Pro vyzvednutí kontaktuj pořadatele.",
-                    )
-                ],
-                end_at=end_at,
-                host=interaction.user,
-                block_admins=block_admins,
-            )
 
             state = {
                 "type": GiveawayType.PET,
@@ -578,29 +587,8 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 "block_admins": block_admins,
             }
 
-        # ---------------------- SCREEN --------------------
         else:
             winners_count = int(screen_winners) if screen_winners is not None else 3
-
-            embed = self._create_giveaway_embed(
-                title="🎁 Screen giveaway",
-                color=0x00BFFF,
-                intro_lines=[
-                    "Giveaway podle screenu / obrázku níže.",
-                    "📸 Připoj se, pokud chceš být v losování.",
-                    f"🥇 Losuje se až {winners_count} výherců.",
-                    f"⏳ Giveaway končí za {duration} minut.",
-                ],
-                extra_fields=[
-                    (
-                        "Pravidla",
-                        "Výherci budou vybráni náhodně, detaily odměn najdeš na přiloženém obrázku.",
-                    )
-                ],
-                end_at=end_at,
-                host=interaction.user,
-                block_admins=block_admins,
-            )
 
             state = {
                 "type": GiveawayType.SCREEN,
@@ -615,22 +603,17 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 "block_admins": block_admins,
             }
 
-        if image_url:
-            embed.set_image(url=image_url)
+        view = GiveawayView(self, state)
 
-        view = GiveawayView(self)
-
-        content = ""
         if GIVEAWAY_PING_ROLE_ID and mention_ping_role:
-            content = f"<@&{GIVEAWAY_PING_ROLE_ID}>"
+            await channel.send(f"<@&{GIVEAWAY_PING_ROLE_ID}>")
 
-        msg = await channel.send(content=content, embed=embed, view=view)
+        msg = await channel.send(view=view)
 
         self.active_giveaways[msg.id] = state
 
         save_giveaway_state(msg.id, state)
 
-        # auto-end
         self.bot.loop.create_task(self.schedule_giveaway_auto_end(msg.id))
 
         await interaction.response.send_message(
@@ -639,21 +622,59 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
         )
 
 
-class GiveawayView(discord.ui.View):
-    def __init__(self, cog: GiveawayCog):
+class GiveawayView(discord.ui.LayoutView):
+    def __init__(
+        self,
+        cog: GiveawayCog,
+        state: Dict[str, Any],
+        *,
+        status_text: str = "Status: Aktivní",
+        summary_text: Optional[str] = None,
+        ended: bool = False,
+    ):
         super().__init__(timeout=None)
         self.cog = cog
+        summary_value = summary_text or _format_giveaway_content(state)
+        self.content_display = discord.ui.TextDisplay(summary_value)
+        self.status_display = discord.ui.TextDisplay(status_text)
 
-    @discord.ui.button(
-        label="Připojit se do giveaway",
-        style=discord.ButtonStyle.success,
-        custom_id="giveaway_join",
-    )
-    async def join_giveaway(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ):
+        summary_container = discord.ui.Container(
+            discord.ui.TextDisplay("🎁 Giveaway"),
+            self.content_display,
+            self.status_display,
+        )
+
+        self.join_button = discord.ui.Button(
+            label="Připojit se do giveaway",
+            style=discord.ButtonStyle.success,
+            custom_id="giveaway_join",
+        )
+        self.join_button.callback = self.join_giveaway
+
+        self.end_button = discord.ui.Button(
+            label="Ukončit giveaway",
+            style=discord.ButtonStyle.danger,
+            custom_id="giveaway_end",
+        )
+        self.end_button.callback = self.end_giveaway
+
+        if ended:
+            self.join_button.disabled = True
+            self.end_button.disabled = True
+
+        actions = discord.ui.ActionRow(self.join_button, self.end_button)
+
+        self.add_item(summary_container)
+        self.add_item(discord.ui.Separator())
+        self.add_item(actions)
+
+    def update_summary(self, text: str):
+        self.content_display.text = text
+
+    def set_status(self, text: str):
+        self.status_display.text = text
+
+    async def join_giveaway(self, interaction: discord.Interaction):
         message = interaction.message
         if message is None:
             await interaction.response.send_message(
@@ -663,8 +684,16 @@ class GiveawayView(discord.ui.View):
             return
 
         state = self.cog.active_giveaways.get(message.id)
+        restored_message = message
         if state is None:
-            state = await self.cog.restore_single_giveaway(message)
+            state, restored_message = await self.cog.restore_single_giveaway(message)
+        if restored_message is not None and restored_message.id != message.id:
+            await interaction.response.send_message(
+                f"Giveaway panel byl obnoven zde: {restored_message.jump_url}",
+                ephemeral=True,
+            )
+            return
+
         if not state or state.get("ended"):
             await interaction.response.send_message(
                 "Tato giveaway už není aktivní.",
@@ -691,28 +720,16 @@ class GiveawayView(discord.ui.View):
 
         participants.add(user_id)
 
-        save_giveaway_state(message.id, state)
+        save_giveaway_state(restored_message.id, state)
 
-        embed = message.embeds[0] if message.embeds else discord.Embed(color=0xFFD700)
-        embed = embed.copy()
-        embed.set_footer(text=f"Počet účastníků: {len(participants)}")
-
-        await message.edit(embed=embed, view=self)
+        new_view = GiveawayView(self.cog, state)
+        await restored_message.edit(view=new_view)
         await interaction.response.send_message(
             "Přihlásil ses do giveaway.",
             ephemeral=True,
         )
 
-    @discord.ui.button(
-        label="Ukončit giveaway",
-        style=discord.ButtonStyle.danger,
-        custom_id="giveaway_end",
-    )
-    async def end_giveaway(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ):
+    async def end_giveaway(self, interaction: discord.Interaction):
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message(
                 "Tuto giveaway může ukončit jen administrátor.",
@@ -729,8 +746,16 @@ class GiveawayView(discord.ui.View):
             return
 
         state = self.cog.active_giveaways.get(message.id)
+        restored_message = message
         if state is None:
-            state = await self.cog.restore_single_giveaway(message)
+            state, restored_message = await self.cog.restore_single_giveaway(message)
+        if restored_message is not None and restored_message.id != message.id:
+            await interaction.response.send_message(
+                f"Giveaway panel byl obnoven zde: {restored_message.jump_url}",
+                ephemeral=True,
+            )
+            return
+
         if not state or state.get("ended"):
             await interaction.response.send_message(
                 "Tato giveaway už není aktivní.",
@@ -747,12 +772,8 @@ class GiveawayView(discord.ui.View):
             return
 
         await interaction.response.defer()
-        await self.cog.finalize_giveaway(message, state, self)
+        await self.cog.finalize_giveaway(message, state)
         await interaction.followup.send(
-            "Giveaway byla ukončena, výherci jsou zobrazeni v embedu.",
+            "Giveaway byla ukončena, výherci jsou zobrazeni v příspěvku.",
             ephemeral=False,
         )
-
-
-async def setup(bot: commands.Bot):
-    await bot.add_cog(GiveawayCog(bot))
