@@ -172,6 +172,18 @@ def init_db():
         """
     )
 
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS attendance_panels (
+            message_id INTEGER PRIMARY KEY,
+            guild_id INTEGER NOT NULL,
+            channel_id INTEGER NOT NULL,
+            role_id INTEGER NOT NULL,
+            statuses_json TEXT NOT NULL
+        )
+        """
+    )
+
     # Statistiky uživatelů (XP/coins/level/messages)
     c.execute(
         """
@@ -468,6 +480,69 @@ def delete_giveaway_state(message_id: int):
     c.execute("DELETE FROM active_giveaways WHERE message_id = ?", (message_id,))
     conn.commit()
     conn.close()
+
+
+# ---------- ATTENDANCE PANELY ----------
+
+
+def save_attendance_panel(
+    message_id: int,
+    guild_id: int,
+    channel_id: int,
+    role_id: int,
+    statuses: Dict[int, str],
+):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO attendance_panels (message_id, guild_id, channel_id, role_id, statuses_json)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(message_id) DO UPDATE SET
+            guild_id = excluded.guild_id,
+            channel_id = excluded.channel_id,
+            role_id = excluded.role_id,
+            statuses_json = excluded.statuses_json
+        """,
+        (message_id, guild_id, channel_id, role_id, json.dumps(statuses)),
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_attendance_panel(message_id: int):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM attendance_panels WHERE message_id = ?", (message_id,))
+    conn.commit()
+    conn.close()
+
+
+def load_attendance_panels() -> list[tuple[int, int, int, int, Dict[int, str]]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "SELECT message_id, guild_id, channel_id, role_id, statuses_json FROM attendance_panels"
+    )
+    rows = c.fetchall()
+    conn.close()
+    panels: list[tuple[int, int, int, int, Dict[int, str]]] = []
+    for message_id, guild_id, channel_id, role_id, statuses_json in rows:
+        try:
+            statuses = json.loads(statuses_json) if statuses_json else {}
+            panels.append(
+                (
+                    int(message_id),
+                    int(guild_id),
+                    int(channel_id),
+                    int(role_id),
+                    {int(uid): str(status) for uid, status in statuses.items()},
+                )
+            )
+        except json.JSONDecodeError:
+            continue
+
+    return panels
 
 
 # ---------- CLAN PANELY ----------
