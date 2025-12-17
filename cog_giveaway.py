@@ -175,40 +175,89 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
 
             self.active_giveaways[message_id] = state
             view = GiveawayView(self, state)
-            await message.edit(view=view)
+            try:
+                await message.edit(view=view)
+            except discord.HTTPException as exc:
+                if exc.code == 50035 and "content" in (exc.text or ""):
+                    await self._recreate_giveaway_message(channel, state, message_id, message)
+                    continue
+                delete_giveaway_state(message_id)
+                self.active_giveaways.pop(message_id, None)
+                continue
 
             self.bot.loop.create_task(self.schedule_giveaway_auto_end(message_id))
 
-    async def restore_single_giveaway(self, message: Optional[discord.Message]):
+    async def restore_single_giveaway(
+        self, message: Optional[discord.Message]
+    ) -> tuple[Optional[Dict[str, Any]], Optional[discord.Message]]:
         if message is None:
-            return None
+            return None, None
 
         if message.id in self.active_giveaways:
-            return self.active_giveaways[message.id]
+            return self.active_giveaways[message.id], message
 
         state = get_active_giveaway(message.id)
         if state is None:
-            return None
+            return None, None
 
         try:
             state["type"] = GiveawayType(state["type"])
         except Exception:
             delete_giveaway_state(message.id)
-            return None
+            return None, None
 
         state["end_at"] = self._ensure_utc(state.get("end_at"))
 
         channel = message.channel
         if not isinstance(channel, discord.TextChannel):
             delete_giveaway_state(message.id)
-            return None
+            return None, None
 
         self.active_giveaways[message.id] = state
         view = GiveawayView(self, state)
-        await message.edit(view=view)
+        try:
+            await message.edit(view=view)
+            self.bot.loop.create_task(self.schedule_giveaway_auto_end(message.id))
+            return state, message
+        except discord.HTTPException as exc:
+            if exc.code == 50035 and "content" in (exc.text or ""):
+                new_message = await self._recreate_giveaway_message(
+                    channel, state, message.id, message
+                )
+                return state if new_message else None, new_message
 
-        self.bot.loop.create_task(self.schedule_giveaway_auto_end(message.id))
-        return state
+            delete_giveaway_state(message.id)
+            self.active_giveaways.pop(message.id, None)
+            return None, None
+
+    async def _recreate_giveaway_message(
+        self,
+        channel: discord.TextChannel,
+        state: Dict[str, Any],
+        old_message_id: int,
+        old_message: Optional[discord.Message] = None,
+    ) -> Optional[discord.Message]:
+        view = GiveawayView(self, state)
+
+        try:
+            new_message = await channel.send(view=view)
+        except discord.HTTPException:
+            return None
+
+        try:
+            if old_message is not None:
+                await old_message.delete()
+        except (discord.HTTPException, discord.Forbidden, discord.NotFound):
+            pass
+
+        delete_giveaway_state(old_message_id)
+        self.active_giveaways.pop(old_message_id, None)
+
+        self.active_giveaways[new_message.id] = state
+        save_giveaway_state(new_message.id, state)
+        self.bot.loop.create_task(self.schedule_giveaway_auto_end(new_message.id))
+
+        return new_message
 
     async def schedule_giveaway_auto_end(self, message_id: int):
         state = self.active_giveaways.get(message_id)
@@ -623,8 +672,16 @@ class GiveawayView(discord.ui.LayoutView):
             return
 
         state = self.cog.active_giveaways.get(message.id)
+        restored_message = message
         if state is None:
-            state = await self.cog.restore_single_giveaway(message)
+            state, restored_message = await self.cog.restore_single_giveaway(message)
+        if restored_message is not None and restored_message.id != message.id:
+            await interaction.response.send_message(
+                f"Giveaway panel byl obnoven zde: {restored_message.jump_url}",
+                ephemeral=True,
+            )
+            return
+
         if not state or state.get("ended"):
             await interaction.response.send_message(
                 "Tato giveaway už není aktivní.",
@@ -651,10 +708,10 @@ class GiveawayView(discord.ui.LayoutView):
 
         participants.add(user_id)
 
-        save_giveaway_state(message.id, state)
+        save_giveaway_state(restored_message.id, state)
 
         self.update_summary(_format_giveaway_content(state))
-        await message.edit(view=self)
+        await restored_message.edit(view=self)
         await interaction.response.send_message(
             "Přihlásil ses do giveaway.",
             ephemeral=True,
@@ -677,8 +734,16 @@ class GiveawayView(discord.ui.LayoutView):
             return
 
         state = self.cog.active_giveaways.get(message.id)
+        restored_message = message
         if state is None:
-            state = await self.cog.restore_single_giveaway(message)
+            state, restored_message = await self.cog.restore_single_giveaway(message)
+        if restored_message is not None and restored_message.id != message.id:
+            await interaction.response.send_message(
+                f"Giveaway panel byl obnoven zde: {restored_message.jump_url}",
+                ephemeral=True,
+            )
+            return
+
         if not state or state.get("ended"):
             await interaction.response.send_message(
                 "Tato giveaway už není aktivní.",
