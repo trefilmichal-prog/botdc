@@ -2,6 +2,11 @@ import re
 import discord
 from discord.ext import commands
 from discord import app_commands
+from db import (
+    add_clan_application_panel,
+    get_all_clan_application_panels,
+    remove_clan_application_panel,
+)
 
 # Category where NEW ticket channels will be created (initial intake)
 TICKET_CATEGORY_ID = 1440977431577235456
@@ -729,9 +734,29 @@ class ClanPanelCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    async def cog_load(self):
+        for _, _, message_id in get_all_clan_application_panels():
+            try:
+                self.bot.add_view(Components(), message_id=message_id)
+            except Exception:
+                continue
+
     @app_commands.command(name="clan_panel", description="Zobrazí panel pro přihlášky do clanu")
     async def clan_panel(self, interaction: discord.Interaction):
-        await interaction.response.send_message(content="", view=Components(), ephemeral=False)
+        view = Components()
+        await interaction.response.send_message(content="", view=view, ephemeral=False)
+
+        try:
+            message = await interaction.original_response()
+        except discord.HTTPException:
+            return
+
+        if interaction.guild:
+            add_clan_application_panel(interaction.guild.id, message.channel.id, message.id)
+            try:
+                self.bot.add_view(view, message_id=message.id)
+            except Exception:
+                pass
 
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):
@@ -894,6 +919,6 @@ class ClanPanelCog(commands.Cog):
             await interaction.response.send_message(_t(lang, "unknown_action"), ephemeral=True)
             return
 
-
-async def setup(bot: commands.Bot):
-    await bot.add_cog(ClanPanelCog(bot))
+    @commands.Cog.listener()
+    async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent):
+        remove_clan_application_panel(payload.message_id)

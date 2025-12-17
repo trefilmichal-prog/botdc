@@ -111,6 +111,16 @@ def init_db():
 
     c.execute(
         """
+        CREATE TABLE IF NOT EXISTS clan_application_panels (
+            message_id INTEGER PRIMARY KEY,
+            guild_id INTEGER NOT NULL,
+            channel_id INTEGER NOT NULL
+        )
+        """
+    )
+
+    c.execute(
+        """
         CREATE TABLE IF NOT EXISTS leaderboard_panels (
             message_id INTEGER PRIMARY KEY,
             guild_id INTEGER NOT NULL,
@@ -576,6 +586,44 @@ def get_all_clan_panels() -> list[tuple[int, int, int]]:
     conn = get_connection()
     c = conn.cursor()
     c.execute("SELECT guild_id, channel_id, message_id FROM clan_panels")
+    rows = c.fetchall()
+    conn.close()
+    return [(int(g), int(ch), int(msg)) for g, ch, msg in rows]
+
+
+# ---------- CLAN APPLICATION PANELY ----------
+
+def add_clan_application_panel(guild_id: int, channel_id: int, message_id: int):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO clan_application_panels (message_id, guild_id, channel_id)
+        VALUES (?, ?, ?)
+        ON CONFLICT(message_id) DO UPDATE SET
+            guild_id = excluded.guild_id,
+            channel_id = excluded.channel_id
+        """,
+        (message_id, guild_id, channel_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def remove_clan_application_panel(message_id: int):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM clan_application_panels WHERE message_id = ?", (message_id,))
+    conn.commit()
+    conn.close()
+
+
+def get_all_clan_application_panels() -> list[tuple[int, int, int]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "SELECT guild_id, channel_id, message_id FROM clan_application_panels"
+    )
     rows = c.fetchall()
     conn.close()
     return [(int(g), int(ch), int(msg)) for g, ch, msg in rows]
