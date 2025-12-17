@@ -580,15 +580,12 @@ class GiveawayView(discord.ui.LayoutView):
             discord.ui.TextDisplay("Status: Aktivní"),
         )
 
-        actions = discord.ui.ActionRow()
-
         self.join_button = discord.ui.Button(
             label="Připojit se do giveaway",
             style=discord.ButtonStyle.success,
             custom_id="giveaway_join",
         )
         self.join_button.callback = self.join_giveaway
-        actions.add_child(self.join_button)
 
         self.end_button = discord.ui.Button(
             label="Ukončit giveaway",
@@ -596,7 +593,8 @@ class GiveawayView(discord.ui.LayoutView):
             custom_id="giveaway_end",
         )
         self.end_button.callback = self.end_giveaway
-        actions.add_child(self.end_button)
+
+        actions = discord.ui.ActionRow(self.join_button, self.end_button)
 
         self.add_item(summary_container)
         self.add_item(discord.ui.Separator())

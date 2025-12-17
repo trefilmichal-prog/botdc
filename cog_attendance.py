@@ -72,8 +72,6 @@ class AttendancePanelView(discord.ui.LayoutView):
             self.total_display,
         )
 
-        actions = discord.ui.ActionRow()
-
         self.ready_button = discord.ui.Button(
             label="Ready",
             style=discord.ButtonStyle.success,
@@ -81,7 +79,6 @@ class AttendancePanelView(discord.ui.LayoutView):
             custom_id="attendance_ready",
         )
         self.ready_button.callback = self.mark_ready
-        actions.add_child(self.ready_button)
 
         self.not_ready_button = discord.ui.Button(
             label="Not Ready",
@@ -90,7 +87,6 @@ class AttendancePanelView(discord.ui.LayoutView):
             custom_id="attendance_not_ready",
         )
         self.not_ready_button.callback = self.mark_not_ready
-        actions.add_child(self.not_ready_button)
 
         self.waiting_button = discord.ui.Button(
             label="Waiting",
@@ -99,7 +95,6 @@ class AttendancePanelView(discord.ui.LayoutView):
             custom_id="attendance_waiting",
         )
         self.waiting_button.callback = self.mark_waiting
-        actions.add_child(self.waiting_button)
 
         self.refresh_button = discord.ui.Button(
             label="Aktualizovat",
@@ -108,7 +103,13 @@ class AttendancePanelView(discord.ui.LayoutView):
             custom_id="attendance_refresh",
         )
         self.refresh_button.callback = self.refresh_members
-        actions.add_child(self.refresh_button)
+
+        actions = discord.ui.ActionRow(
+            self.ready_button,
+            self.not_ready_button,
+            self.waiting_button,
+            self.refresh_button,
+        )
 
         self.add_item(self.summary)
         self.add_item(discord.ui.Separator())
