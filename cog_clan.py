@@ -279,19 +279,37 @@ def _member_role_id_for_clan(clan_value: str, guild_id: int | None = None):
 def _member_role_id_for_accept(clan_value: str, applicant: discord.Member):
     """Return member role id for accept.
 
-    Special rule: For clan HROT only, the member role depends on applicant language role.
-    - If applicant has ROLE_LANG_CZ -> HROT_MEMBER_ROLE_CZ
-    - If applicant has ROLE_LANG_EN -> HROT_MEMBER_ROLE_EN
+    Special rule: Member role depends on applicant language role when configured.
+    - If clan has CZ/EN accept roles configured in DB, choose by language role.
+    - For HROT fallback, CZ/EN roles are chosen by language role constants.
     """
     clan_key = (clan_value or "").strip().lower()
+    guild_id = getattr(applicant.guild, "id", None)
+    db_conf = _guild_clan_config(guild_id, clan_value)
+    role_ids = {r.id for r in getattr(applicant, "roles", [])}
+
+    lang_role: str | None = None
+    if ROLE_LANG_EN in role_ids:
+        lang_role = "en"
+    elif ROLE_LANG_CZ in role_ids:
+        lang_role = "cs"
+
+    if db_conf:
+        if lang_role == "cs" and db_conf.get("accept_role_id_cz"):
+            return db_conf["accept_role_id_cz"]
+        if lang_role == "en" and db_conf.get("accept_role_id_en"):
+            return db_conf["accept_role_id_en"]
+        if db_conf.get("accept_role_id"):
+            return db_conf["accept_role_id"]
+
     if clan_key == "hrot":
-        role_ids = {r.id for r in getattr(applicant, "roles", [])}
-        if ROLE_LANG_CZ in role_ids:
+        if lang_role == "cs":
             return HROT_MEMBER_ROLE_CZ
-        if ROLE_LANG_EN in role_ids:
+        if lang_role == "en":
             return HROT_MEMBER_ROLE_EN
         return None
-    return _member_role_id_for_clan(clan_value, getattr(applicant.guild, "id", None))
+
+    return _member_role_id_for_clan(clan_value, guild_id)
 
 
 def _category_id_for_clan(clan_value: str, guild_id: int | None = None):
@@ -888,7 +906,9 @@ class ClanPanelCog(commands.Cog):
         clan_key="Kód clanu (např. hrot)",
         display_name="Zobrazovaný název",
         description="Popisek clanu",
-        accept_role="Role, která se má přidat po přijetí",
+        accept_role="Výchozí role, která se má přidat po přijetí",
+        accept_role_cz="Role po přijetí pro CZ hráče (podle jazykové role)",
+        accept_role_en="Role po přijetí pro EN hráče (podle jazykové role)",
         review_role="Role, která uvidí ticket a spravuje ho",
     )
     async def clan_panel_clan(
@@ -899,6 +919,8 @@ class ClanPanelCog(commands.Cog):
         display_name: str | None = None,
         description: str | None = None,
         accept_role: discord.Role | None = None,
+        accept_role_cz: discord.Role | None = None,
+        accept_role_en: discord.Role | None = None,
         review_role: discord.Role | None = None,
     ):
         guild = interaction.guild
@@ -916,13 +938,21 @@ class ClanPanelCog(commands.Cog):
                 for entry in entries:
                     desc = entry.get("description", "")
                     accept_txt = f"<@&{entry['accept_role_id']}>" if entry.get("accept_role_id") else "Nenastaveno"
+                    accept_cz_txt = (
+                        f"<@&{entry['accept_role_id_cz']}>" if entry.get("accept_role_id_cz") else "Nenastaveno"
+                    )
+                    accept_en_txt = (
+                        f"<@&{entry['accept_role_id_en']}>" if entry.get("accept_role_id_en") else "Nenastaveno"
+                    )
                     review_txt = f"<@&{entry['review_role_id']}>" if entry.get("review_role_id") else "Nenastaveno"
                     items.append(
                         discord.ui.TextDisplay(
                             content=(
                                 f"**{entry['clan_key']}** — {entry.get('display_name', entry['clan_key'])}\n"
                                 f"{desc}\n"
-                                f"• Role po přijetí: {accept_txt}\n"
+                                f"• Role po přijetí (default): {accept_txt}\n"
+                                f"• Role po přijetí (CZ): {accept_cz_txt}\n"
+                                f"• Role po přijetí (EN): {accept_en_txt}\n"
                                 f"• Role reviewerů: {review_txt}"
                             )
                         )
@@ -956,6 +986,12 @@ class ClanPanelCog(commands.Cog):
         final_display = (display_name or existing.get("display_name") or key_slug).strip()
         final_desc = (description or existing.get("description") or "").strip()
         final_accept_role_id = accept_role.id if accept_role else existing.get("accept_role_id")
+        final_accept_role_id_cz = (
+            accept_role_cz.id if accept_role_cz else existing.get("accept_role_id_cz")
+        )
+        final_accept_role_id_en = (
+            accept_role_en.id if accept_role_en else existing.get("accept_role_id_en")
+        )
         final_review_role_id = review_role.id if review_role else existing.get("review_role_id")
 
         upsert_clan_definition(
@@ -964,6 +1000,8 @@ class ClanPanelCog(commands.Cog):
             final_display or key_slug,
             final_desc,
             final_accept_role_id,
+            final_accept_role_id_cz,
+            final_accept_role_id_en,
             final_review_role_id,
         )
 
