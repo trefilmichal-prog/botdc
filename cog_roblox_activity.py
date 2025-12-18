@@ -815,10 +815,10 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         if not rows:
             return BytesIO()
 
-        width = 1800
-        header_height = 210
-        row_height = 156
-        padding = 56
+        width = 2400
+        header_height = 280
+        row_height = 200
+        padding = 96
         height = padding * 2 + header_height + row_height * len(rows)
 
         background = "#0b1224"
@@ -826,10 +826,10 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         draw = ImageDraw.Draw(card)
 
         try:
-            title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 64)
-            header_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 40)
-            body_font = ImageFont.truetype("DejaVuSans.ttf", 36)
-            small_font = ImageFont.truetype("DejaVuSans.ttf", 28)
+            title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 96)
+            header_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 56)
+            body_font = ImageFont.truetype("DejaVuSans.ttf", 52)
+            small_font = ImageFont.truetype("DejaVuSans.ttf", 44)
         except Exception:  # noqa: BLE001
             title_font = ImageFont.load_default()
             header_font = ImageFont.load_default()
@@ -837,78 +837,84 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             small_font = ImageFont.load_default()
 
         draw.rounded_rectangle(
-            [(28, 28), (width - 28, height - 28)], radius=28, fill="#0f172a"
+            [(36, 36), (width - 36, height - 36)], radius=32, fill="#0f172a"
         )
 
         for i in range(6):
             shade = int(18 + i * 10)
             draw.rectangle(
                 [
-                    (padding, padding + i * 6),
-                    (width - padding, padding + header_height + i * 6),
+                    (padding, padding + i * 8),
+                    (width - padding, padding + header_height + i * 8),
                 ],
-                fill=f"#{shade:02x}{shade:02x}{shade + 18:02x}",
+                fill=f"#{shade:02x}{shade:02x}{shade + 20:02x}",
             )
 
         title_text = "Roblox Activity Leaderboard"
         range_text = f"Measurement window: {self._format_range()}"
-        draw.text((padding + 18, padding + 20), title_text, font=title_font, fill="#e2e8f0")
-        draw.text((padding + 18, padding + 94), range_text, font=header_font, fill="#cbd5e1")
+        draw.text((padding + 24, padding + 20), title_text, font=title_font, fill="#e2e8f0")
+        draw.text((padding + 24, padding + 120), range_text, font=header_font, fill="#cbd5e1")
         draw.text(
-            (padding + 18, padding + 148),
+            (padding + 24, padding + 184),
             "Showing total online time for tracked members",
             font=small_font,
             fill="#94a3b8",
         )
 
-        column_x = [padding + 26, padding + 170, padding + 640, padding + 980, padding + 1340]
+        column_x = [
+            padding + 36,
+            padding + 240,
+            padding + 880,
+            padding + 1320,
+            padding + 1780,
+        ]
         headers = ["Rank", "Player", "Online", "Offline", "Online %"]
         for idx, header in enumerate(headers):
-            draw.text((column_x[idx], padding + header_height - 34), header, font=header_font, fill="#cbd5e1")
+            draw.text((column_x[idx], padding + header_height - 44), header, font=header_font, fill="#cbd5e1")
 
         medal_icons = ["🥇", "🥈", "🥉"]
         badge_colors = ["#fbbf24", "#cbd5e1", "#f97316"]
         for index, row in enumerate(rows, start=1):
             top_y = padding + header_height + (index - 1) * row_height
-            bottom_y = top_y + row_height - 18
+            bottom_y = top_y + row_height - 22
             draw.rounded_rectangle(
                 [(padding + 12, top_y), (width - padding - 12, bottom_y)],
-                radius=24,
+                radius=28,
                 fill="#0f172a",
                 outline="#1f2937",
-                width=4,
+                width=5,
             )
 
             medal = medal_icons[index - 1] if index <= len(medal_icons) else "🏅"
             badge_color = badge_colors[index - 1] if index <= len(badge_colors) else "#38bdf8"
             rank_text = f"{medal} #{index}"
             rank_box = (
-                (column_x[0] - 4, top_y + 24),
-                (column_x[0] + 140, top_y + 78),
+                (column_x[0] - 6, top_y + 30),
+                (column_x[0] + 170, top_y + 96),
             )
-            draw.rounded_rectangle(rank_box, radius=16, fill=badge_color)
-            draw.text((column_x[0] + 10, top_y + 30), rank_text, font=body_font, fill="#0f172a")
+            draw.rounded_rectangle(rank_box, radius=18, fill=badge_color)
+            draw.text((column_x[0] + 12, top_y + 40), rank_text, font=body_font, fill="#0f172a")
 
             draw.text(
-                (column_x[1], top_y + 22),
+                (column_x[1], top_y + 36),
                 row["label"],
                 font=body_font,
                 fill="#e5e7eb",
             )
             draw.text(
-                (column_x[2], top_y + 22),
+                (column_x[2], top_y + 36),
                 row["online"],
                 font=body_font,
                 fill="#34d399",
             )
             draw.text(
-                (column_x[3], top_y + 22),
+                (column_x[3], top_y + 36),
                 row["offline"],
                 font=body_font,
                 fill="#fca5a5",
             )
             draw.text(
-                (column_x[4], top_y + 22),
+                (column_x[4], top_y + 36),
                 row["percent"],
                 font=body_font,
                 fill="#93c5fd",
