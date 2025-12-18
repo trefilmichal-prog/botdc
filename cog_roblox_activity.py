@@ -809,6 +809,15 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
     def _strip_basic_markdown(value: str) -> str:
         return re.sub(r"[*_`~]", "", value)
 
+    @staticmethod
+    def _format_progress_bar(completed: float, total: float, width: int = 10) -> str:
+        if total <= 0:
+            return "░" * width
+
+        ratio = max(0.0, min(1.0, completed / total))
+        filled = int(round(ratio * width))
+        return "█" * filled + "░" * (width - filled)
+
     def _format_leaderboard_table(self, rows: list[dict[str, str]]) -> list[str]:
         if not rows:
             return []
@@ -817,18 +826,24 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         name_width = max(len("Player"), max(len(row["label"]) for row in rows))
         online_width = max(len("Online"), max(len(row["online"]) for row in rows))
         offline_width = max(len("Offline"), max(len(row["offline"]) for row in rows))
+        percent_width = max(len("Online %"), max(len(row["percent"]) for row in rows))
+        bar_width = max(len("Activity"), max(len(row["bar"]) for row in rows))
 
         header = (
             f"{'#'.rjust(rank_width)} | "
             f"{'Player'.ljust(name_width)} | "
             f"{'Online'.rjust(online_width)} | "
-            f"{'Offline'.rjust(offline_width)}"
+            f"{'Offline'.rjust(offline_width)} | "
+            f"{'Online %'.rjust(percent_width)} | "
+            f"{'Activity'.ljust(bar_width)}"
         )
         separator = (
             f"{'-' * rank_width}-+-"
             f"{'-' * name_width}-+-"
             f"{'-' * online_width}-+-"
-            f"{'-' * offline_width}"
+            f"{'-' * offline_width}-+-"
+            f"{'-' * percent_width}-+-"
+            f"{'-' * bar_width}"
         )
 
         table_lines = [header, separator]
@@ -837,7 +852,9 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 f"{str(index).rjust(rank_width)} | "
                 f"{row['label'].ljust(name_width)} | "
                 f"{row['online'].rjust(online_width)} | "
-                f"{row['offline'].rjust(offline_width)}"
+                f"{row['offline'].rjust(offline_width)} | "
+                f"{row['percent'].rjust(percent_width)} | "
+                f"{row['bar'].ljust(bar_width)}"
             )
 
         return [
@@ -1259,11 +1276,15 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 label = username_lookup.get(user_id, f"ID {user_id}")
             online_text = self._format_timedelta(totals["online"])
             offline_text = self._format_timedelta(totals["offline"])
+            total_time = totals["online"] + totals["offline"]
+            online_ratio = (totals["online"] / total_time * 100) if total_time > 0 else 0.0
             table_rows.append(
                 {
                     "label": self._strip_basic_markdown(label),
                     "online": online_text,
                     "offline": offline_text,
+                    "percent": f"{online_ratio:.0f}%",
+                    "bar": self._format_progress_bar(totals["online"], total_time),
                 }
             )
 
