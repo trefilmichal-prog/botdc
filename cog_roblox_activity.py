@@ -856,24 +856,24 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             (padding + 32, padding + 16),
             title_text,
             font=title_font,
-            fill="#e2e8f0",
-            stroke_width=3,
+            fill="#f8fafc",
+            stroke_width=1,
             stroke_fill="#0b1224",
         )
         draw.text(
             (padding + 32, padding + 170),
             range_text,
             font=header_font,
-            fill="#cbd5e1",
-            stroke_width=2,
+            fill="#f1f5f9",
+            stroke_width=1,
             stroke_fill="#0b1224",
         )
         draw.text(
             (padding + 32, padding + 270),
             "Showing total online time for tracked members",
             font=small_font,
-            fill="#cbd5e1",
-            stroke_width=2,
+            fill="#e2e8f0",
+            stroke_width=1,
             stroke_fill="#0b1224",
         )
 
@@ -890,8 +890,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 (column_x[idx], padding + header_height - 205),
                 header,
                 font=header_font,
-                fill="#e2e8f0",
-                stroke_width=2,
+                fill="#f8fafc",
+                stroke_width=1,
                 stroke_fill="#0b1224",
             )
 
@@ -920,8 +920,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 (column_x[0] + 22, top_y + 58),
                 rank_text,
                 font=body_font,
-                fill="#0f172a",
-                stroke_width=2,
+                fill="#0b1224",
+                stroke_width=1,
                 stroke_fill="#fde68a",
             )
 
@@ -929,32 +929,32 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 (column_x[1], top_y + 52),
                 row["label"],
                 font=body_font,
-                fill="#e5e7eb",
-                stroke_width=2,
+                fill="#f8fafc",
+                stroke_width=1,
                 stroke_fill="#0b1224",
             )
             draw.text(
                 (column_x[2], top_y + 52),
                 row["online"],
                 font=body_font,
-                fill="#bbf7d0",
-                stroke_width=2,
+                fill="#dcfce7",
+                stroke_width=1,
                 stroke_fill="#0b1224",
             )
             draw.text(
                 (column_x[3], top_y + 52),
                 row["offline"],
                 font=body_font,
-                fill="#fecdd3",
-                stroke_width=2,
+                fill="#ffe4e6",
+                stroke_width=1,
                 stroke_fill="#0b1224",
             )
             draw.text(
                 (column_x[4], top_y + 52),
                 row["percent"],
                 font=body_font,
-                fill="#bfdbfe",
-                stroke_width=2,
+                fill="#e0f2fe",
+                stroke_width=1,
                 stroke_fill="#0b1224",
             )
 
