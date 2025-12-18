@@ -732,6 +732,17 @@ class ClanPanelCog(commands.Cog):
         if existing_group:
             self.bot.tree.remove_command("clan_panel", type=discord.AppCommandType.chat_input)
 
+        self.clan_panel_group = app_commands.Group(
+            name="clan_panel", description="Správa panelu pro clan přihlášky"
+        )
+        self.clan_panel_group.command(
+            name="post", description="Zobrazí panel pro přihlášky do clanu"
+        )(self.clan_panel)
+        self.clan_panel_group.command(
+            name="edit", description="Upraví text panelu přes formulář"
+        )(self.clan_panel_edit)
+        self.__cog_app_commands__ = [self.clan_panel_group]
+
     @staticmethod
     def _default_clan_panel_config() -> tuple[str, str, str]:
         return (
@@ -765,11 +776,6 @@ class ClanPanelCog(commands.Cog):
             except Exception:
                 continue
 
-    clan_panel_group = app_commands.Group(
-        name="clan_panel", description="Správa panelu pro clan přihlášky"
-    )
-
-    @clan_panel_group.command(name="post", description="Zobrazí panel pro přihlášky do clanu")
     async def clan_panel(self, interaction: discord.Interaction):
         view = self._build_panel_view(interaction.guild.id if interaction.guild else None)
         await interaction.response.send_message(content="", view=view, ephemeral=False)
@@ -786,7 +792,6 @@ class ClanPanelCog(commands.Cog):
             except Exception:
                 pass
 
-    @clan_panel_group.command(name="edit", description="Upraví text panelu přes formulář")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def clan_panel_edit(self, interaction: discord.Interaction):
         guild_id = interaction.guild.id if interaction.guild else None
