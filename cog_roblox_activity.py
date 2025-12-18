@@ -822,44 +822,39 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         if not rows:
             return []
 
-        rank_width = max(len("#"), len(str(len(rows))))
-        name_width = max(len("Player"), max(len(row["label"]) for row in rows))
-        online_width = max(len("Online"), max(len(row["online"]) for row in rows))
-        offline_width = max(len("Offline"), max(len(row["offline"]) for row in rows))
-        percent_width = max(len("Online %"), max(len(row["percent"]) for row in rows))
-        bar_width = max(len("Activity"), max(len(row["bar"]) for row in rows))
-
-        header = (
-            f"{'#'.rjust(rank_width)} | "
-            f"{'Player'.ljust(name_width)} | "
-            f"{'Online'.rjust(online_width)} | "
-            f"{'Offline'.rjust(offline_width)} | "
-            f"{'Online %'.rjust(percent_width)} | "
-            f"{'Activity'.ljust(bar_width)}"
-        )
-        separator = (
-            f"{'-' * rank_width}-+-"
-            f"{'-' * name_width}-+-"
-            f"{'-' * online_width}-+-"
-            f"{'-' * offline_width}-+-"
-            f"{'-' * percent_width}-+-"
-            f"{'-' * bar_width}"
-        )
-
-        table_lines = [header, separator]
+        mobile_lines: list[str] = []
         for index, row in enumerate(rows, start=1):
-            table_lines.append(
-                f"{str(index).rjust(rank_width)} | "
-                f"{row['label'].ljust(name_width)} | "
-                f"{row['online'].rjust(online_width)} | "
-                f"{row['offline'].rjust(offline_width)} | "
-                f"{row['percent'].rjust(percent_width)} | "
-                f"{row['bar'].ljust(bar_width)}"
+            mobile_lines.append(
+                "\n".join(
+                    [
+                        f"{index}. {row['label']}",
+                        f"Online: {row['online']} · Offline: {row['offline']}",
+                        f"{row['percent']} online  {row['bar']}",
+                    ]
+                )
             )
 
-        return [
-            f"```\n{chunk}\n```" for chunk in self._chunk_lines(table_lines, limit=980)
+        return [chunk for chunk in self._chunk_lines(mobile_lines, limit=700)]
+
+    def _build_leaderboard_view(self, rows: list[dict[str, str]]) -> discord.ui.LayoutView:
+        leaderboard_view = discord.ui.LayoutView(timeout=None)
+        leaderboard_items = [
+            discord.ui.TextDisplay(content="Roblox leaderboard"),
+            discord.ui.Separator(visible=True),
+            discord.ui.TextDisplay(content=f"Measurement range: {self._format_range()}"),
         ]
+
+        for idx, chunk in enumerate(self._format_leaderboard_table(rows)):
+            heading = "Summary" if idx == 0 else f"Summary (continued {idx})"
+            leaderboard_items.extend(
+                [
+                    discord.ui.Separator(visible=True),
+                    discord.ui.TextDisplay(content=f"{heading}\n{chunk}"),
+                ]
+            )
+
+        leaderboard_view.add_item(discord.ui.Container(*leaderboard_items))
+        return leaderboard_view
 
     @app_commands.command(
         name="roblox_activity",
@@ -1288,26 +1283,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 }
             )
 
-        leaderboard_view = discord.ui.LayoutView(timeout=None)
-        leaderboard_items = [
-            discord.ui.TextDisplay(content="Roblox leaderboard"),
-            discord.ui.Separator(visible=True),
-            discord.ui.TextDisplay(content=f"Measurement range: {self._format_range()}"),
-        ]
-
-        for idx, chunk in enumerate(self._format_leaderboard_table(table_rows)):
-            heading = "Summary" if idx == 0 else f"Summary (continued {idx})"
-            leaderboard_items.extend(
-                [
-                    discord.ui.Separator(visible=True),
-                    discord.ui.TextDisplay(content=f"{heading}\n{chunk}"),
-                ]
-            )
-
-        leaderboard_view.add_item(discord.ui.Container(*leaderboard_items))
-
         await interaction.followup.send(
-            view=leaderboard_view,
+            view=self._build_leaderboard_view(table_rows),
             ephemeral=True,
         )
 
