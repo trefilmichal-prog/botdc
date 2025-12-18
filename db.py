@@ -132,6 +132,38 @@ def init_db():
 
     c.execute(
         """
+        CREATE TABLE IF NOT EXISTS clan_clans (
+            guild_id INTEGER NOT NULL,
+            clan_key TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            description TEXT NOT NULL,
+            accept_role_id INTEGER,
+            accept_role_id_cz INTEGER,
+            accept_role_id_en INTEGER,
+            accept_category_id INTEGER,
+            review_role_id INTEGER,
+            PRIMARY KEY (guild_id, clan_key)
+        )
+        """
+    )
+
+    try:
+        c.execute("ALTER TABLE clan_clans ADD COLUMN accept_role_id_cz INTEGER")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        c.execute("ALTER TABLE clan_clans ADD COLUMN accept_role_id_en INTEGER")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        c.execute("ALTER TABLE clan_clans ADD COLUMN accept_category_id INTEGER")
+    except sqlite3.OperationalError:
+        pass
+
+    c.execute(
+        """
         CREATE TABLE IF NOT EXISTS leaderboard_panels (
             message_id INTEGER PRIMARY KEY,
             guild_id INTEGER NOT NULL,
@@ -671,6 +703,140 @@ def get_all_clan_application_panels() -> list[tuple[int, int, int]]:
     rows = c.fetchall()
     conn.close()
     return [(int(g), int(ch), int(msg)) for g, ch, msg in rows]
+
+
+# ---------- CLAN DEFINITIONS ----------
+
+
+def upsert_clan_definition(
+    guild_id: int,
+    clan_key: str,
+    display_name: str,
+    description: str,
+    accept_role_id: int | None,
+    accept_role_id_cz: int | None,
+    accept_role_id_en: int | None,
+    accept_category_id: int | None,
+    review_role_id: int | None,
+):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO clan_clans (
+            guild_id,
+            clan_key,
+            display_name,
+            description,
+            accept_role_id,
+            accept_role_id_cz,
+            accept_role_id_en,
+            accept_category_id,
+            review_role_id
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(guild_id, clan_key) DO UPDATE SET
+            display_name = excluded.display_name,
+            description = excluded.description,
+            accept_role_id = excluded.accept_role_id,
+            accept_role_id_cz = excluded.accept_role_id_cz,
+            accept_role_id_en = excluded.accept_role_id_en,
+            accept_category_id = excluded.accept_category_id,
+            review_role_id = excluded.review_role_id
+        """,
+        (
+            guild_id,
+            clan_key,
+            display_name,
+            description,
+            accept_role_id,
+            accept_role_id_cz,
+            accept_role_id_en,
+            accept_category_id,
+            review_role_id,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_clan_definition(guild_id: int, clan_key: str):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "DELETE FROM clan_clans WHERE guild_id = ? AND clan_key = ?",
+        (guild_id, clan_key),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_clan_definition(guild_id: int, clan_key: str):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT clan_key, display_name, description, accept_role_id, accept_role_id_cz, accept_role_id_en, accept_category_id, review_role_id
+        FROM clan_clans
+        WHERE guild_id = ? AND clan_key = ?
+        """,
+        (guild_id, clan_key),
+    )
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None
+    key, name, description, accept_role_id, accept_role_id_cz, accept_role_id_en, accept_category_id, review_role_id = row
+    return {
+        "clan_key": str(key),
+        "display_name": str(name),
+        "description": str(description),
+        "accept_role_id": int(accept_role_id) if accept_role_id is not None else None,
+        "accept_role_id_cz": int(accept_role_id_cz) if accept_role_id_cz is not None else None,
+        "accept_role_id_en": int(accept_role_id_en) if accept_role_id_en is not None else None,
+        "accept_category_id": int(accept_category_id) if accept_category_id is not None else None,
+        "review_role_id": int(review_role_id) if review_role_id is not None else None,
+    }
+
+
+def list_clan_definitions(guild_id: int):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT clan_key, display_name, description, accept_role_id, accept_role_id_cz, accept_role_id_en, accept_category_id, review_role_id
+        FROM clan_clans
+        WHERE guild_id = ?
+        ORDER BY clan_key COLLATE NOCASE
+        """,
+        (guild_id,),
+    )
+    rows = c.fetchall()
+    conn.close()
+    results = []
+    for (
+        key,
+        name,
+        description,
+        accept_role_id,
+        accept_role_id_cz,
+        accept_role_id_en,
+        accept_category_id,
+        review_role_id,
+    ) in rows:
+        results.append(
+            {
+                "clan_key": str(key),
+                "display_name": str(name),
+                "description": str(description),
+                "accept_role_id": int(accept_role_id) if accept_role_id is not None else None,
+                "accept_role_id_cz": int(accept_role_id_cz) if accept_role_id_cz is not None else None,
+                "accept_role_id_en": int(accept_role_id_en) if accept_role_id_en is not None else None,
+                "accept_category_id": int(accept_category_id) if accept_category_id is not None else None,
+                "review_role_id": int(review_role_id) if review_role_id is not None else None,
+            }
+        )
+    return results
 
 
 # ---------- LEADERBOARD PANELY ----------
