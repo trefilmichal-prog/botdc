@@ -1416,7 +1416,6 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 fp=self._render_leaderboard_image(table_rows),
                 filename="roblox_leaderboard.png",
             ),
-            view=self._build_leaderboard_view(table_rows),
             ephemeral=True,
         )
 
