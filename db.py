@@ -121,6 +121,17 @@ def init_db():
 
     c.execute(
         """
+        CREATE TABLE IF NOT EXISTS clan_panel_configs (
+            guild_id INTEGER PRIMARY KEY,
+            title TEXT NOT NULL,
+            us_requirements TEXT NOT NULL,
+            cz_requirements TEXT NOT NULL
+        )
+        """
+    )
+
+    c.execute(
+        """
         CREATE TABLE IF NOT EXISTS leaderboard_panels (
             message_id INTEGER PRIMARY KEY,
             guild_id INTEGER NOT NULL,
@@ -589,6 +600,39 @@ def get_all_clan_panels() -> list[tuple[int, int, int]]:
     rows = c.fetchall()
     conn.close()
     return [(int(g), int(ch), int(msg)) for g, ch, msg in rows]
+
+
+def set_clan_panel_config(guild_id: int, title: str, us_requirements: str, cz_requirements: str):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO clan_panel_configs (guild_id, title, us_requirements, cz_requirements)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(guild_id) DO UPDATE SET
+            title = excluded.title,
+            us_requirements = excluded.us_requirements,
+            cz_requirements = excluded.cz_requirements
+        """,
+        (guild_id, title, us_requirements, cz_requirements),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_clan_panel_config(guild_id: int) -> tuple[str, str, str] | None:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "SELECT title, us_requirements, cz_requirements FROM clan_panel_configs WHERE guild_id = ?",
+        (guild_id,),
+    )
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None
+    title, us_requirements, cz_requirements = row
+    return str(title), str(us_requirements), str(cz_requirements)
 
 
 # ---------- CLAN APPLICATION PANELY ----------

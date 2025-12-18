@@ -5,7 +5,9 @@ from discord import app_commands
 from db import (
     add_clan_application_panel,
     get_all_clan_application_panels,
+    get_clan_panel_config,
     remove_clan_application_panel,
+    set_clan_panel_config,
 )
 
 # Category where NEW ticket channels will be created (initial intake)
@@ -395,22 +397,17 @@ async def _rename_ticket_prefix(
 class Components(discord.ui.LayoutView):
     """Main public panel with clan selection."""
 
-    def __init__(self):
+    def __init__(self, *, title: str, us_requirements: str, cz_requirements: str):
         super().__init__(timeout=None)
-        CZ_FLAG = "\U0001F1E8\U0001F1FF"  # 🇨🇿
-        US_FLAG = "\U0001F1FA\U0001F1F8"  # 🇺🇸
         container = discord.ui.Container(
-            discord.ui.TextDisplay(content="## CLAN APPLICATIONS"),
+            discord.ui.TextDisplay(content=f"## {title}"),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
 
             discord.ui.TextDisplay(
                 content=(
                     "### 🇺🇸 Requirements\n"
                     "```\n"
-                    "- 15SP rebirths +\n"
-                    "- Play 24/7\n"
-                    "- 30% index\n"
-                    "- 10d playtime\n"
+                    f"{us_requirements}\n"
                     "```\n"
                 )
             ),
@@ -419,38 +416,35 @@ class Components(discord.ui.LayoutView):
                 content=(
                     "### 🇨🇿 Podmínky přijetí\n"
                     "```\n"
-                    "- 15SP rebirthů +\n"
-                    "- Hrát 24/7\n"
-                    "- 30% index\n"
-                    "- 10d playtime\n"
+                    f"{cz_requirements}\n"
                     "```\n"
                 )
             ),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
 
-	    discord.ui.ActionRow(
-    	    	discord.ui.Select(
-	    		custom_id="clan_select",
-	    		placeholder="Choose Clan",
-	    		options=[
-	    			discord.SelectOption(
-	    				label="Main Clan HROT",
-	    				value="HROT",
-	    				description="🇨🇿 & 🇺🇸",
-	    			),
-	    			discord.SelectOption(
-	    				label="Second Clan HR2T",
-	    				value="HR2T",
-	    				description="🇨🇿",
-	    			),
-	    			discord.SelectOption(
-	    				label="Third Clan TGCM",
-	    				value="TGCM",
-	    				description="🇺🇸",
-	    			),
-	    		],
-	    	)
-	    ),
+            discord.ui.ActionRow(
+                discord.ui.Select(
+                    custom_id="clan_select",
+                    placeholder="Choose Clan",
+                    options=[
+                        discord.SelectOption(
+                            label="Main Clan HROT",
+                            value="HROT",
+                            description="🇨🇿 & 🇺🇸",
+                        ),
+                        discord.SelectOption(
+                            label="Second Clan HR2T",
+                            value="HR2T",
+                            description="🇨🇿",
+                        ),
+                        discord.SelectOption(
+                            label="Third Clan TGCM",
+                            value="TGCM",
+                            description="🇺🇸",
+                        ),
+                    ],
+                )
+            ),
 
         )
         self.add_item(container)
@@ -734,16 +728,46 @@ class ClanPanelCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    @staticmethod
+    def _default_clan_panel_config() -> tuple[str, str, str]:
+        return (
+            "CLAN APPLICATIONS",
+            "- 15SP rebirths +\n- Play 24/7\n- 30% index\n- 10d playtime",
+            "- 15SP rebirthů +\n- Hrát 24/7\n- 30% index\n- 10d playtime",
+        )
+
+    @classmethod
+    def _get_config_for_guild(cls, guild_id: int | None) -> tuple[str, str, str]:
+        if guild_id is None:
+            return cls._default_clan_panel_config()
+        db_config = get_clan_panel_config(guild_id)
+        if db_config:
+            return db_config
+        return cls._default_clan_panel_config()
+
+    def _build_panel_view(self, guild_id: int | None) -> Components:
+        title, us_requirements, cz_requirements = self._get_config_for_guild(guild_id)
+        return Components(title=title, us_requirements=us_requirements, cz_requirements=cz_requirements)
+
     async def cog_load(self):
-        for _, _, message_id in get_all_clan_application_panels():
+        try:
+            self.bot.tree.add_command(self.clan_panel_group)
+        except app_commands.CommandAlreadyRegistered:
+            pass
+
+        for guild_id, _, message_id in get_all_clan_application_panels():
             try:
-                self.bot.add_view(Components(), message_id=message_id)
+                self.bot.add_view(self._build_panel_view(guild_id), message_id=message_id)
             except Exception:
                 continue
 
-    @app_commands.command(name="clan_panel", description="Zobrazí panel pro přihlášky do clanu")
+    clan_panel_group = app_commands.Group(
+        name="clan_panel", description="Správa panelu pro clan přihlášky"
+    )
+
+    @clan_panel_group.command(name="post", description="Zobrazí panel pro přihlášky do clanu")
     async def clan_panel(self, interaction: discord.Interaction):
-        view = Components()
+        view = self._build_panel_view(interaction.guild.id if interaction.guild else None)
         await interaction.response.send_message(content="", view=view, ephemeral=False)
 
         try:
@@ -757,6 +781,76 @@ class ClanPanelCog(commands.Cog):
                 self.bot.add_view(view, message_id=message.id)
             except Exception:
                 pass
+
+    @clan_panel_group.command(name="edit", description="Upraví text panelu přes formulář")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def clan_panel_edit(self, interaction: discord.Interaction):
+        guild_id = interaction.guild.id if interaction.guild else None
+        title, us_requirements, cz_requirements = self._get_config_for_guild(guild_id)
+
+        class ClanPanelEditModal(discord.ui.Modal, title="Upravit clan panel"):
+            panel_title = discord.ui.TextInput(
+                label="Nadpis panelu",
+                default=title,
+                max_length=80,
+            )
+            panel_us = discord.ui.TextInput(
+                label="US požadavky",
+                style=discord.TextStyle.paragraph,
+                default=us_requirements,
+                max_length=400,
+            )
+            panel_cz = discord.ui.TextInput(
+                label="CZ požadavky",
+                style=discord.TextStyle.paragraph,
+                default=cz_requirements,
+                max_length=400,
+            )
+
+            async def on_submit(self, modal_interaction: discord.Interaction):
+                if guild_id is None:
+                    await modal_interaction.response.send_message(
+                        "Formulář lze použít pouze na serveru.", ephemeral=True
+                    )
+                    return
+
+                set_clan_panel_config(
+                    guild_id,
+                    str(self.panel_title.value).strip() or title,
+                    str(self.panel_us.value).strip() or us_requirements,
+                    str(self.panel_cz.value).strip() or cz_requirements,
+                )
+                await self_refresh()
+                await modal_interaction.response.send_message(
+                    "Panel byl aktualizován.", ephemeral=True
+                )
+
+        async def self_refresh():
+            await self._refresh_clan_panels_for_guild(guild_id)
+
+        await interaction.response.send_modal(ClanPanelEditModal())
+
+    async def _refresh_clan_panels_for_guild(self, guild_id: int | None):
+        if guild_id is None:
+            return
+        for stored_guild_id, channel_id, message_id in get_all_clan_application_panels():
+            if stored_guild_id != guild_id:
+                continue
+            guild = self.bot.get_guild(stored_guild_id)
+            if guild is None:
+                continue
+            channel = guild.get_channel(channel_id)
+            if not isinstance(channel, discord.TextChannel):
+                continue
+            try:
+                message = await channel.fetch_message(message_id)
+            except discord.HTTPException:
+                continue
+            try:
+                await message.edit(view=self._build_panel_view(guild_id))
+                self.bot.add_view(self._build_panel_view(guild_id), message_id=message_id)
+            except discord.HTTPException:
+                continue
 
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):
