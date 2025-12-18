@@ -341,6 +341,7 @@ def _member_role_id_for_accept(clan_value: str, applicant: discord.Member):
 
     return _member_role_id_for_clan(clan_value, guild_id)
 
+    return _member_role_id_for_clan(clan_value, guild_id)
 
 def _category_id_for_clan(clan_value: str, guild_id: int | None = None):
     clan_key = (clan_value or "").strip().lower()
