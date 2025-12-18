@@ -808,6 +808,10 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         return chunks
 
+    def _render_leaderboard_image(self, *_: object, **__: object):
+        """Compatibility shim; image rendering has been removed."""
+        return None
+
     @staticmethod
     def _strip_basic_markdown(value: str) -> str:
         return re.sub(r"[*_`~]", "", value)
