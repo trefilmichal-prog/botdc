@@ -824,58 +824,80 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         if not rows:
             return BytesIO()
 
-        width = 980
-        header_height = 120
-        row_height = 88
-        padding = 32
+        width = 1400
+        header_height = 170
+        row_height = 118
+        padding = 40
         height = padding * 2 + header_height + row_height * len(rows)
 
-        background = "#0f172a"
+        background = "#0b1224"
         card = Image.new("RGB", (width, height), color=background)
         draw = ImageDraw.Draw(card)
 
         try:
-            title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 38)
-            header_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
-            body_font = ImageFont.truetype("DejaVuSans.ttf", 26)
+            title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 48)
+            header_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 32)
+            body_font = ImageFont.truetype("DejaVuSans.ttf", 30)
+            small_font = ImageFont.truetype("DejaVuSans.ttf", 24)
         except Exception:  # noqa: BLE001
             title_font = ImageFont.load_default()
             header_font = ImageFont.load_default()
             body_font = ImageFont.load_default()
+            small_font = ImageFont.load_default()
 
         draw.rounded_rectangle(
-            [(16, 16), (width - 16, height - 16)], radius=18, fill="#111827"
+            [(20, 20), (width - 20, height - 20)], radius=22, fill="#0f172a"
         )
-        draw.rectangle(
-            [(padding, padding), (width - padding, padding + header_height)],
-            fill="#1f2937",
-        )
+
+        for i in range(6):
+            shade = int(15 + i * 12)
+            draw.rectangle(
+                [
+                    (padding, padding + i * 6),
+                    (width - padding, padding + header_height + i * 6),
+                ],
+                fill=f"#{shade:02x}{shade:02x}{shade + 12:02x}",
+            )
 
         title_text = "Roblox Activity Leaderboard"
-        range_text = f"Measured: {self._format_range()}"
-        draw.text((padding + 12, padding + 18), title_text, font=title_font, fill="#e5e7eb")
-        draw.text((padding + 12, padding + 64), range_text, font=header_font, fill="#9ca3af")
+        range_text = f"Measurement window: {self._format_range()}"
+        draw.text((padding + 16, padding + 18), title_text, font=title_font, fill="#e2e8f0")
+        draw.text((padding + 16, padding + 78), range_text, font=header_font, fill="#cbd5e1")
+        draw.text(
+            (padding + 16, padding + 126),
+            "Showing total online time for tracked members",
+            font=small_font,
+            fill="#94a3b8",
+        )
 
-        column_x = [padding + 16, padding + 100, padding + 360, padding + 580, padding + 780]
+        column_x = [padding + 20, padding + 140, padding + 520, padding + 800, padding + 1080]
         headers = ["Rank", "Player", "Online", "Offline", "Online %"]
         for idx, header in enumerate(headers):
-            draw.text((column_x[idx], padding + 96), header, font=header_font, fill="#cbd5e1")
+            draw.text((column_x[idx], padding + header_height - 30), header, font=header_font, fill="#cbd5e1")
 
         medal_icons = ["🥇", "🥈", "🥉"]
+        badge_colors = ["#fbbf24", "#cbd5e1", "#f97316"]
         for index, row in enumerate(rows, start=1):
             top_y = padding + header_height + (index - 1) * row_height
-            bottom_y = top_y + row_height - 12
+            bottom_y = top_y + row_height - 14
             draw.rounded_rectangle(
-                [(padding + 8, top_y), (width - padding - 8, bottom_y)],
-                radius=14,
+                [(padding + 10, top_y), (width - padding - 10, bottom_y)],
+                radius=18,
                 fill="#111827",
                 outline="#1f2937",
-                width=2,
+                width=3,
             )
 
             medal = medal_icons[index - 1] if index <= len(medal_icons) else "🏅"
+            badge_color = badge_colors[index - 1] if index <= len(badge_colors) else "#38bdf8"
             rank_text = f"{medal} #{index}"
-            draw.text((column_x[0], top_y + 24), rank_text, font=body_font, fill="#fbbf24")
+            rank_box = (
+                (column_x[0] - 6, top_y + 20),
+                (column_x[0] + 110, top_y + 66),
+            )
+            draw.rounded_rectangle(rank_box, radius=14, fill=badge_color)
+            draw.text((column_x[0] + 6, top_y + 26), rank_text, font=body_font, fill="#0f172a")
+
             draw.text(
                 (column_x[1], top_y + 18),
                 row["label"],
@@ -901,18 +923,18 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 fill="#93c5fd",
             )
 
-            bar_back_top = top_y + 52
-            bar_back_bottom = bar_back_top + 18
+            bar_back_top = top_y + 64
+            bar_back_bottom = bar_back_top + 24
             draw.rounded_rectangle(
                 [
                     (column_x[1], bar_back_top),
-                    (width - padding - 32, bar_back_bottom),
+                    (width - padding - 36, bar_back_bottom),
                 ],
-                radius=10,
-                fill="#1f2937",
+                radius=12,
+                fill="#0b1224",
             )
 
-            total_width = width - padding - 32 - column_x[1]
+            total_width = width - padding - 36 - column_x[1]
             try:
                 percent_value = float(row["percent"].rstrip("%"))
             except (TypeError, ValueError):
@@ -923,7 +945,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                     (column_x[1], bar_back_top),
                     (column_x[1] + filled_width, bar_back_bottom),
                 ],
-                radius=10,
+                radius=12,
                 fill="#4ade80",
             )
 
