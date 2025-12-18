@@ -927,7 +927,7 @@ class ClanPanelCog(commands.Cog):
                             )
                         )
                     )
-                    items.append(discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.medium))
+                    items.append(discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large))
             else:
                 items.append(discord.ui.TextDisplay(content="Žádné clany nejsou nastaveny."))
 
