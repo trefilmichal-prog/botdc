@@ -142,6 +142,7 @@ def init_db():
             accept_role_id_en INTEGER,
             accept_category_id INTEGER,
             review_role_id INTEGER,
+            sort_order INTEGER DEFAULT 0,
             PRIMARY KEY (guild_id, clan_key)
         )
         """
@@ -159,6 +160,11 @@ def init_db():
 
     try:
         c.execute("ALTER TABLE clan_clans ADD COLUMN accept_category_id INTEGER")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        c.execute("ALTER TABLE clan_clans ADD COLUMN sort_order INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
 
@@ -718,6 +724,7 @@ def upsert_clan_definition(
     accept_role_id_en: int | None,
     accept_category_id: int | None,
     review_role_id: int | None,
+    sort_order: int,
 ):
     conn = get_connection()
     c = conn.cursor()
@@ -732,9 +739,10 @@ def upsert_clan_definition(
             accept_role_id_cz,
             accept_role_id_en,
             accept_category_id,
-            review_role_id
+            review_role_id,
+            sort_order
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(guild_id, clan_key) DO UPDATE SET
             display_name = excluded.display_name,
             description = excluded.description,
@@ -742,7 +750,8 @@ def upsert_clan_definition(
             accept_role_id_cz = excluded.accept_role_id_cz,
             accept_role_id_en = excluded.accept_role_id_en,
             accept_category_id = excluded.accept_category_id,
-            review_role_id = excluded.review_role_id
+            review_role_id = excluded.review_role_id,
+            sort_order = excluded.sort_order
         """,
         (
             guild_id,
@@ -754,6 +763,7 @@ def upsert_clan_definition(
             accept_role_id_en,
             accept_category_id,
             review_role_id,
+            sort_order,
         ),
     )
     conn.commit()
@@ -776,7 +786,7 @@ def get_clan_definition(guild_id: int, clan_key: str):
     c = conn.cursor()
     c.execute(
         """
-        SELECT clan_key, display_name, description, accept_role_id, accept_role_id_cz, accept_role_id_en, accept_category_id, review_role_id
+        SELECT clan_key, display_name, description, accept_role_id, accept_role_id_cz, accept_role_id_en, accept_category_id, review_role_id, sort_order
         FROM clan_clans
         WHERE guild_id = ? AND clan_key = ?
         """,
@@ -786,7 +796,17 @@ def get_clan_definition(guild_id: int, clan_key: str):
     conn.close()
     if not row:
         return None
-    key, name, description, accept_role_id, accept_role_id_cz, accept_role_id_en, accept_category_id, review_role_id = row
+    (
+        key,
+        name,
+        description,
+        accept_role_id,
+        accept_role_id_cz,
+        accept_role_id_en,
+        accept_category_id,
+        review_role_id,
+        sort_order,
+    ) = row
     return {
         "clan_key": str(key),
         "display_name": str(name),
@@ -796,6 +816,7 @@ def get_clan_definition(guild_id: int, clan_key: str):
         "accept_role_id_en": int(accept_role_id_en) if accept_role_id_en is not None else None,
         "accept_category_id": int(accept_category_id) if accept_category_id is not None else None,
         "review_role_id": int(review_role_id) if review_role_id is not None else None,
+        "sort_order": int(sort_order) if sort_order is not None else 0,
     }
 
 
@@ -804,10 +825,10 @@ def list_clan_definitions(guild_id: int):
     c = conn.cursor()
     c.execute(
         """
-        SELECT clan_key, display_name, description, accept_role_id, accept_role_id_cz, accept_role_id_en, accept_category_id, review_role_id
+        SELECT clan_key, display_name, description, accept_role_id, accept_role_id_cz, accept_role_id_en, accept_category_id, review_role_id, sort_order
         FROM clan_clans
         WHERE guild_id = ?
-        ORDER BY clan_key COLLATE NOCASE
+        ORDER BY sort_order ASC, clan_key COLLATE NOCASE
         """,
         (guild_id,),
     )
@@ -823,6 +844,7 @@ def list_clan_definitions(guild_id: int):
         accept_role_id_en,
         accept_category_id,
         review_role_id,
+        sort_order,
     ) in rows:
         results.append(
             {
@@ -834,9 +856,23 @@ def list_clan_definitions(guild_id: int):
                 "accept_role_id_en": int(accept_role_id_en) if accept_role_id_en is not None else None,
                 "accept_category_id": int(accept_category_id) if accept_category_id is not None else None,
                 "review_role_id": int(review_role_id) if review_role_id is not None else None,
+                "sort_order": int(sort_order) if sort_order is not None else 0,
             }
         )
     return results
+
+
+def get_next_clan_sort_order(guild_id: int) -> int:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "SELECT COALESCE(MAX(sort_order), -1) FROM clan_clans WHERE guild_id = ?",
+        (guild_id,),
+    )
+    row = c.fetchone()
+    conn.close()
+    current_max = int(row[0]) if row and row[0] is not None else -1
+    return current_max + 1
 
 
 # ---------- LEADERBOARD PANELY ----------

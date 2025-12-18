@@ -9,6 +9,7 @@ from db import (
     get_clan_panel_config,
     get_clan_definition,
     list_clan_definitions,
+    get_next_clan_sort_order,
     remove_clan_application_panel,
     set_clan_panel_config,
     upsert_clan_definition,
@@ -76,7 +77,7 @@ def _guild_clan_config(guild_id: int | None, clan_value: str):
 
 def _clan_select_options_for_guild(guild_id: int | None) -> list[discord.SelectOption]:
     if guild_id is None:
-        return list(DEFAULT_CLAN_SELECT_OPTIONS)
+        return []
 
     entries = list_clan_definitions(guild_id)
     options: list[discord.SelectOption] = []
@@ -94,10 +95,7 @@ def _clan_select_options_for_guild(guild_id: int | None) -> list[discord.SelectO
             )
         )
 
-    if options:
-        return options
-
-    return list(DEFAULT_CLAN_SELECT_OPTIONS)
+    return options
 
 
 I18N = {
@@ -343,6 +341,7 @@ def _member_role_id_for_accept(clan_value: str, applicant: discord.Member):
 
     return _member_role_id_for_clan(clan_value, guild_id)
 
+    return _member_role_id_for_clan(clan_value, guild_id)
 
 def _category_id_for_clan(clan_value: str, guild_id: int | None = None):
     clan_key = (clan_value or "").strip().lower()
@@ -483,6 +482,16 @@ class Components(discord.ui.LayoutView):
         select_options: list[discord.SelectOption],
     ):
         super().__init__(timeout=None)
+        options = select_options or []
+        select_disabled = len(options) == 0
+        visible_options = options or [
+            discord.SelectOption(
+                label="Žádné clany nejsou nastaveny",
+                value="none",
+                description="Přidej clan přes /clan_panel clan",
+            )
+        ]
+
         container = discord.ui.Container(
             discord.ui.TextDisplay(content=f"## {title}"),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
@@ -510,7 +519,8 @@ class Components(discord.ui.LayoutView):
                 discord.ui.Select(
                     custom_id="clan_select",
                     placeholder="Choose Clan",
-                    options=select_options,
+                    options=visible_options,
+                    disabled=select_disabled,
                 )
             ),
 
@@ -804,7 +814,9 @@ class ClanPanelCog(commands.Cog):
         self.bot = bot
 
         self.clan_panel_group = app_commands.Group(
-            name="clan_panel", description="Správa panelu pro clan přihlášky"
+            name="clan_panel",
+            description="Správa panelu pro clan přihlášky",
+            default_permissions=discord.Permissions(administrator=True),
         )
         self.clan_panel_group.command(
             name="post", description="Zobrazí panel pro přihlášky do clanu"
@@ -865,6 +877,7 @@ class ClanPanelCog(commands.Cog):
         if existing_group:
             self.bot.tree.remove_command("clan_panel", type=discord.AppCommandType.chat_input)
 
+    @app_commands.checks.has_permissions(administrator=True)
     async def clan_panel(self, interaction: discord.Interaction):
         view = self._build_panel_view(interaction.guild.id if interaction.guild else None)
         await interaction.response.send_message(content="", view=view, ephemeral=False)
@@ -881,7 +894,7 @@ class ClanPanelCog(commands.Cog):
             except Exception:
                 pass
 
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def clan_panel_edit(self, interaction: discord.Interaction):
         guild_id = interaction.guild.id if interaction.guild else None
         title, us_requirements, cz_requirements = self._get_config_for_guild(guild_id)
@@ -928,7 +941,7 @@ class ClanPanelCog(commands.Cog):
 
         await interaction.response.send_modal(ClanPanelEditModal())
 
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.checks.has_permissions(administrator=True)
     @app_commands.choices(
         action=[
             app_commands.Choice(name="Přidat nebo upravit", value="upsert"),
@@ -945,6 +958,7 @@ class ClanPanelCog(commands.Cog):
         accept_role_en="Role po přijetí pro EN hráče (podle jazykové role)",
         accept_category="Kategorie, do které se ticket přesune po přijetí",
         review_role="Role, která uvidí ticket a spravuje ho",
+        order_position="Pořadí v selectu (nižší číslo = výše)",
     )
     async def clan_panel_clan(
         self,
@@ -958,6 +972,7 @@ class ClanPanelCog(commands.Cog):
         accept_role_en: discord.Role | None = None,
         accept_category: discord.CategoryChannel | None = None,
         review_role: discord.Role | None = None,
+        order_position: int | None = None,
     ):
         guild = interaction.guild
         if guild is None:
@@ -973,6 +988,7 @@ class ClanPanelCog(commands.Cog):
             if entries:
                 for entry in entries:
                     desc = entry.get("description", "")
+                    order_txt = entry.get("sort_order", 0)
                     accept_txt = f"<@&{entry['accept_role_id']}>" if entry.get("accept_role_id") else "Nenastaveno"
                     accept_cz_txt = (
                         f"<@&{entry['accept_role_id_cz']}>" if entry.get("accept_role_id_cz") else "Nenastaveno"
@@ -995,7 +1011,8 @@ class ClanPanelCog(commands.Cog):
                                 f"• Role po přijetí (CZ): {accept_cz_txt}\n"
                                 f"• Role po přijetí (EN): {accept_en_txt}\n"
                                 f"• Kategorie po přijetí: {accept_cat_txt}\n"
-                                f"• Role reviewerů: {review_txt}"
+                                f"• Role reviewerů: {review_txt}\n"
+                                f"• Pořadí v selectu: {order_txt}"
                             )
                         )
                     )
@@ -1039,6 +1056,14 @@ class ClanPanelCog(commands.Cog):
             accept_category.id if accept_category else existing.get("accept_category_id")
         )
         final_review_role_id = review_role.id if review_role else existing.get("review_role_id")
+        existing_sort_order = existing.get("sort_order")
+        if order_position is None:
+            if existing_sort_order is not None:
+                final_sort_order = int(existing_sort_order)
+            else:
+                final_sort_order = get_next_clan_sort_order(guild.id)
+        else:
+            final_sort_order = max(int(order_position), 0)
 
         upsert_clan_definition(
             guild.id,
@@ -1050,6 +1075,7 @@ class ClanPanelCog(commands.Cog):
             final_accept_role_id_en,
             final_accept_category_id,
             final_review_role_id,
+            final_sort_order,
         )
 
         entries = list_clan_definitions(guild.id)
