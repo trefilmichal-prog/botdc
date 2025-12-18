@@ -823,13 +823,18 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             return []
 
         mobile_lines: list[str] = []
+        medal_icons = ["🥇", "🥈", "🥉"]
         for index, row in enumerate(rows, start=1):
+            medal = medal_icons[index - 1] if index <= len(medal_icons) else "🏅"
             mobile_lines.append(
                 "\n".join(
                     [
-                        f"{index}. {row['label']}",
-                        f"Online: {row['online']} · Offline: {row['offline']}",
-                        f"{row['percent']} online  {row['bar']}",
+                        "╭────────────────────",
+                        f"│ {medal} #{index} {row['label']}",
+                        "├────────────────────",
+                        f"│ Online : {row['online']}",
+                        f"│ Offline: {row['offline']}",
+                        f"╰ {row['percent']} online  {row['bar']}",
                     ]
                 )
             )
