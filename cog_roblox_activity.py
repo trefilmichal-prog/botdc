@@ -3,10 +3,12 @@ import logging
 import re
 from collections import defaultdict
 from datetime import datetime, timezone
+from io import BytesIO
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import aiohttp
 import discord
+from PIL import Image, ImageDraw, ImageFont
 from discord import app_commands
 from discord.ext import commands, tasks
 
@@ -611,6 +613,13 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         return " ".join(parts)
 
+    @staticmethod
+    def _dedupe_label(label: str) -> str:
+        parts = [part.strip() for part in label.split(" – ", 1)]
+        if len(parts) == 2 and parts[0] == parts[1]:
+            return parts[0]
+        return label
+
     def _update_presence_tracking(
         self, user_id: int, status: Optional[bool], label: str, now: datetime
     ) -> tuple[float, bool, Optional[float]]:
@@ -699,7 +708,6 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         for username, members in tracked.items():
             mentions_text = ", ".join(f"**{m.mention}**" for m in members)
             names_text = ", ".join(f"**{m.display_name}**" for m in members)
-            summary_text = f"**{username}**"
             lower = username.lower()
             detail = {
                 "username": username,
@@ -729,7 +737,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             detail["members_display"] = members_text
             if self._tracking_enabled and is_online is not None:
                 duration_seconds, went_offline, ended_online_duration = self._update_presence_tracking(
-                    user_id, is_online, f"**{username}** – {summary_text}", now
+                    user_id, is_online, f"**{username}**", now
                 )
                 if went_offline:
                     session_seconds = ended_online_duration or 0.0
@@ -799,6 +807,177 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         return chunks
 
+    @staticmethod
+    def _strip_basic_markdown(value: str) -> str:
+        return re.sub(r"[*_`~]", "", value)
+
+    def _render_leaderboard_image(self, rows: list[dict[str, str]]) -> BytesIO:
+        if not rows:
+            return BytesIO()
+
+        width = 2400
+        header_height = 280
+        row_height = 200
+        padding = 96
+        height = padding * 2 + header_height + row_height * len(rows)
+
+        background = "#0b1224"
+        card = Image.new("RGB", (width, height), color=background)
+        draw = ImageDraw.Draw(card)
+
+        try:
+            title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 96)
+            header_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 56)
+            body_font = ImageFont.truetype("DejaVuSans.ttf", 52)
+            small_font = ImageFont.truetype("DejaVuSans.ttf", 44)
+        except Exception:  # noqa: BLE001
+            title_font = ImageFont.load_default()
+            header_font = ImageFont.load_default()
+            body_font = ImageFont.load_default()
+            small_font = ImageFont.load_default()
+
+        draw.rounded_rectangle(
+            [(36, 36), (width - 36, height - 36)], radius=32, fill="#0f172a"
+        )
+
+        for i in range(6):
+            shade = int(18 + i * 10)
+            draw.rectangle(
+                [
+                    (padding, padding + i * 8),
+                    (width - padding, padding + header_height + i * 8),
+                ],
+                fill=f"#{shade:02x}{shade:02x}{shade + 20:02x}",
+            )
+
+        title_text = "Roblox Activity Leaderboard"
+        range_text = f"Measurement window: {self._format_range()}"
+        draw.text((padding + 24, padding + 20), title_text, font=title_font, fill="#e2e8f0")
+        draw.text((padding + 24, padding + 120), range_text, font=header_font, fill="#cbd5e1")
+        draw.text(
+            (padding + 24, padding + 184),
+            "Showing total online time for tracked members",
+            font=small_font,
+            fill="#94a3b8",
+        )
+
+        column_x = [
+            padding + 36,
+            padding + 240,
+            padding + 880,
+            padding + 1320,
+            padding + 1780,
+        ]
+        headers = ["Rank", "Player", "Online", "Offline", "Online %"]
+        for idx, header in enumerate(headers):
+            draw.text((column_x[idx], padding + header_height - 44), header, font=header_font, fill="#cbd5e1")
+
+        medal_icons = ["🥇", "🥈", "🥉"]
+        badge_colors = ["#fbbf24", "#cbd5e1", "#f97316"]
+        for index, row in enumerate(rows, start=1):
+            top_y = padding + header_height + (index - 1) * row_height
+            bottom_y = top_y + row_height - 22
+            draw.rounded_rectangle(
+                [(padding + 12, top_y), (width - padding - 12, bottom_y)],
+                radius=28,
+                fill="#0f172a",
+                outline="#1f2937",
+                width=5,
+            )
+
+            medal = medal_icons[index - 1] if index <= len(medal_icons) else "🏅"
+            badge_color = badge_colors[index - 1] if index <= len(badge_colors) else "#38bdf8"
+            rank_text = f"{medal} #{index}"
+            rank_box = (
+                (column_x[0] - 6, top_y + 30),
+                (column_x[0] + 170, top_y + 96),
+            )
+            draw.rounded_rectangle(rank_box, radius=18, fill=badge_color)
+            draw.text((column_x[0] + 12, top_y + 40), rank_text, font=body_font, fill="#0f172a")
+
+            draw.text(
+                (column_x[1], top_y + 36),
+                row["label"],
+                font=body_font,
+                fill="#e5e7eb",
+            )
+            draw.text(
+                (column_x[2], top_y + 36),
+                row["online"],
+                font=body_font,
+                fill="#34d399",
+            )
+            draw.text(
+                (column_x[3], top_y + 36),
+                row["offline"],
+                font=body_font,
+                fill="#fca5a5",
+            )
+            draw.text(
+                (column_x[4], top_y + 36),
+                row["percent"],
+                font=body_font,
+                fill="#93c5fd",
+            )
+
+        output = BytesIO()
+        card.save(output, format="PNG")
+        output.seek(0)
+        return output
+
+    def _format_leaderboard_table(self, rows: list[dict[str, str]]) -> list[str]:
+        if not rows:
+            return []
+
+        mobile_lines: list[str] = []
+        medal_icons = ["🥇", "🥈", "🥉"]
+        for index, row in enumerate(rows, start=1):
+            medal = medal_icons[index - 1] if index <= len(medal_icons) else "🏅"
+            mobile_lines.append(
+                "\n".join(
+                    [
+                        "╭────────────────────",
+                        f"│ {medal} #{index} {row['label']}",
+                        "├────────────────────",
+                        f"│ Online : {row['online']}",
+                        f"│ Offline: {row['offline']}",
+                        f"╰ {row['percent']} online",
+                    ]
+                )
+            )
+
+        return [chunk for chunk in self._chunk_lines(mobile_lines, limit=700)]
+
+    def _build_leaderboard_view(self, rows: list[dict[str, str]]) -> discord.ui.LayoutView:
+        leaderboard_view = discord.ui.LayoutView(timeout=None)
+        leaderboard_items = [
+            discord.ui.TextDisplay(content="Roblox leaderboard (picture attached)"),
+            discord.ui.Separator(visible=True),
+            discord.ui.TextDisplay(content=f"Measurement range: {self._format_range()}"),
+            discord.ui.TextDisplay(
+                content=(
+                    "Download the attached image to view the styled leaderboard. "
+                    "Key highlights are listed below."
+                )
+            ),
+        ]
+
+        if rows:
+            leaderboard_items.append(discord.ui.Separator(visible=True))
+            leaderboard_items.append(discord.ui.TextDisplay(content="Top performers"))
+            for idx, row in enumerate(rows[:3], start=1):
+                leaderboard_items.append(
+                    discord.ui.TextDisplay(
+                        content=(
+                            f"{idx}. {row['label']} — {row['percent']} online "
+                            f"({row['online']} online / {row['offline']} offline)"
+                        )
+                    )
+                )
+
+        leaderboard_view.add_item(discord.ui.Container(*leaderboard_items))
+        return leaderboard_view
+
     @app_commands.command(
         name="roblox_activity",
         description="Check which clan members are playing Rebirth Champions Ultimate.",
@@ -834,7 +1013,6 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             )
 
         await interaction.followup.send(
-            content="Roblox clan activity summary:",
             view=summary_view,
             ephemeral=True,
         )
@@ -1199,39 +1377,37 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             )
             return
 
-        lines: list[str] = []
+        table_rows: list[dict[str, str]] = []
         for user_id, totals in sorted(
             filtered_totals.items(),
             key=lambda item: item[1]["online"],
             reverse=True,
         ):
-            label = self._user_labels.get(
-                user_id, f"**{username_lookup.get(user_id, f'ID {user_id}')}**"
-            )
+            stored_label = self._user_labels.get(user_id)
+            label = self._dedupe_label(stored_label) if stored_label else None
+            if stored_label and label != stored_label:
+                self._user_labels[user_id] = label
+                self._persist_user_state(user_id)
+            if not label:
+                label = username_lookup.get(user_id, f"ID {user_id}")
             online_text = self._format_timedelta(totals["online"])
             offline_text = self._format_timedelta(totals["offline"])
-            lines.append(f"{label}: 🟢 {online_text} | 🔴 {offline_text}")
-
-        leaderboard_view = discord.ui.LayoutView(timeout=None)
-        leaderboard_items = [
-            discord.ui.TextDisplay(content="Roblox leaderboard"),
-            discord.ui.Separator(visible=True),
-            discord.ui.TextDisplay(content=f"Measurement range: {self._format_range()}"),
-        ]
-
-        for idx, chunk in enumerate(self._chunk_lines(lines)):
-            heading = "Summary" if idx == 0 else f"Summary (continued {idx})"
-            leaderboard_items.extend(
-                [
-                    discord.ui.Separator(visible=True),
-                    discord.ui.TextDisplay(content=f"{heading}\n" + chunk),
-                ]
+            total_time = totals["online"] + totals["offline"]
+            online_ratio = (totals["online"] / total_time * 100) if total_time > 0 else 0.0
+            table_rows.append(
+                {
+                    "label": self._strip_basic_markdown(label),
+                    "online": online_text,
+                    "offline": offline_text,
+                    "percent": f"{online_ratio:.0f}%",
+                }
             )
 
-        leaderboard_view.add_item(discord.ui.Container(*leaderboard_items))
-
         await interaction.followup.send(
-            view=leaderboard_view,
+            file=discord.File(
+                fp=self._render_leaderboard_image(table_rows),
+                filename="roblox_leaderboard.png",
+            ),
             ephemeral=True,
         )
 
