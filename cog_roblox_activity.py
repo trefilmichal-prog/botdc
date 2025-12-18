@@ -826,10 +826,10 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         draw = ImageDraw.Draw(card)
 
         try:
-            title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 140)
-            header_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 80)
-            body_font = ImageFont.truetype("DejaVuSans.ttf", 78)
-            small_font = ImageFont.truetype("DejaVuSans.ttf", 64)
+            title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 200)
+            header_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 120)
+            body_font = ImageFont.truetype("DejaVuSans.ttf", 110)
+            small_font = ImageFont.truetype("DejaVuSans.ttf", 90)
         except Exception:  # noqa: BLE001
             title_font = ImageFont.load_default()
             header_font = ImageFont.load_default()
@@ -853,9 +853,9 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         title_text = "Roblox Activity Leaderboard"
         range_text = f"Measurement window: {self._format_range()}"
         draw.text((padding + 32, padding + 24), title_text, font=title_font, fill="#e2e8f0")
-        draw.text((padding + 32, padding + 170), range_text, font=header_font, fill="#cbd5e1")
+        draw.text((padding + 32, padding + 150), range_text, font=header_font, fill="#cbd5e1")
         draw.text(
-            (padding + 32, padding + 260),
+            (padding + 32, padding + 240),
             "Showing total online time for tracked members",
             font=small_font,
             fill="#94a3b8",
@@ -871,7 +871,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         headers = ["Rank", "Player", "Online", "Offline", "Online %"]
         for idx, header in enumerate(headers):
             draw.text(
-                (column_x[idx], padding + header_height - 60),
+                (column_x[idx], padding + header_height - 220),
                 header,
                 font=header_font,
                 fill="#cbd5e1",
@@ -894,11 +894,11 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             badge_color = badge_colors[index - 1] if index <= len(badge_colors) else "#38bdf8"
             rank_text = f"{medal} #{index}"
             rank_box = (
-                (column_x[0] - 6, top_y + 40),
-                (column_x[0] + 230, top_y + 126),
+                (column_x[0] - 6, top_y + 34),
+                (column_x[0] + 260, top_y + 180),
             )
-            draw.rounded_rectangle(rank_box, radius=22, fill=badge_color)
-            draw.text((column_x[0] + 16, top_y + 54), rank_text, font=body_font, fill="#0f172a")
+            draw.rounded_rectangle(rank_box, radius=28, fill=badge_color)
+            draw.text((column_x[0] + 22, top_y + 64), rank_text, font=body_font, fill="#0f172a")
 
             draw.text(
                 (column_x[1], top_y + 46),
