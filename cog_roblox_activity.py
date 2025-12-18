@@ -4,6 +4,7 @@ import re
 from collections import defaultdict
 from datetime import datetime, timezone
 from io import BytesIO
+from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import aiohttp
@@ -811,6 +812,15 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
     def _strip_basic_markdown(value: str) -> str:
         return re.sub(r"[*_`~]", "", value)
 
+    def _get_font(self, name: str, size: int) -> ImageFont.FreeTypeFont:
+        try:
+            return ImageFont.truetype(str(Path(ImageFont.__file__).with_name(name)), size)
+        except Exception:  # noqa: BLE001
+            try:
+                return ImageFont.truetype(name, size)
+            except Exception:  # noqa: BLE001
+                return ImageFont.load_default()
+
     def _render_leaderboard_image(self, rows: list[dict[str, str]]) -> BytesIO:
         if not rows:
             return BytesIO()
@@ -825,16 +835,10 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         card = Image.new("RGB", (width, height), color=background)
         draw = ImageDraw.Draw(card)
 
-        try:
-            title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 220)
-            header_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 150)
-            body_font = ImageFont.truetype("DejaVuSans.ttf", 150)
-            small_font = ImageFont.truetype("DejaVuSans.ttf", 120)
-        except Exception:  # noqa: BLE001
-            title_font = ImageFont.load_default()
-            header_font = ImageFont.load_default()
-            body_font = ImageFont.load_default()
-            small_font = ImageFont.load_default()
+        title_font = self._get_font("DejaVuSans-Bold.ttf", 220)
+        header_font = self._get_font("DejaVuSans-Bold.ttf", 150)
+        body_font = self._get_font("DejaVuSans.ttf", 150)
+        small_font = self._get_font("DejaVuSans.ttf", 120)
 
         draw.rounded_rectangle(
             [(48, 48), (width - 48, height - 48)], radius=40, fill="#0f172a"
@@ -856,25 +860,22 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             (padding + 32, padding + 16),
             title_text,
             font=title_font,
-            fill="#f8fafc",
-            stroke_width=1,
-            stroke_fill="#0b1224",
+            fill="#ffffff",
+            stroke_width=0,
         )
         draw.text(
             (padding + 32, padding + 170),
             range_text,
             font=header_font,
-            fill="#f1f5f9",
-            stroke_width=1,
-            stroke_fill="#0b1224",
+            fill="#f8fafc",
+            stroke_width=0,
         )
         draw.text(
             (padding + 32, padding + 270),
             "Showing total online time for tracked members",
             font=small_font,
             fill="#e2e8f0",
-            stroke_width=1,
-            stroke_fill="#0b1224",
+            stroke_width=0,
         )
 
         column_x = [
@@ -890,9 +891,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 (column_x[idx], padding + header_height - 205),
                 header,
                 font=header_font,
-                fill="#f8fafc",
-                stroke_width=1,
-                stroke_fill="#0b1224",
+                fill="#ffffff",
+                stroke_width=0,
             )
 
         medal_icons = ["🥇", "🥈", "🥉"]
@@ -921,8 +921,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 rank_text,
                 font=body_font,
                 fill="#0b1224",
-                stroke_width=1,
-                stroke_fill="#fde68a",
+                stroke_width=0,
             )
 
             draw.text(
@@ -930,32 +929,28 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 row["label"],
                 font=body_font,
                 fill="#f8fafc",
-                stroke_width=1,
-                stroke_fill="#0b1224",
+                stroke_width=0,
             )
             draw.text(
                 (column_x[2], top_y + 52),
                 row["online"],
                 font=body_font,
-                fill="#dcfce7",
-                stroke_width=1,
-                stroke_fill="#0b1224",
+                fill="#ebfff3",
+                stroke_width=0,
             )
             draw.text(
                 (column_x[3], top_y + 52),
                 row["offline"],
                 font=body_font,
-                fill="#ffe4e6",
-                stroke_width=1,
-                stroke_fill="#0b1224",
+                fill="#ffeef3",
+                stroke_width=0,
             )
             draw.text(
                 (column_x[4], top_y + 52),
                 row["percent"],
                 font=body_font,
-                fill="#e0f2fe",
-                stroke_width=1,
-                stroke_fill="#0b1224",
+                fill="#e8f6ff",
+                stroke_width=0,
             )
 
         output = BytesIO()
