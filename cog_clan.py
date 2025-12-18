@@ -100,6 +100,18 @@ def _clan_select_options_for_guild(guild_id: int | None) -> list[discord.SelectO
     return list(DEFAULT_CLAN_SELECT_OPTIONS)
 
 
+def _guild_clan_config(guild_id: int | None, clan_value: str):
+    if guild_id is None:
+        return None
+    clan_key = (clan_value or "").strip().lower()
+    if not clan_key:
+        return None
+    db_row = get_clan_definition(guild_id, clan_key)
+    if not db_row:
+        return None
+    return db_row
+
+
 I18N = {
     "cs": {
         "modal_title": "Přihláška do clanu",
