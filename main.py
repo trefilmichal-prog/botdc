@@ -49,29 +49,53 @@ class MyBot(commands.Bot):
         )
 
     async def setup_hook(self):
-        # načteme cogy (moduly)
-        await self.load_extension("cog_xp")
-        await self.load_extension("cog_wood")
-        await self.load_extension("cog_timers")
-        await self.load_extension("cog_shop")
-        await self.load_extension("cog_clan_stats")
-        await self.load_extension("cog_basic")
-        await self.load_extension("cog_leaderboard")
-        await self.load_extension("cog_prophecy")
-        await self.load_extension("cog_logging")
-        await self.load_extension("cog_antispam")
-        await self.load_extension("cog_admin_tasks")
-        await self.load_extension("cog_sp")
-        await self.load_extension("cog_translation")
-        await self.load_extension("cog_time_status")
-        await self.load_extension("cog_updater")
-        await self.load_extension("cog_welcome")
+        async def load_extension_safe(name: str):
+            try:
+                await self.load_extension(name)
+                logger.info("Cog %s byl úspěšně načten.", name)
+            except Exception:
+                logger.exception("Načtení cogu %s selhalo, pokračuji dál.", name)
 
-        await self.add_cog(GiveawayCog(self))
-        await self.add_cog(ClanPanelCog(self))
-        await self.add_cog(AttendanceCog(self))
+        async def add_cog_safe(cog: commands.Cog):
+            try:
+                await self.add_cog(cog)
+                logger.info("Cog %s byl úspěšně přidán.", cog.qualified_name)
+            except Exception:
+                logger.exception(
+                    "Přidání cogu %s selhalo, pokračuji dál.",
+                    getattr(cog, "qualified_name", type(cog).__name__),
+                )
 
-        await self.add_cog(RobloxActivityCog(self))
+        # Nejdříve načteme kritické cogy, které musí fungovat i při chybě ostatních.
+        await load_extension_safe("cog_logging")
+        await load_extension_safe("cog_updater")
+
+        # Načtení ostatních modulů pokračuje i při chybách.
+        for extension in [
+            "cog_xp",
+            "cog_wood",
+            "cog_timers",
+            "cog_shop",
+            "cog_clan_stats",
+            "cog_basic",
+            "cog_leaderboard",
+            "cog_prophecy",
+            "cog_antispam",
+            "cog_admin_tasks",
+            "cog_sp",
+            "cog_translation",
+            "cog_time_status",
+            "cog_welcome",
+        ]:
+            await load_extension_safe(extension)
+
+        for cog in [
+            GiveawayCog(self),
+            ClanPanelCog(self),
+            AttendanceCog(self),
+            RobloxActivityCog(self),
+        ]:
+            await add_cog_safe(cog)
 
         # sync slash commandů
         await self.tree.sync()
