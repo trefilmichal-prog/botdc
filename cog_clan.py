@@ -4,10 +4,14 @@ from discord.ext import commands
 from discord import app_commands
 from db import (
     add_clan_application_panel,
+    delete_clan_definition,
     get_all_clan_application_panels,
     get_clan_panel_config,
+    get_clan_definition,
+    list_clan_definitions,
     remove_clan_application_panel,
     set_clan_panel_config,
+    upsert_clan_definition,
 )
 
 # Category where NEW ticket channels will be created (initial intake)
@@ -50,6 +54,18 @@ CLAN_CATEGORY_IDS = {
     "hr2t": 1444304658142335217,
     "tgcm": 1447423401462333480,
 }
+
+
+def _guild_clan_config(guild_id: int | None, clan_value: str):
+    if guild_id is None:
+        return None
+    clan_key = (clan_value or "").strip().lower()
+    if not clan_key:
+        return None
+    db_row = get_clan_definition(guild_id, clan_key)
+    if not db_row:
+        return None
+    return db_row
 
 
 I18N = {
@@ -246,11 +262,17 @@ def _review_custom_id(action: str, channel_id: int, clan_value: str, lang: str) 
     return f"clan_review|{action}|{channel_id}|{clan_value}|{lang}"
 
 
-def _review_role_id_for_clan(clan_value: str):
+def _review_role_id_for_clan(clan_value: str, guild_id: int | None = None):
+    db_conf = _guild_clan_config(guild_id, clan_value)
+    if db_conf and db_conf.get("review_role_id"):
+        return db_conf["review_role_id"]
     return CLAN_REVIEW_ROLE_IDS.get((clan_value or "").strip().lower())
 
 
-def _member_role_id_for_clan(clan_value: str):
+def _member_role_id_for_clan(clan_value: str, guild_id: int | None = None):
+    db_conf = _guild_clan_config(guild_id, clan_value)
+    if db_conf and db_conf.get("accept_role_id"):
+        return db_conf["accept_role_id"]
     return CLAN_MEMBER_ROLE_IDS.get((clan_value or "").strip().lower())
 
 
@@ -269,15 +291,15 @@ def _member_role_id_for_accept(clan_value: str, applicant: discord.Member):
         if ROLE_LANG_EN in role_ids:
             return HROT_MEMBER_ROLE_EN
         return None
-    return _member_role_id_for_clan(clan_value)
+    return _member_role_id_for_clan(clan_value, getattr(applicant.guild, "id", None))
 
 
-def _category_id_for_clan(clan_value: str):
+def _category_id_for_clan(clan_value: str, guild_id: int | None = None):
     return CLAN_CATEGORY_IDS.get((clan_value or "").strip().lower())
 
 
-def _role_mention_for_clan(clan_value: str) -> str:
-    rid = _review_role_id_for_clan(clan_value)
+def _role_mention_for_clan(clan_value: str, guild_id: int | None = None) -> str:
+    rid = _review_role_id_for_clan(clan_value, guild_id)
     return f"<@&{rid}>" if rid else ""
 
 
@@ -301,7 +323,7 @@ def _is_reviewer(member: discord.Member, clan_value: str) -> bool:
     if admin_role and admin_role in member.roles:
         return True
 
-    rid = _review_role_id_for_clan(clan_value)
+    rid = _review_role_id_for_clan(clan_value, member.guild.id if member.guild else None)
     if rid:
         role = member.guild.get_role(rid)
         if role and role in member.roles:
@@ -312,7 +334,7 @@ def _is_reviewer(member: discord.Member, clan_value: str) -> bool:
 
 async def _ensure_review_role_can_view(channel: discord.TextChannel, clan_value: str) -> bool:
     """Ensure the clan review role has visibility to the ticket channel."""
-    rid = _review_role_id_for_clan(clan_value)
+    rid = _review_role_id_for_clan(clan_value, channel.guild.id if channel.guild else None)
     if not rid:
         return False
 
@@ -335,7 +357,7 @@ async def _ensure_review_role_can_view(channel: discord.TextChannel, clan_value:
 
 async def _move_ticket_to_clan_category(channel: discord.TextChannel, clan_value: str) -> bool:
     """Move the ticket to the configured clan category (only used on ACCEPT)."""
-    cid = _category_id_for_clan(clan_value)
+    cid = _category_id_for_clan(clan_value, channel.guild.id if channel.guild else None)
     if not cid:
         return False
 
@@ -453,10 +475,10 @@ class Components(discord.ui.LayoutView):
 class ScreenshotInstructionsView(discord.ui.LayoutView):
     """Single message with screenshot instructions (NO buttons)."""
 
-    def __init__(self, user_mention: str, clan_value: str, lang: str):
+    def __init__(self, user_mention: str, clan_value: str, lang: str, guild_id: int | None):
         super().__init__(timeout=None)
 
-        role_mention = _role_mention_for_clan(clan_value)
+        role_mention = _role_mention_for_clan(clan_value, guild_id)
 
         body = _t(lang, "screenshot_body")
         if role_mention:
@@ -575,7 +597,9 @@ class ClanApplicationModal(discord.ui.Modal):
                 attach_files=True,
             )
 
-        review_role_id = _review_role_id_for_clan(self.clan_value)
+        review_role_id = _review_role_id_for_clan(
+            self.clan_value, guild.id if guild else None
+        )
         if review_role_id:
             review_role = guild.get_role(review_role_id)
             if review_role:
@@ -717,7 +741,12 @@ class ClanApplicationModal(discord.ui.Modal):
         # Screenshot instructions (no button). Role mention is shown but NOT pinged by bot.
         await ticket_channel.send(
             content="",
-            view=ScreenshotInstructionsView(interaction.user.mention, self.clan_value, lang),
+            view=ScreenshotInstructionsView(
+                interaction.user.mention,
+                self.clan_value,
+                lang,
+                ticket_channel.guild.id if ticket_channel.guild else None,
+            ),
             allowed_mentions=discord.AllowedMentions(roles=False, users=True, everyone=False),
         )
 
@@ -727,6 +756,20 @@ class ClanApplicationModal(discord.ui.Modal):
 class ClanPanelCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+
+        self.clan_panel_group = app_commands.Group(
+            name="clan_panel", description="Správa panelu pro clan přihlášky"
+        )
+        self.clan_panel_group.command(
+            name="post", description="Zobrazí panel pro přihlášky do clanu"
+        )(self.clan_panel)
+        self.clan_panel_group.command(
+            name="edit", description="Upraví text panelu přes formulář"
+        )(self.clan_panel_edit)
+        self.clan_panel_group.command(
+            name="clan", description="Správa clanů a rolí pro přihlášky",
+        )(self.clan_panel_clan)
+        self.__cog_app_commands__ = []
 
     @staticmethod
     def _default_clan_panel_config() -> tuple[str, str, str]:
@@ -750,6 +793,10 @@ class ClanPanelCog(commands.Cog):
         return Components(title=title, us_requirements=us_requirements, cz_requirements=cz_requirements)
 
     async def cog_load(self):
+        existing_group = self.bot.tree.get_command("clan_panel", type=discord.AppCommandType.chat_input)
+        if existing_group:
+            self.bot.tree.remove_command("clan_panel", type=discord.AppCommandType.chat_input)
+
         try:
             self.bot.tree.add_command(self.clan_panel_group)
         except app_commands.CommandAlreadyRegistered:
@@ -761,11 +808,11 @@ class ClanPanelCog(commands.Cog):
             except Exception:
                 continue
 
-    clan_panel_group = app_commands.Group(
-        name="clan_panel", description="Správa panelu pro clan přihlášky"
-    )
+    async def cog_unload(self):
+        existing_group = self.bot.tree.get_command("clan_panel", type=discord.AppCommandType.chat_input)
+        if existing_group:
+            self.bot.tree.remove_command("clan_panel", type=discord.AppCommandType.chat_input)
 
-    @clan_panel_group.command(name="post", description="Zobrazí panel pro přihlášky do clanu")
     async def clan_panel(self, interaction: discord.Interaction):
         view = self._build_panel_view(interaction.guild.id if interaction.guild else None)
         await interaction.response.send_message(content="", view=view, ephemeral=False)
@@ -782,7 +829,6 @@ class ClanPanelCog(commands.Cog):
             except Exception:
                 pass
 
-    @clan_panel_group.command(name="edit", description="Upraví text panelu přes formulář")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def clan_panel_edit(self, interaction: discord.Interaction):
         guild_id = interaction.guild.id if interaction.guild else None
@@ -829,6 +875,101 @@ class ClanPanelCog(commands.Cog):
             await self._refresh_clan_panels_for_guild(guild_id)
 
         await interaction.response.send_modal(ClanPanelEditModal())
+
+    @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.choices(
+        action=[
+            app_commands.Choice(name="Přidat nebo upravit", value="upsert"),
+            app_commands.Choice(name="Smazat", value="delete"),
+            app_commands.Choice(name="Seznam", value="list"),
+        ]
+    )
+    @app_commands.describe(
+        clan_key="Kód clanu (např. hrot)",
+        display_name="Zobrazovaný název",
+        description="Popisek clanu",
+        accept_role="Role, která se má přidat po přijetí",
+        review_role="Role, která uvidí ticket a spravuje ho",
+    )
+    async def clan_panel_clan(
+        self,
+        interaction: discord.Interaction,
+        action: app_commands.Choice[str],
+        clan_key: str | None = None,
+        display_name: str | None = None,
+        description: str | None = None,
+        accept_role: discord.Role | None = None,
+        review_role: discord.Role | None = None,
+    ):
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message("Příkaz lze použít pouze na serveru.", ephemeral=True)
+            return
+
+        key_slug = (clan_key or "").strip().lower()
+        action_value = action.value
+
+        def _render_view(message: str, entries: list[dict]):
+            view = discord.ui.LayoutView(timeout=None)
+            items = [discord.ui.TextDisplay(content=f"## {message}")]
+            if entries:
+                for entry in entries:
+                    desc = entry.get("description", "")
+                    accept_txt = f"<@&{entry['accept_role_id']}>" if entry.get("accept_role_id") else "Nenastaveno"
+                    review_txt = f"<@&{entry['review_role_id']}>" if entry.get("review_role_id") else "Nenastaveno"
+                    items.append(
+                        discord.ui.TextDisplay(
+                            content=(
+                                f"**{entry['clan_key']}** — {entry.get('display_name', entry['clan_key'])}\n"
+                                f"{desc}\n"
+                                f"• Role po přijetí: {accept_txt}\n"
+                                f"• Role reviewerů: {review_txt}"
+                            )
+                        )
+                    )
+                    items.append(discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.medium))
+            else:
+                items.append(discord.ui.TextDisplay(content="Žádné clany nejsou nastaveny."))
+
+            container = discord.ui.Container(*items)
+            view.add_item(container)
+            return view
+
+        if action_value == "list":
+            entries = list_clan_definitions(guild.id)
+            view = _render_view("Nastavené clany", entries)
+            await interaction.response.send_message(content="", view=view, ephemeral=True)
+            return
+
+        if not key_slug:
+            await interaction.response.send_message("Uveď kód clanu (např. hrot, hr2t, tgcm).", ephemeral=True)
+            return
+
+        if action_value == "delete":
+            delete_clan_definition(guild.id, key_slug)
+            entries = list_clan_definitions(guild.id)
+            view = _render_view(f"Clan {key_slug} byl odstraněn.", entries)
+            await interaction.response.send_message(content="", view=view, ephemeral=True)
+            return
+
+        existing = get_clan_definition(guild.id, key_slug) or {}
+        final_display = (display_name or existing.get("display_name") or key_slug).strip()
+        final_desc = (description or existing.get("description") or "").strip()
+        final_accept_role_id = accept_role.id if accept_role else existing.get("accept_role_id")
+        final_review_role_id = review_role.id if review_role else existing.get("review_role_id")
+
+        upsert_clan_definition(
+            guild.id,
+            key_slug,
+            final_display or key_slug,
+            final_desc,
+            final_accept_role_id,
+            final_review_role_id,
+        )
+
+        entries = list_clan_definitions(guild.id)
+        view = _render_view("Clan byl uložen.", entries)
+        await interaction.response.send_message(content="", view=view, ephemeral=True)
 
     async def _refresh_clan_panels_for_guild(self, guild_id: int | None):
         if guild_id is None:
