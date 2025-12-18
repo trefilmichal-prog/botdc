@@ -1020,7 +1020,6 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             )
 
         await interaction.followup.send(
-            content="Roblox clan activity summary:",
             view=summary_view,
             ephemeral=True,
         )
@@ -1413,7 +1412,6 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             )
 
         await interaction.followup.send(
-            content="Roblox clan leaderboard (picture attached)",
             file=discord.File(
                 fp=self._render_leaderboard_image(table_rows),
                 filename="roblox_leaderboard.png",
