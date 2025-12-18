@@ -55,6 +55,50 @@ CLAN_CATEGORY_IDS = {
     "tgcm": 1447423401462333480,
 }
 
+DEFAULT_CLAN_SELECT_OPTIONS = [
+    discord.SelectOption(label="Main Clan HROT", value="HROT", description="🇨🇿 & 🇺🇸"),
+    discord.SelectOption(label="Second Clan HR2T", value="HR2T", description="🇨🇿"),
+    discord.SelectOption(label="Third Clan TGCM", value="TGCM", description="🇺🇸"),
+]
+
+
+def _guild_clan_config(guild_id: int | None, clan_value: str):
+    if guild_id is None:
+        return None
+    clan_key = (clan_value or "").strip().lower()
+    if not clan_key:
+        return None
+    db_row = get_clan_definition(guild_id, clan_key)
+    if not db_row:
+        return None
+    return db_row
+
+
+def _clan_select_options_for_guild(guild_id: int | None) -> list[discord.SelectOption]:
+    if guild_id is None:
+        return list(DEFAULT_CLAN_SELECT_OPTIONS)
+
+    entries = list_clan_definitions(guild_id)
+    options: list[discord.SelectOption] = []
+    for entry in entries:
+        label = (entry.get("display_name") or entry.get("clan_key") or "").strip() or entry.get("clan_key")
+        value = entry.get("clan_key") or ""
+        description = (entry.get("description") or "").strip()
+        if not value:
+            continue
+        options.append(
+            discord.SelectOption(
+                label=label[:100],
+                value=str(value),
+                description=description[:100] if description else None,
+            )
+        )
+
+    if options:
+        return options
+
+    return list(DEFAULT_CLAN_SELECT_OPTIONS)
+
 
 def _guild_clan_config(guild_id: int | None, clan_value: str):
     if guild_id is None:
@@ -313,7 +357,12 @@ def _member_role_id_for_accept(clan_value: str, applicant: discord.Member):
 
 
 def _category_id_for_clan(clan_value: str, guild_id: int | None = None):
-    return CLAN_CATEGORY_IDS.get((clan_value or "").strip().lower())
+    clan_key = (clan_value or "").strip().lower()
+    if guild_id is not None:
+        db_conf = _guild_clan_config(guild_id, clan_value)
+        if db_conf and db_conf.get("accept_category_id"):
+            return db_conf["accept_category_id"]
+    return CLAN_CATEGORY_IDS.get(clan_key)
 
 
 def _role_mention_for_clan(clan_value: str, guild_id: int | None = None) -> str:
@@ -437,7 +486,14 @@ async def _rename_ticket_prefix(
 class Components(discord.ui.LayoutView):
     """Main public panel with clan selection."""
 
-    def __init__(self, *, title: str, us_requirements: str, cz_requirements: str):
+    def __init__(
+        self,
+        *,
+        title: str,
+        us_requirements: str,
+        cz_requirements: str,
+        select_options: list[discord.SelectOption],
+    ):
         super().__init__(timeout=None)
         container = discord.ui.Container(
             discord.ui.TextDisplay(content=f"## {title}"),
@@ -466,23 +522,7 @@ class Components(discord.ui.LayoutView):
                 discord.ui.Select(
                     custom_id="clan_select",
                     placeholder="Choose Clan",
-                    options=[
-                        discord.SelectOption(
-                            label="Main Clan HROT",
-                            value="HROT",
-                            description="🇨🇿 & 🇺🇸",
-                        ),
-                        discord.SelectOption(
-                            label="Second Clan HR2T",
-                            value="HR2T",
-                            description="🇨🇿",
-                        ),
-                        discord.SelectOption(
-                            label="Third Clan TGCM",
-                            value="TGCM",
-                            description="🇺🇸",
-                        ),
-                    ],
+                    options=select_options,
                 )
             ),
 
@@ -808,7 +848,13 @@ class ClanPanelCog(commands.Cog):
 
     def _build_panel_view(self, guild_id: int | None) -> Components:
         title, us_requirements, cz_requirements = self._get_config_for_guild(guild_id)
-        return Components(title=title, us_requirements=us_requirements, cz_requirements=cz_requirements)
+        select_options = _clan_select_options_for_guild(guild_id)
+        return Components(
+            title=title,
+            us_requirements=us_requirements,
+            cz_requirements=cz_requirements,
+            select_options=select_options,
+        )
 
     async def cog_load(self):
         existing_group = self.bot.tree.get_command("clan_panel", type=discord.AppCommandType.chat_input)
@@ -909,6 +955,7 @@ class ClanPanelCog(commands.Cog):
         accept_role="Výchozí role, která se má přidat po přijetí",
         accept_role_cz="Role po přijetí pro CZ hráče (podle jazykové role)",
         accept_role_en="Role po přijetí pro EN hráče (podle jazykové role)",
+        accept_category="Kategorie, do které se ticket přesune po přijetí",
         review_role="Role, která uvidí ticket a spravuje ho",
     )
     async def clan_panel_clan(
@@ -921,6 +968,7 @@ class ClanPanelCog(commands.Cog):
         accept_role: discord.Role | None = None,
         accept_role_cz: discord.Role | None = None,
         accept_role_en: discord.Role | None = None,
+        accept_category: discord.CategoryChannel | None = None,
         review_role: discord.Role | None = None,
     ):
         guild = interaction.guild
@@ -944,6 +992,11 @@ class ClanPanelCog(commands.Cog):
                     accept_en_txt = (
                         f"<@&{entry['accept_role_id_en']}>" if entry.get("accept_role_id_en") else "Nenastaveno"
                     )
+                    accept_cat_txt = (
+                        f"<#${entry['accept_category_id']}>".replace("$", "")
+                        if entry.get("accept_category_id")
+                        else "Nenastaveno"
+                    )
                     review_txt = f"<@&{entry['review_role_id']}>" if entry.get("review_role_id") else "Nenastaveno"
                     items.append(
                         discord.ui.TextDisplay(
@@ -953,6 +1006,7 @@ class ClanPanelCog(commands.Cog):
                                 f"• Role po přijetí (default): {accept_txt}\n"
                                 f"• Role po přijetí (CZ): {accept_cz_txt}\n"
                                 f"• Role po přijetí (EN): {accept_en_txt}\n"
+                                f"• Kategorie po přijetí: {accept_cat_txt}\n"
                                 f"• Role reviewerů: {review_txt}"
                             )
                         )
@@ -980,6 +1034,7 @@ class ClanPanelCog(commands.Cog):
             entries = list_clan_definitions(guild.id)
             view = _render_view(f"Clan {key_slug} byl odstraněn.", entries)
             await interaction.response.send_message(content="", view=view, ephemeral=True)
+            await self._refresh_clan_panels_for_guild(guild.id)
             return
 
         existing = get_clan_definition(guild.id, key_slug) or {}
@@ -992,6 +1047,9 @@ class ClanPanelCog(commands.Cog):
         final_accept_role_id_en = (
             accept_role_en.id if accept_role_en else existing.get("accept_role_id_en")
         )
+        final_accept_category_id = (
+            accept_category.id if accept_category else existing.get("accept_category_id")
+        )
         final_review_role_id = review_role.id if review_role else existing.get("review_role_id")
 
         upsert_clan_definition(
@@ -1002,12 +1060,14 @@ class ClanPanelCog(commands.Cog):
             final_accept_role_id,
             final_accept_role_id_cz,
             final_accept_role_id_en,
+            final_accept_category_id,
             final_review_role_id,
         )
 
         entries = list_clan_definitions(guild.id)
         view = _render_view("Clan byl uložen.", entries)
         await interaction.response.send_message(content="", view=view, ephemeral=True)
+        await self._refresh_clan_panels_for_guild(guild.id)
 
     async def _refresh_clan_panels_for_guild(self, guild_id: int | None):
         if guild_id is None:
