@@ -1162,23 +1162,52 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def roblox_leaderboard(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "This command can only be used in a server.", ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
         if self._tracking_enabled:
             self._finalize_totals(datetime.now(timezone.utc))
 
-        if not self._duration_totals:
-            await interaction.response.send_message(
-                "No leaderboard data is available. Enable tracking and wait for a check.",
+        tracked_members = await self._collect_tracked_members(interaction.guild)
+        if not tracked_members:
+            await interaction.followup.send(
+                "No members are currently being monitored for activity.",
+                ephemeral=True,
+            )
+            return
+
+        resolved_ids, _ = await self._fetch_user_ids(list(tracked_members.keys()))
+        tracked_ids = {user_id for user_id in resolved_ids.values()}
+        username_lookup = {user_id: username for username, user_id in resolved_ids.items()}
+
+        filtered_totals = {
+            user_id: totals
+            for user_id, totals in self._duration_totals.items()
+            if user_id in tracked_ids
+        }
+
+        if not filtered_totals:
+            await interaction.followup.send(
+                "No leaderboard data is available for the currently monitored members. "
+                "Enable tracking and wait for the next activity check.",
                 ephemeral=True,
             )
             return
 
         lines: list[str] = []
         for user_id, totals in sorted(
-            self._duration_totals.items(),
+            filtered_totals.items(),
             key=lambda item: item[1]["online"],
             reverse=True,
         ):
-            label = self._user_labels.get(user_id, f"ID {user_id}")
+            label = self._user_labels.get(
+                user_id, f"**{username_lookup.get(user_id, f'ID {user_id}')}**"
+            )
             online_text = self._format_timedelta(totals["online"])
             offline_text = self._format_timedelta(totals["offline"])
             lines.append(f"{label}: 🟢 {online_text} | 🔴 {offline_text}")
@@ -1201,7 +1230,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         leaderboard_view.add_item(discord.ui.Container(*leaderboard_items))
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             view=leaderboard_view,
             ephemeral=True,
         )
