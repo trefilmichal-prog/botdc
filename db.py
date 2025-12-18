@@ -734,7 +734,7 @@ def upsert_clan_definition(
             accept_category_id,
             review_role_id
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(guild_id, clan_key) DO UPDATE SET
             display_name = excluded.display_name,
             description = excluded.description,
