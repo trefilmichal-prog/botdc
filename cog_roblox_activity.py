@@ -611,6 +611,13 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         return " ".join(parts)
 
+    @staticmethod
+    def _dedupe_label(label: str) -> str:
+        parts = [part.strip() for part in label.split(" – ", 1)]
+        if len(parts) == 2 and parts[0] == parts[1]:
+            return parts[0]
+        return label
+
     def _update_presence_tracking(
         self, user_id: int, status: Optional[bool], label: str, now: datetime
     ) -> tuple[float, bool, Optional[float]]:
@@ -699,7 +706,6 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         for username, members in tracked.items():
             mentions_text = ", ".join(f"**{m.mention}**" for m in members)
             names_text = ", ".join(f"**{m.display_name}**" for m in members)
-            summary_text = f"**{username}**"
             lower = username.lower()
             detail = {
                 "username": username,
@@ -729,7 +735,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             detail["members_display"] = members_text
             if self._tracking_enabled and is_online is not None:
                 duration_seconds, went_offline, ended_online_duration = self._update_presence_tracking(
-                    user_id, is_online, f"**{username}** – {summary_text}", now
+                    user_id, is_online, f"**{username}**", now
                 )
                 if went_offline:
                     session_seconds = ended_online_duration or 0.0
@@ -798,6 +804,57 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             chunks.append("\n".join(current))
 
         return chunks
+
+    @staticmethod
+    def _strip_basic_markdown(value: str) -> str:
+        return re.sub(r"[*_`~]", "", value)
+
+    @staticmethod
+    def _format_progress_bar(completed: float, total: float, width: int = 10) -> str:
+        if total <= 0:
+            return "░" * width
+
+        ratio = max(0.0, min(1.0, completed / total))
+        filled = int(round(ratio * width))
+        return "█" * filled + "░" * (width - filled)
+
+    def _format_leaderboard_table(self, rows: list[dict[str, str]]) -> list[str]:
+        if not rows:
+            return []
+
+        mobile_lines: list[str] = []
+        for index, row in enumerate(rows, start=1):
+            mobile_lines.append(
+                "\n".join(
+                    [
+                        f"{index}. {row['label']}",
+                        f"Online: {row['online']} · Offline: {row['offline']}",
+                        f"{row['percent']} online  {row['bar']}",
+                    ]
+                )
+            )
+
+        return [chunk for chunk in self._chunk_lines(mobile_lines, limit=700)]
+
+    def _build_leaderboard_view(self, rows: list[dict[str, str]]) -> discord.ui.LayoutView:
+        leaderboard_view = discord.ui.LayoutView(timeout=None)
+        leaderboard_items = [
+            discord.ui.TextDisplay(content="Roblox leaderboard"),
+            discord.ui.Separator(visible=True),
+            discord.ui.TextDisplay(content=f"Measurement range: {self._format_range()}"),
+        ]
+
+        for idx, chunk in enumerate(self._format_leaderboard_table(rows)):
+            heading = "Summary" if idx == 0 else f"Summary (continued {idx})"
+            leaderboard_items.extend(
+                [
+                    discord.ui.Separator(visible=True),
+                    discord.ui.TextDisplay(content=f"{heading}\n{chunk}"),
+                ]
+            )
+
+        leaderboard_view.add_item(discord.ui.Container(*leaderboard_items))
+        return leaderboard_view
 
     @app_commands.command(
         name="roblox_activity",
@@ -1199,39 +1256,35 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             )
             return
 
-        lines: list[str] = []
+        table_rows: list[dict[str, str]] = []
         for user_id, totals in sorted(
             filtered_totals.items(),
             key=lambda item: item[1]["online"],
             reverse=True,
         ):
-            label = self._user_labels.get(
-                user_id, f"**{username_lookup.get(user_id, f'ID {user_id}')}**"
-            )
+            stored_label = self._user_labels.get(user_id)
+            label = self._dedupe_label(stored_label) if stored_label else None
+            if stored_label and label != stored_label:
+                self._user_labels[user_id] = label
+                self._persist_user_state(user_id)
+            if not label:
+                label = username_lookup.get(user_id, f"ID {user_id}")
             online_text = self._format_timedelta(totals["online"])
             offline_text = self._format_timedelta(totals["offline"])
-            lines.append(f"{label}: 🟢 {online_text} | 🔴 {offline_text}")
-
-        leaderboard_view = discord.ui.LayoutView(timeout=None)
-        leaderboard_items = [
-            discord.ui.TextDisplay(content="Roblox leaderboard"),
-            discord.ui.Separator(visible=True),
-            discord.ui.TextDisplay(content=f"Measurement range: {self._format_range()}"),
-        ]
-
-        for idx, chunk in enumerate(self._chunk_lines(lines)):
-            heading = "Summary" if idx == 0 else f"Summary (continued {idx})"
-            leaderboard_items.extend(
-                [
-                    discord.ui.Separator(visible=True),
-                    discord.ui.TextDisplay(content=f"{heading}\n" + chunk),
-                ]
+            total_time = totals["online"] + totals["offline"]
+            online_ratio = (totals["online"] / total_time * 100) if total_time > 0 else 0.0
+            table_rows.append(
+                {
+                    "label": self._strip_basic_markdown(label),
+                    "online": online_text,
+                    "offline": offline_text,
+                    "percent": f"{online_ratio:.0f}%",
+                    "bar": self._format_progress_bar(totals["online"], total_time),
+                }
             )
 
-        leaderboard_view.add_item(discord.ui.Container(*leaderboard_items))
-
         await interaction.followup.send(
-            view=leaderboard_view,
+            view=self._build_leaderboard_view(table_rows),
             ephemeral=True,
         )
 
