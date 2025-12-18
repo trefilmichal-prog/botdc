@@ -805,6 +805,45 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         return chunks
 
+    @staticmethod
+    def _strip_basic_markdown(value: str) -> str:
+        return re.sub(r"[*_`~]", "", value)
+
+    def _format_leaderboard_table(self, rows: list[dict[str, str]]) -> list[str]:
+        if not rows:
+            return []
+
+        rank_width = max(len("#"), len(str(len(rows))))
+        name_width = max(len("Player"), max(len(row["label"]) for row in rows))
+        online_width = max(len("Online"), max(len(row["online"]) for row in rows))
+        offline_width = max(len("Offline"), max(len(row["offline"]) for row in rows))
+
+        header = (
+            f"{'#'.rjust(rank_width)} | "
+            f"{'Player'.ljust(name_width)} | "
+            f"{'Online'.rjust(online_width)} | "
+            f"{'Offline'.rjust(offline_width)}"
+        )
+        separator = (
+            f"{'-' * rank_width}-+-"
+            f"{'-' * name_width}-+-"
+            f"{'-' * online_width}-+-"
+            f"{'-' * offline_width}"
+        )
+
+        table_lines = [header, separator]
+        for index, row in enumerate(rows, start=1):
+            table_lines.append(
+                f"{str(index).rjust(rank_width)} | "
+                f"{row['label'].ljust(name_width)} | "
+                f"{row['online'].rjust(online_width)} | "
+                f"{row['offline'].rjust(offline_width)}"
+            )
+
+        return [
+            f"```\n{chunk}\n```" for chunk in self._chunk_lines(table_lines, limit=980)
+        ]
+
     @app_commands.command(
         name="roblox_activity",
         description="Check which clan members are playing Rebirth Champions Ultimate.",
@@ -1205,7 +1244,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             )
             return
 
-        lines: list[str] = []
+        table_rows: list[dict[str, str]] = []
         for user_id, totals in sorted(
             filtered_totals.items(),
             key=lambda item: item[1]["online"],
@@ -1217,10 +1256,16 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 self._user_labels[user_id] = label
                 self._persist_user_state(user_id)
             if not label:
-                label = f"**{username_lookup.get(user_id, f'ID {user_id}')}**"
+                label = username_lookup.get(user_id, f"ID {user_id}")
             online_text = self._format_timedelta(totals["online"])
             offline_text = self._format_timedelta(totals["offline"])
-            lines.append(f"{label}: 🟢 {online_text} | 🔴 {offline_text}")
+            table_rows.append(
+                {
+                    "label": self._strip_basic_markdown(label),
+                    "online": online_text,
+                    "offline": offline_text,
+                }
+            )
 
         leaderboard_view = discord.ui.LayoutView(timeout=None)
         leaderboard_items = [
@@ -1229,12 +1274,12 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             discord.ui.TextDisplay(content=f"Measurement range: {self._format_range()}"),
         ]
 
-        for idx, chunk in enumerate(self._chunk_lines(lines)):
+        for idx, chunk in enumerate(self._format_leaderboard_table(table_rows)):
             heading = "Summary" if idx == 0 else f"Summary (continued {idx})"
             leaderboard_items.extend(
                 [
                     discord.ui.Separator(visible=True),
-                    discord.ui.TextDisplay(content=f"{heading}\n" + chunk),
+                    discord.ui.TextDisplay(content=f"{heading}\n{chunk}"),
                 ]
             )
 
