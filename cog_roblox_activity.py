@@ -3,10 +3,13 @@ import logging
 import re
 from collections import defaultdict
 from datetime import datetime, timezone
+from io import BytesIO
+from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import aiohttp
 import discord
+from PIL import Image, ImageDraw, ImageFont
 from discord import app_commands
 from discord.ext import commands, tasks
 
@@ -1213,7 +1216,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             )
             return
 
-        lines: list[str] = []
+        table_rows: list[dict[str, str]] = []
         for user_id, totals in sorted(
             filtered_totals.items(),
             key=lambda item: item[1]["online"],
@@ -1228,28 +1231,22 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 label = f"**{username_lookup.get(user_id, f'ID {user_id}')}**"
             online_text = self._format_timedelta(totals["online"])
             offline_text = self._format_timedelta(totals["offline"])
-            lines.append(f"{label}: 🟢 {online_text} | 🔴 {offline_text}")
-
-        leaderboard_view = discord.ui.LayoutView(timeout=None)
-        leaderboard_items = [
-            discord.ui.TextDisplay(content="Roblox leaderboard"),
-            discord.ui.Separator(visible=True),
-            discord.ui.TextDisplay(content=f"Measurement range: {self._format_range()}"),
-        ]
-
-        for idx, chunk in enumerate(self._chunk_lines(lines)):
-            heading = "Summary" if idx == 0 else f"Summary (continued {idx})"
-            leaderboard_items.extend(
-                [
-                    discord.ui.Separator(visible=True),
-                    discord.ui.TextDisplay(content=f"{heading}\n" + chunk),
-                ]
+            total_time = totals["online"] + totals["offline"]
+            online_ratio = (totals["online"] / total_time * 100) if total_time > 0 else 0.0
+            table_rows.append(
+                {
+                    "label": self._strip_basic_markdown(label),
+                    "online": online_text,
+                    "offline": offline_text,
+                    "percent": f"{online_ratio:.0f}%",
+                }
             )
 
-        leaderboard_view.add_item(discord.ui.Container(*leaderboard_items))
-
         await interaction.followup.send(
-            view=leaderboard_view,
+            file=discord.File(
+                fp=self._render_leaderboard_image(table_rows),
+                filename="roblox_leaderboard.png",
+            ),
             ephemeral=True,
         )
 
