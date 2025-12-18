@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import socket
+from datetime import datetime
 import urllib.error
 import urllib.request
 
@@ -10,6 +11,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import OLLAMA_MODEL, OLLAMA_TIMEOUT, OLLAMA_URL
+from db import log_prophecy
 from i18n import CZECH_LOCALE, get_interaction_locale, get_message_locale, t
 
 
@@ -17,6 +19,89 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._logger = logging.getLogger(__name__)
+
+    def _layout_components(self):
+        layout_view = getattr(discord.ui, "LayoutView", discord.ui.View)
+        container_cls = getattr(discord.ui, "Container", None)
+        text_display_cls = getattr(discord.ui, "TextDisplay", None)
+        separator_cls = getattr(discord.ui, "Separator", None)
+
+        return layout_view, container_cls, text_display_cls, separator_cls
+
+    def _build_prophecy_view(self, locale, question: str, answer: str):
+        layout_view, container_cls, text_display_cls, separator_cls = self._layout_components()
+        locale_code = getattr(locale, "value", str(locale))
+        question_label = "Otázka" if locale_code.startswith("cs") else "Question"
+        answer_label = "Odpověď" if locale_code.startswith("cs") else "Answer"
+
+        view = layout_view(timeout=None)
+
+        if container_cls and text_display_cls:
+            container = container_cls()
+            container.add_item(
+                text_display_cls(label=question_label, value=question)
+            )
+            if separator_cls:
+                container.add_item(separator_cls())
+            container.add_item(
+                text_display_cls(label=answer_label, value=answer)
+            )
+            container.add_item(
+                text_display_cls(label="Model", value=OLLAMA_MODEL)
+            )
+            if hasattr(view, "add_item"):
+                view.add_item(container)
+        else:
+            view.add_item(
+                discord.ui.Button(
+                    label=t("prophecy_title", locale),
+                    disabled=True,
+                    style=discord.ButtonStyle.primary,
+                )
+            )
+            view.add_item(
+                discord.ui.Button(
+                    label=f"{question_label}: {question[:60]}",
+                    disabled=True,
+                    style=discord.ButtonStyle.secondary,
+                )
+            )
+            view.add_item(
+                discord.ui.Button(
+                    label=f"{answer_label}: {answer[:60]}",
+                    disabled=True,
+                    style=discord.ButtonStyle.secondary,
+                )
+            )
+            view.add_item(
+                discord.ui.Button(
+                    label=f"Model: {OLLAMA_MODEL}",
+                    disabled=True,
+                    style=discord.ButtonStyle.secondary,
+                )
+            )
+
+        return view
+
+    def _log_prophecy(
+        self,
+        message: discord.Message,
+        question: str,
+        answer: str,
+        author_id: int | None = None,
+    ):
+        try:
+            log_prophecy(
+                message_id=message.id,
+                channel_id=message.channel.id,
+                author_id=author_id if author_id is not None else message.author.id,
+                question=question,
+                answer=answer,
+                model=OLLAMA_MODEL,
+                created_at=datetime.utcnow(),
+            )
+        except Exception as error:
+            self._logger.warning("Failed to persist prophecy log: %s", error)
 
     def _strip_mentions(self, content: str, mentions: list[discord.abc.User]) -> str:
         for mention in mentions:
@@ -80,9 +165,9 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
         if locale != CZECH_LOCALE and self._detect_czech_text(dotaz):
             locale = CZECH_LOCALE
         if not dotaz:
-            await message.reply(
+            await message.channel.send(
                 t("mention_prompt_missing", locale),
-                mention_author=False,
+                allowed_mentions=discord.AllowedMentions.none(),
             )
             return
 
@@ -92,17 +177,29 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
             response_text = await self._ask_ollama(prompt)
 
         if not response_text:
-            await message.reply(t("prophecy_unavailable", locale), mention_author=False)
+            await message.channel.send(
+                t("prophecy_unavailable", locale),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
             return
 
-        embed = discord.Embed(
-            title=t("prophecy_title", locale),
-            description=response_text,
-            color=discord.Color.blurple(),
+        response_view = self._build_prophecy_view(locale, dotaz, response_text)
+        locale_code = getattr(locale, "value", str(locale))
+        question_label = "Otázka" if locale_code.startswith("cs") else "Question"
+        answer_label = "Odpověď" if locale_code.startswith("cs") else "Answer"
+        response_body = (
+            f"{t('prophecy_title', locale)}\n"
+            f"{question_label}: {dotaz}\n\n"
+            f"{answer_label}: {response_text}\n\n"
+            f"Model: {OLLAMA_MODEL}"
         )
-        embed.set_footer(text=f"Model: {OLLAMA_MODEL}")
 
-        await message.reply(embed=embed, mention_author=False)
+        sent_message = await message.channel.send(
+            response_body,
+            view=response_view,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        self._log_prophecy(sent_message, dotaz, response_text, author_id=message.author.id)
 
     @app_commands.command(
         name="rebirth_future",
@@ -127,15 +224,23 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
             )
             return
 
-        embed = discord.Embed(
-            title=t("prophecy_title", locale),
-            description=response_text,
-            color=discord.Color.blurple(),
+        response_view = self._build_prophecy_view(locale, dotaz or "-", response_text)
+        locale_code = getattr(locale, "value", str(locale))
+        question_label = "Otázka" if locale_code.startswith("cs") else "Question"
+        answer_label = "Odpověď" if locale_code.startswith("cs") else "Answer"
+        response_body = (
+            f"{t('prophecy_title', locale)}\n"
+            f"{question_label}: {dotaz or '-'}\n\n"
+            f"{answer_label}: {response_text}\n\n"
+            f"Model: {OLLAMA_MODEL}"
         )
-        embed.set_footer(text=f"Model: {OLLAMA_MODEL}")
 
-        await interaction.followup.send(embed=embed)
-
-
-async def setup(bot: commands.Bot):
-    await bot.add_cog(ProphecyCog(bot))
+        sent_message = await interaction.followup.send(
+            response_body,
+            view=response_view,
+            wait=True,
+        )
+        if isinstance(sent_message, discord.Message):
+            self._log_prophecy(
+                sent_message, dotaz or "-", response_text, author_id=interaction.user.id
+            )
