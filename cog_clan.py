@@ -728,6 +728,10 @@ class ClanPanelCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+        existing_group = self.bot.tree.get_command("clan_panel", type=discord.AppCommandType.chat_input)
+        if existing_group:
+            self.bot.tree.remove_command("clan_panel", type=discord.AppCommandType.chat_input)
+
     @staticmethod
     def _default_clan_panel_config() -> tuple[str, str, str]:
         return (
