@@ -9,6 +9,7 @@ from discord.ext import commands
 from cog_attendance import AttendanceCog
 from cog_clan import ClanPanelCog
 from cog_giveaway import GiveawayCog
+from cog_prophecy import ProphecyCog
 from cog_roblox_activity import RobloxActivityCog
 
 from config import TOKEN
@@ -79,7 +80,6 @@ class MyBot(commands.Bot):
             "cog_clan_stats",
             "cog_basic",
             "cog_leaderboard",
-            "cog_prophecy",
             "cog_antispam",
             "cog_admin_tasks",
             "cog_sp",
@@ -101,6 +101,7 @@ class MyBot(commands.Bot):
             GiveawayCog(self),
             ClanPanelCog(self),
             AttendanceCog(self),
+            ProphecyCog(self),
             RobloxActivityCog(self),
         ]:
             await add_cog_safe(cog)

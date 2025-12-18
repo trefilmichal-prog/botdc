@@ -243,6 +243,20 @@ def init_db():
         """
     )
 
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS prophecy_logs (
+            message_id INTEGER PRIMARY KEY,
+            channel_id INTEGER NOT NULL,
+            author_id INTEGER NOT NULL,
+            question TEXT NOT NULL,
+            answer TEXT NOT NULL,
+            model TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+
     # Statistiky uživatelů (XP/coins/level/messages)
     c.execute(
         """
@@ -602,6 +616,87 @@ def load_attendance_panels() -> list[tuple[int, int, int, int, Dict[int, str]]]:
             continue
 
     return panels
+
+
+# ---------- PROPHECY LOGS ----------
+
+
+def log_prophecy(
+    message_id: int,
+    channel_id: int,
+    author_id: int,
+    question: str,
+    answer: str,
+    model: str,
+    created_at: datetime,
+):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO prophecy_logs (message_id, channel_id, author_id, question, answer, model, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(message_id) DO UPDATE SET
+            channel_id = excluded.channel_id,
+            author_id = excluded.author_id,
+            question = excluded.question,
+            answer = excluded.answer,
+            model = excluded.model,
+            created_at = excluded.created_at
+        """,
+        (
+            message_id,
+            channel_id,
+            author_id,
+            question,
+            answer,
+            model,
+            created_at.isoformat(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_recent_prophecies(limit: int = 50) -> list[dict[str, object]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT message_id, channel_id, author_id, question, answer, model, created_at
+        FROM prophecy_logs
+        ORDER BY datetime(created_at) DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+    rows = c.fetchall()
+    conn.close()
+
+    results: list[dict[str, object]] = []
+    for row in rows:
+        (
+            message_id,
+            channel_id,
+            author_id,
+            question,
+            answer,
+            model,
+            created_at,
+        ) = row
+        results.append(
+            {
+                "message_id": int(message_id),
+                "channel_id": int(channel_id),
+                "author_id": int(author_id),
+                "question": str(question),
+                "answer": str(answer),
+                "model": str(model),
+                "created_at": created_at,
+            }
+        )
+
+    return results
 
 
 # ---------- CLAN PANELY ----------
