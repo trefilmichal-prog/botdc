@@ -611,6 +611,13 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         return " ".join(parts)
 
+    @staticmethod
+    def _dedupe_label(label: str) -> str:
+        parts = [part.strip() for part in label.split(" – ", 1)]
+        if len(parts) == 2 and parts[0] == parts[1]:
+            return parts[0]
+        return label
+
     def _update_presence_tracking(
         self, user_id: int, status: Optional[bool], label: str, now: datetime
     ) -> tuple[float, bool, Optional[float]]:
@@ -699,7 +706,6 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         for username, members in tracked.items():
             mentions_text = ", ".join(f"**{m.mention}**" for m in members)
             names_text = ", ".join(f"**{m.display_name}**" for m in members)
-            summary_text = f"**{username}**"
             lower = username.lower()
             detail = {
                 "username": username,
@@ -729,7 +735,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             detail["members_display"] = members_text
             if self._tracking_enabled and is_online is not None:
                 duration_seconds, went_offline, ended_online_duration = self._update_presence_tracking(
-                    user_id, is_online, f"**{username}** – {summary_text}", now
+                    user_id, is_online, f"**{username}**", now
                 )
                 if went_offline:
                     session_seconds = ended_online_duration or 0.0
@@ -799,6 +805,15 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         return chunks
 
+    def _render_leaderboard_image(self, *_: object, **__: object):
+        """Compatibility shim; image rendering has been removed."""
+        return None
+
+    @staticmethod
+    def _strip_basic_markdown(value: str) -> str:
+        return re.sub(r"[*_`~]", "", value)
+
+
     @app_commands.command(
         name="roblox_activity",
         description="Check which clan members are playing Rebirth Champions Ultimate.",
@@ -834,7 +849,6 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             )
 
         await interaction.followup.send(
-            content="Roblox clan activity summary:",
             view=summary_view,
             ephemeral=True,
         )
@@ -1205,9 +1219,13 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             key=lambda item: item[1]["online"],
             reverse=True,
         ):
-            label = self._user_labels.get(
-                user_id, f"**{username_lookup.get(user_id, f'ID {user_id}')}**"
-            )
+            stored_label = self._user_labels.get(user_id)
+            label = self._dedupe_label(stored_label) if stored_label else None
+            if stored_label and label != stored_label:
+                self._user_labels[user_id] = label
+                self._persist_user_state(user_id)
+            if not label:
+                label = f"**{username_lookup.get(user_id, f'ID {user_id}')}**"
             online_text = self._format_timedelta(totals["online"])
             offline_text = self._format_timedelta(totals["offline"])
             lines.append(f"{label}: 🟢 {online_text} | 🔴 {offline_text}")
