@@ -3,10 +3,12 @@ import logging
 import re
 from collections import defaultdict
 from datetime import datetime, timezone
+from io import BytesIO
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import aiohttp
 import discord
+from PIL import Image, ImageDraw, ImageFont
 from discord import app_commands
 from discord.ext import commands, tasks
 
@@ -818,6 +820,118 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         filled = int(round(ratio * width))
         return "█" * filled + "░" * (width - filled)
 
+    def _render_leaderboard_image(self, rows: list[dict[str, str]]) -> BytesIO:
+        if not rows:
+            return BytesIO()
+
+        width = 980
+        header_height = 120
+        row_height = 88
+        padding = 32
+        height = padding * 2 + header_height + row_height * len(rows)
+
+        background = "#0f172a"
+        card = Image.new("RGB", (width, height), color=background)
+        draw = ImageDraw.Draw(card)
+
+        try:
+            title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 38)
+            header_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
+            body_font = ImageFont.truetype("DejaVuSans.ttf", 26)
+        except Exception:  # noqa: BLE001
+            title_font = ImageFont.load_default()
+            header_font = ImageFont.load_default()
+            body_font = ImageFont.load_default()
+
+        draw.rounded_rectangle(
+            [(16, 16), (width - 16, height - 16)], radius=18, fill="#111827"
+        )
+        draw.rectangle(
+            [(padding, padding), (width - padding, padding + header_height)],
+            fill="#1f2937",
+        )
+
+        title_text = "Roblox Activity Leaderboard"
+        range_text = f"Measured: {self._format_range()}"
+        draw.text((padding + 12, padding + 18), title_text, font=title_font, fill="#e5e7eb")
+        draw.text((padding + 12, padding + 64), range_text, font=header_font, fill="#9ca3af")
+
+        column_x = [padding + 16, padding + 100, padding + 360, padding + 580, padding + 780]
+        headers = ["Rank", "Player", "Online", "Offline", "Online %"]
+        for idx, header in enumerate(headers):
+            draw.text((column_x[idx], padding + 96), header, font=header_font, fill="#cbd5e1")
+
+        medal_icons = ["🥇", "🥈", "🥉"]
+        for index, row in enumerate(rows, start=1):
+            top_y = padding + header_height + (index - 1) * row_height
+            bottom_y = top_y + row_height - 12
+            draw.rounded_rectangle(
+                [(padding + 8, top_y), (width - padding - 8, bottom_y)],
+                radius=14,
+                fill="#111827",
+                outline="#1f2937",
+                width=2,
+            )
+
+            medal = medal_icons[index - 1] if index <= len(medal_icons) else "🏅"
+            rank_text = f"{medal} #{index}"
+            draw.text((column_x[0], top_y + 24), rank_text, font=body_font, fill="#fbbf24")
+            draw.text(
+                (column_x[1], top_y + 18),
+                row["label"],
+                font=body_font,
+                fill="#e5e7eb",
+            )
+            draw.text(
+                (column_x[2], top_y + 18),
+                row["online"],
+                font=body_font,
+                fill="#34d399",
+            )
+            draw.text(
+                (column_x[3], top_y + 18),
+                row["offline"],
+                font=body_font,
+                fill="#fca5a5",
+            )
+            draw.text(
+                (column_x[4], top_y + 18),
+                row["percent"],
+                font=body_font,
+                fill="#93c5fd",
+            )
+
+            bar_back_top = top_y + 52
+            bar_back_bottom = bar_back_top + 18
+            draw.rounded_rectangle(
+                [
+                    (column_x[1], bar_back_top),
+                    (width - padding - 32, bar_back_bottom),
+                ],
+                radius=10,
+                fill="#1f2937",
+            )
+
+            total_width = width - padding - 32 - column_x[1]
+            try:
+                percent_value = float(row["percent"].rstrip("%"))
+            except (TypeError, ValueError):
+                percent_value = 0.0
+            filled_width = int(max(0.0, min(1.0, percent_value / 100.0)) * total_width)
+            draw.rounded_rectangle(
+                [
+                    (column_x[1], bar_back_top),
+                    (column_x[1] + filled_width, bar_back_bottom),
+                ],
+                radius=10,
+                fill="#4ade80",
+            )
+
+        output = BytesIO()
+        card.save(output, format="PNG")
+        output.seek(0)
+        return output
+
     def _format_leaderboard_table(self, rows: list[dict[str, str]]) -> list[str]:
         if not rows:
             return []
@@ -844,19 +958,29 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
     def _build_leaderboard_view(self, rows: list[dict[str, str]]) -> discord.ui.LayoutView:
         leaderboard_view = discord.ui.LayoutView(timeout=None)
         leaderboard_items = [
-            discord.ui.TextDisplay(content="Roblox leaderboard"),
+            discord.ui.TextDisplay(content="Roblox leaderboard (picture attached)"),
             discord.ui.Separator(visible=True),
             discord.ui.TextDisplay(content=f"Measurement range: {self._format_range()}"),
+            discord.ui.TextDisplay(
+                content=(
+                    "Download the attached image to view the styled leaderboard. "
+                    "Key highlights are listed below."
+                )
+            ),
         ]
 
-        for idx, chunk in enumerate(self._format_leaderboard_table(rows)):
-            heading = "Summary" if idx == 0 else f"Summary (continued {idx})"
-            leaderboard_items.extend(
-                [
-                    discord.ui.Separator(visible=True),
-                    discord.ui.TextDisplay(content=f"{heading}\n{chunk}"),
-                ]
-            )
+        if rows:
+            leaderboard_items.append(discord.ui.Separator(visible=True))
+            leaderboard_items.append(discord.ui.TextDisplay(content="Top performers"))
+            for idx, row in enumerate(rows[:3], start=1):
+                leaderboard_items.append(
+                    discord.ui.TextDisplay(
+                        content=(
+                            f"{idx}. {row['label']} — {row['percent']} online "
+                            f"({row['online']} online / {row['offline']} offline)"
+                        )
+                    )
+                )
 
         leaderboard_view.add_item(discord.ui.Container(*leaderboard_items))
         return leaderboard_view
@@ -1289,6 +1413,11 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             )
 
         await interaction.followup.send(
+            content="Roblox clan leaderboard (picture attached)",
+            file=discord.File(
+                fp=self._render_leaderboard_image(table_rows),
+                filename="roblox_leaderboard.png",
+            ),
             view=self._build_leaderboard_view(table_rows),
             ephemeral=True,
         )
