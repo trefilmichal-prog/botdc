@@ -728,10 +728,6 @@ class ClanPanelCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-        existing_group = self.bot.tree.get_command("clan_panel", type=discord.AppCommandType.chat_input)
-        if existing_group:
-            self.bot.tree.remove_command("clan_panel", type=discord.AppCommandType.chat_input)
-
         self.clan_panel_group = app_commands.Group(
             name="clan_panel", description="Správa panelu pro clan přihlášky"
         )
@@ -741,7 +737,7 @@ class ClanPanelCog(commands.Cog):
         self.clan_panel_group.command(
             name="edit", description="Upraví text panelu přes formulář"
         )(self.clan_panel_edit)
-        self.__cog_app_commands__ = [self.clan_panel_group]
+        self.__cog_app_commands__ = []
 
     @staticmethod
     def _default_clan_panel_config() -> tuple[str, str, str]:
@@ -765,6 +761,10 @@ class ClanPanelCog(commands.Cog):
         return Components(title=title, us_requirements=us_requirements, cz_requirements=cz_requirements)
 
     async def cog_load(self):
+        existing_group = self.bot.tree.get_command("clan_panel", type=discord.AppCommandType.chat_input)
+        if existing_group:
+            self.bot.tree.remove_command("clan_panel", type=discord.AppCommandType.chat_input)
+
         try:
             self.bot.tree.add_command(self.clan_panel_group)
         except app_commands.CommandAlreadyRegistered:
@@ -775,6 +775,11 @@ class ClanPanelCog(commands.Cog):
                 self.bot.add_view(self._build_panel_view(guild_id), message_id=message_id)
             except Exception:
                 continue
+
+    async def cog_unload(self):
+        existing_group = self.bot.tree.get_command("clan_panel", type=discord.AppCommandType.chat_input)
+        if existing_group:
+            self.bot.tree.remove_command("clan_panel", type=discord.AppCommandType.chat_input)
 
     async def clan_panel(self, interaction: discord.Interaction):
         view = self._build_panel_view(interaction.guild.id if interaction.guild else None)
