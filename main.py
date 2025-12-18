@@ -89,6 +89,14 @@ class MyBot(commands.Bot):
         ]:
             await load_extension_safe(extension)
 
+        existing_clan_panel = self.tree.get_command(
+            "clan_panel", type=discord.AppCommandType.chat_input
+        )
+        if existing_clan_panel:
+            self.tree.remove_command(
+                "clan_panel", type=discord.AppCommandType.chat_input
+            )
+
         for cog in [
             GiveawayCog(self),
             ClanPanelCog(self),
