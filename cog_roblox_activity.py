@@ -1276,7 +1276,6 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         leaderboard_view = self._build_leaderboard_view(table_rows)
 
         await interaction.followup.send(
-            content="Roblox activity leaderboard",
             view=leaderboard_view,
             ephemeral=True,
         )
