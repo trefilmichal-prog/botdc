@@ -622,7 +622,13 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         return label
 
     def _update_presence_tracking(
-        self, user_id: int, status: Optional[bool], label: str, now: datetime
+        self,
+        user_id: int,
+        status: Optional[bool],
+        label: str,
+        now: datetime,
+        *,
+        count_offline: bool = True,
     ) -> tuple[float, bool, Optional[float]]:
         self._user_labels[user_id] = label
 
@@ -632,19 +638,21 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 "status": status,
                 "last_change": now,
                 "last_update": now,
+                "count_offline": count_offline,
             }
             return 0.0, False, None
 
         previous_status = state.get("status")
         last_change = state.get("last_change", now) or now
         last_update = state.get("last_update", now) or now
+        previous_count_offline = state.get("count_offline", True)
         offline_transition = False
         ended_online_duration: Optional[float] = None
 
         elapsed = (now - last_update).total_seconds()
         if previous_status is True:
             self._duration_totals[user_id]["online"] += elapsed
-        elif previous_status is False:
+        elif previous_status is False and previous_count_offline:
             self._duration_totals[user_id]["offline"] += elapsed
 
         if status != previous_status:
@@ -657,6 +665,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             "status": status,
             "last_change": last_change,
             "last_update": now,
+            "count_offline": count_offline,
         }
 
         self._persist_user_state(user_id)
@@ -676,7 +685,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
             if status is True:
                 self._duration_totals[user_id]["online"] += elapsed
-            elif status is False:
+            elif status is False and state.get("count_offline", True):
                 self._duration_totals[user_id]["offline"] += elapsed
 
             state["last_update"] = now
@@ -736,9 +745,14 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 else mentions_text
             )
             detail["members_display"] = members_text
+            count_offline = not (is_online is False and connections.get(user_id) is False)
             if self._tracking_enabled and is_online is not None:
                 duration_seconds, went_offline, ended_online_duration = self._update_presence_tracking(
-                    user_id, is_online, f"**{username}**", now
+                    user_id,
+                    is_online,
+                    f"**{username}**",
+                    now,
+                    count_offline=count_offline,
                 )
                 if went_offline:
                     session_seconds = ended_online_duration or 0.0
