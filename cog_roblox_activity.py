@@ -622,7 +622,13 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         return label
 
     def _update_presence_tracking(
-        self, user_id: int, status: Optional[bool], label: str, now: datetime
+        self,
+        user_id: int,
+        status: Optional[bool],
+        label: str,
+        now: datetime,
+        *,
+        count_offline: bool = True,
     ) -> tuple[float, bool, Optional[float]]:
         self._user_labels[user_id] = label
 
@@ -632,19 +638,21 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 "status": status,
                 "last_change": now,
                 "last_update": now,
+                "count_offline": count_offline,
             }
             return 0.0, False, None
 
         previous_status = state.get("status")
         last_change = state.get("last_change", now) or now
         last_update = state.get("last_update", now) or now
+        previous_count_offline = state.get("count_offline", True)
         offline_transition = False
         ended_online_duration: Optional[float] = None
 
         elapsed = (now - last_update).total_seconds()
         if previous_status is True:
             self._duration_totals[user_id]["online"] += elapsed
-        elif previous_status is False:
+        elif previous_status is False and previous_count_offline:
             self._duration_totals[user_id]["offline"] += elapsed
 
         if status != previous_status:
@@ -657,6 +665,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             "status": status,
             "last_change": last_change,
             "last_update": now,
+            "count_offline": count_offline,
         }
 
         self._persist_user_state(user_id)
@@ -676,7 +685,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
             if status is True:
                 self._duration_totals[user_id]["online"] += elapsed
-            elif status is False:
+            elif status is False and state.get("count_offline", True):
                 self._duration_totals[user_id]["offline"] += elapsed
 
             state["last_update"] = now
@@ -736,9 +745,14 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 else mentions_text
             )
             detail["members_display"] = members_text
+            count_offline = not (is_online is False and connections.get(user_id) is False)
             if self._tracking_enabled and is_online is not None:
                 duration_seconds, went_offline, ended_online_duration = self._update_presence_tracking(
-                    user_id, is_online, f"**{username}**", now
+                    user_id,
+                    is_online,
+                    f"**{username}**",
+                    now,
+                    count_offline=count_offline,
                 )
                 if went_offline:
                     session_seconds = ended_online_duration or 0.0
@@ -808,6 +822,118 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         return chunks
 
+    @staticmethod
+    def _get_monospace_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+        try:
+            return ImageFont.truetype("DejaVuSansMono.ttf", size=size)
+        except OSError:
+            return ImageFont.load_default()
+
+    @classmethod
+    def render_leaderboard_image(cls, leaderboard_rows: list[str]) -> BytesIO:
+        """Render a leaderboard PNG that matches the fixed Discord layout requirements.
+
+        Example:
+            rows = [
+                "Roblox activity leaderboard",
+                "1. Alice – online 5h 12m, offline 1h 3m (83% online)",
+            ]
+            buffer = RobloxActivityCog.render_leaderboard_image(rows)
+            file = discord.File(buffer, filename="leaderboard.png")
+            view = discord.ui.LayoutView(timeout=None)
+            view.add_item(discord.ui.Container(discord.ui.TextDisplay(content=\"Leaderboard\")))
+            await interaction.followup.send(view=view, file=file, ephemeral=True)
+        """
+
+        if not leaderboard_rows:
+            raise ValueError("leaderboard_rows cannot be empty")
+
+        background_color = (0x2B, 0x1F, 0x3A)
+        text_color = (0xDC, 0xDD, 0xDE)
+        header_color = (0xFF, 0xFF, 0xFF)
+        online_color = (0x57, 0xF2, 0x87)
+        offline_color = (0xED, 0x42, 0x45)
+        circle_diameter = 14
+        circle_spacing = 8
+        margin_x = 24
+        margin_y = 24
+        font_size = 22
+
+        font = cls._get_monospace_font(font_size)
+        ascent, descent = font.getmetrics()
+        text_height = ascent + descent
+        line_height = text_height
+
+        indicator_pattern = re.compile(r"\b(online|offline)\b")
+
+        def measure_row(row: str) -> float:
+            width = 0.0
+            idx = 0
+            for match in indicator_pattern.finditer(row):
+                segment = row[idx : match.start()]
+                if segment:
+                    bbox = font.getbbox(segment)
+                    width += bbox[2] - bbox[0]
+                width += circle_diameter + circle_spacing
+                word_bbox = font.getbbox(match.group())
+                width += word_bbox[2] - word_bbox[0]
+                idx = match.end()
+            remainder = row[idx:]
+            if remainder:
+                bbox = font.getbbox(remainder)
+                width += bbox[2] - bbox[0]
+            return width
+
+        max_row_width = max(measure_row(row) for row in leaderboard_rows)
+        image_width = int(margin_x * 2 + max_row_width)
+        image_height = int(margin_y * 2 + line_height * len(leaderboard_rows))
+
+        image = Image.new("RGB", (image_width, image_height), background_color)
+        draw = ImageDraw.Draw(image)
+
+        def draw_row(row: str, row_index: int, y: int) -> None:
+            x = margin_x
+            idx = 0
+            color = header_color if row_index == 0 else text_color
+            for match in indicator_pattern.finditer(row):
+                segment = row[idx : match.start()]
+                if segment:
+                    draw.text((x, y), segment, fill=color, font=font)
+                    bbox = font.getbbox(segment)
+                    x += bbox[2] - bbox[0]
+
+                indicator_color = online_color if match.group() == "online" else offline_color
+                center_y = y + ascent
+                radius = circle_diameter / 2
+                draw.ellipse(
+                    (
+                        x,
+                        center_y - radius,
+                        x + circle_diameter,
+                        center_y + radius,
+                    ),
+                    fill=indicator_color,
+                )
+                x += circle_diameter + circle_spacing
+
+                draw.text((x, y), match.group(), fill=color, font=font)
+                word_bbox = font.getbbox(match.group())
+                x += word_bbox[2] - word_bbox[0]
+                idx = match.end()
+
+            remainder = row[idx:]
+            if remainder:
+                draw.text((x, y), remainder, fill=color, font=font)
+
+        for row_index, row in enumerate(leaderboard_rows):
+            y = margin_y + row_index * line_height
+            draw_row(row, row_index, y)
+
+        buffer = BytesIO()
+        image.save(buffer, format="PNG", dpi=(96, 96))
+        buffer.seek(0)
+        return buffer
+
     def _build_leaderboard_view(
         self, table_rows: list[dict[str, str]]
     ) -> discord.ui.LayoutView:
@@ -824,18 +950,21 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         lines = [
             (
-                f"{idx}. {row['label']} – online {row['online']}, "
-                f"offline {row['offline']} ({row['percent']} online)"
+                f"{idx}. {row['label']} – 🟢 online {row['online']}, "
+                f"🔴 offline {row['offline']} ({row['percent']} online)"
             )
             for idx, row in enumerate(table_rows, start=1)
         ]
 
         for chunk_index, chunk in enumerate(self._chunk_lines(lines)):
-            heading = "Leaderboard" if chunk_index == 0 else f"Leaderboard (continued {chunk_index})"
             sections.extend(
                 [
                     discord.ui.Separator(visible=True),
-                    discord.ui.TextDisplay(content=f"{heading}\n{chunk}"),
+                    discord.ui.TextDisplay(
+                        content=(
+                            f"Leaderboard\n{chunk}" if chunk_index == 0 else chunk
+                        )
+                    ),
                 ]
             )
 
@@ -1276,7 +1405,6 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         leaderboard_view = self._build_leaderboard_view(table_rows)
 
         await interaction.followup.send(
-            content="Roblox activity leaderboard",
             view=leaderboard_view,
             ephemeral=True,
         )
