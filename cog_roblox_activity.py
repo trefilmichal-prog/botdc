@@ -824,18 +824,21 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         lines = [
             (
-                f"{idx}. {row['label']} – online {row['online']}, "
-                f"offline {row['offline']} ({row['percent']} online)"
+                f"{idx}. {row['label']} – 🟢 online {row['online']}, "
+                f"🔴 offline {row['offline']} ({row['percent']} online)"
             )
             for idx, row in enumerate(table_rows, start=1)
         ]
 
         for chunk_index, chunk in enumerate(self._chunk_lines(lines)):
-            heading = "Leaderboard" if chunk_index == 0 else f"Leaderboard (continued {chunk_index})"
             sections.extend(
                 [
                     discord.ui.Separator(visible=True),
-                    discord.ui.TextDisplay(content=f"{heading}\n{chunk}"),
+                    discord.ui.TextDisplay(
+                        content=(
+                            f"Leaderboard\n{chunk}" if chunk_index == 0 else chunk
+                        )
+                    ),
                 ]
             )
 
@@ -1276,7 +1279,6 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         leaderboard_view = self._build_leaderboard_view(table_rows)
 
         await interaction.followup.send(
-            content="Roblox activity leaderboard",
             view=leaderboard_view,
             ephemeral=True,
         )
