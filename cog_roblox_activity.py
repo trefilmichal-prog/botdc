@@ -808,6 +808,118 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         return chunks
 
+    @staticmethod
+    def _get_monospace_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+        try:
+            return ImageFont.truetype("DejaVuSansMono.ttf", size=size)
+        except OSError:
+            return ImageFont.load_default()
+
+    @classmethod
+    def render_leaderboard_image(cls, leaderboard_rows: list[str]) -> BytesIO:
+        """Render a leaderboard PNG that matches the fixed Discord layout requirements.
+
+        Example:
+            rows = [
+                "Roblox activity leaderboard",
+                "1. Alice – online 5h 12m, offline 1h 3m (83% online)",
+            ]
+            buffer = RobloxActivityCog.render_leaderboard_image(rows)
+            file = discord.File(buffer, filename="leaderboard.png")
+            view = discord.ui.LayoutView(timeout=None)
+            view.add_item(discord.ui.Container(discord.ui.TextDisplay(content=\"Leaderboard\")))
+            await interaction.followup.send(view=view, file=file, ephemeral=True)
+        """
+
+        if not leaderboard_rows:
+            raise ValueError("leaderboard_rows cannot be empty")
+
+        background_color = (0x2B, 0x1F, 0x3A)
+        text_color = (0xDC, 0xDD, 0xDE)
+        header_color = (0xFF, 0xFF, 0xFF)
+        online_color = (0x57, 0xF2, 0x87)
+        offline_color = (0xED, 0x42, 0x45)
+        circle_diameter = 14
+        circle_spacing = 8
+        margin_x = 24
+        margin_y = 24
+        font_size = 22
+
+        font = cls._get_monospace_font(font_size)
+        ascent, descent = font.getmetrics()
+        text_height = ascent + descent
+        line_height = text_height
+
+        indicator_pattern = re.compile(r"\b(online|offline)\b")
+
+        def measure_row(row: str) -> float:
+            width = 0.0
+            idx = 0
+            for match in indicator_pattern.finditer(row):
+                segment = row[idx : match.start()]
+                if segment:
+                    bbox = font.getbbox(segment)
+                    width += bbox[2] - bbox[0]
+                width += circle_diameter + circle_spacing
+                word_bbox = font.getbbox(match.group())
+                width += word_bbox[2] - word_bbox[0]
+                idx = match.end()
+            remainder = row[idx:]
+            if remainder:
+                bbox = font.getbbox(remainder)
+                width += bbox[2] - bbox[0]
+            return width
+
+        max_row_width = max(measure_row(row) for row in leaderboard_rows)
+        image_width = int(margin_x * 2 + max_row_width)
+        image_height = int(margin_y * 2 + line_height * len(leaderboard_rows))
+
+        image = Image.new("RGB", (image_width, image_height), background_color)
+        draw = ImageDraw.Draw(image)
+
+        def draw_row(row: str, row_index: int, y: int) -> None:
+            x = margin_x
+            idx = 0
+            color = header_color if row_index == 0 else text_color
+            for match in indicator_pattern.finditer(row):
+                segment = row[idx : match.start()]
+                if segment:
+                    draw.text((x, y), segment, fill=color, font=font)
+                    bbox = font.getbbox(segment)
+                    x += bbox[2] - bbox[0]
+
+                indicator_color = online_color if match.group() == "online" else offline_color
+                center_y = y + ascent
+                radius = circle_diameter / 2
+                draw.ellipse(
+                    (
+                        x,
+                        center_y - radius,
+                        x + circle_diameter,
+                        center_y + radius,
+                    ),
+                    fill=indicator_color,
+                )
+                x += circle_diameter + circle_spacing
+
+                draw.text((x, y), match.group(), fill=color, font=font)
+                word_bbox = font.getbbox(match.group())
+                x += word_bbox[2] - word_bbox[0]
+                idx = match.end()
+
+            remainder = row[idx:]
+            if remainder:
+                draw.text((x, y), remainder, fill=color, font=font)
+
+        for row_index, row in enumerate(leaderboard_rows):
+            y = margin_y + row_index * line_height
+            draw_row(row, row_index, y)
+
+        buffer = BytesIO()
+        image.save(buffer, format="PNG", dpi=(96, 96))
+        buffer.seek(0)
+        return buffer
+
     def _build_leaderboard_view(
         self, table_rows: list[dict[str, str]]
     ) -> discord.ui.LayoutView:
