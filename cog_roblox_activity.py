@@ -5,7 +5,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Set, Tuple, TypedDict
 
 import aiohttp
 import discord
@@ -29,10 +29,22 @@ ROBLOX_FRIEND_STATUS_URL = (
     "https://friends.roblox.com/v1/users/{user_id}/friends/statuses"
 )
 ROBLOX_MY_FRIEND_STATUS_URL = "https://friends.roblox.com/v1/my/friends/statuses"
+ROBLOX_ACCEPT_FRIEND_URL = (
+    "https://friends.roblox.com/v1/users/{user_id}/accept-friend-request"
+)
 # Some Roblox-related usernames in our community exceed the usual 20-character
 # limit (e.g., "roblox_user_1463871864" has 22 characters). Allow a slightly
 # larger range so we can still pick them up from member nicknames.
 ROBLOX_USERNAME_REGEX = re.compile(r"[A-Za-z0-9_]{3,26}")
+
+
+class ConnectionStatus(TypedDict, total=False):
+    is_friend: Optional[bool]
+    is_pending: bool
+    pending_incoming: bool
+    pending_outgoing: bool
+    auto_accepted: bool
+    auto_accept_error: Optional[str]
 
 
 class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
@@ -58,6 +70,9 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         self._last_channel_report: Optional[datetime] = None
         self._authenticated_user_id: Optional[int] = None
         self._skip_connection_checks: bool = False
+        self._csrf_token: Optional[str] = None
+        self._friend_accept_attempts: Dict[int, datetime] = {}
+
 
     async def cog_load(self):
         self._session = aiohttp.ClientSession()
@@ -104,6 +119,19 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 "Could not add last_channel_report_at column: %s", exc
             )
 
+    def _ensure_presence_table_columns(self, cursor) -> None:
+        cursor.execute("PRAGMA table_info(roblox_presence_state)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if "count_offline" in columns:
+            return
+
+        try:
+            cursor.execute(
+                "ALTER TABLE roblox_presence_state ADD COLUMN count_offline INTEGER"
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._logger.warning("Could not add count_offline column: %s", exc)
+
     def _load_cookie_from_db(self) -> None:
         value = get_setting(self._COOKIE_SETTING_KEY)
         self._roblox_cookie = value.strip() if value else None
@@ -131,6 +159,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         cursor = conn.cursor()
 
         self._ensure_tracking_table_columns(cursor)
+        self._ensure_presence_table_columns(cursor)
 
         cursor.execute(
             "SELECT tracking_enabled, session_started_at, session_ended_at, last_channel_report_at FROM roblox_tracking_state WHERE id = 1"
@@ -170,13 +199,14 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 self._user_labels[int(user_id)] = label
 
         cursor.execute(
-            "SELECT user_id, status, last_change, last_update FROM roblox_presence_state"
+            "SELECT user_id, status, last_change, last_update, count_offline FROM roblox_presence_state"
         )
-        for user_id, status, last_change, last_update in cursor.fetchall():
+        for user_id, status, last_change, last_update, count_offline in cursor.fetchall():
             self._presence_state[int(user_id)] = {
                 "status": self._int_to_status(status),
                 "last_change": self._parse_datetime(last_change),
                 "last_update": self._parse_datetime(last_update),
+                "count_offline": bool(int(count_offline)) if count_offline is not None else True,
             }
 
         if self._tracking_enabled and self._presence_state:
@@ -243,18 +273,20 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         conn.execute(
             """
-            INSERT INTO roblox_presence_state (user_id, status, last_change, last_update)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO roblox_presence_state (user_id, status, last_change, last_update, count_offline)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 status = excluded.status,
                 last_change = excluded.last_change,
-                last_update = excluded.last_update
+                last_update = excluded.last_update,
+                count_offline = excluded.count_offline
             """,
             (
                 user_id,
                 self._status_to_int(state.get("status")),
                 self._serialize_datetime(state.get("last_change")),
                 self._serialize_datetime(state.get("last_update")),
+                1 if state.get("count_offline", True) else 0,
             ),
         )
 
@@ -442,17 +474,69 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         self._authenticated_user_id = user_id
         return user_id
 
+    def _should_attempt_friend_accept(self, user_id: int, now: datetime) -> bool:
+        last_attempt = self._friend_accept_attempts.get(user_id)
+        if last_attempt and (now - last_attempt).total_seconds() < 300:
+            return False
+        self._friend_accept_attempts[user_id] = now
+        return True
+
+    async def _accept_friend_request(self, user_id: int) -> tuple[bool, Optional[str]]:
+        if not self._session:
+            raise RuntimeError("RobloxActivityCog session is not initialized")
+
+        if not self._roblox_cookie:
+            self._load_cookie_from_db()
+
+        if not self._roblox_cookie:
+            return False, "Missing Roblox authentication cookie"
+
+        url = ROBLOX_ACCEPT_FRIEND_URL.format(user_id=user_id)
+        headers = {"Cookie": f".ROBLOSECURITY={self._roblox_cookie}"}
+        if self._csrf_token:
+            headers["X-CSRF-Token"] = self._csrf_token
+
+        for attempt in range(2):
+            try:
+                async with self._session.post(
+                    url,
+                    headers=headers,
+                    timeout=20,
+                ) as resp:
+                    if resp.status in {200, 204}:
+                        return True, None
+
+                    csrf_header = resp.headers.get("x-csrf-token") or resp.headers.get(
+                        "X-CSRF-Token"
+                    )
+                    if resp.status in {401, 403} and csrf_header and attempt == 0:
+                        self._csrf_token = csrf_header
+                        headers["X-CSRF-Token"] = csrf_header
+                        continue
+
+                    try:
+                        data = await resp.json()
+                        detail = data.get("errors", [{}])[0].get("message") or str(data)
+                    except Exception:  # noqa: BLE001
+                        detail = await resp.text()
+
+                    return False, f"{resp.status}: {detail}"
+            except aiohttp.ClientError as exc:
+                return False, str(exc)
+
+        return False, "Unknown error"
+
     async def _fetch_connection_statuses(
         self, user_ids: Iterable[int]
-    ) -> Dict[int, Optional[bool]]:
-        result: Dict[int, Optional[bool]] = {}
+    ) -> Dict[int, ConnectionStatus]:
+        result: Dict[int, ConnectionStatus] = {}
         ids = [int(uid) for uid in set(user_ids)]
         if not ids:
             return result
 
         if self._skip_connection_checks:
             for uid in ids:
-                result[uid] = None
+                result[uid] = ConnectionStatus(is_friend=None, is_pending=False)
             return result
 
         if not self._session:
@@ -466,34 +550,63 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 "Missing Roblox authentication cookie – cannot retrieve friends status."
             )
             for uid in ids:
-                result[uid] = None
+                result[uid] = ConnectionStatus(is_friend=None, is_pending=False)
             return result
 
         headers = {"Cookie": f".ROBLOSECURITY={self._roblox_cookie}"}
 
-        def _interpret_friend_status(value) -> Optional[bool]:
+        def _interpret_friend_status(value) -> ConnectionStatus:
+            info: ConnectionStatus = {
+                "is_friend": None,
+                "is_pending": False,
+                "pending_incoming": False,
+                "pending_outgoing": False,
+            }
+
             if isinstance(value, str):
                 normalized = value.strip().lower()
                 if normalized in {"friend", "friends", "isfriend", "isfriends"}:
-                    return True
+                    info["is_friend"] = True
+                    return info
                 if normalized in {"notfriend", "none", "unknown"}:
-                    return False
-                if "request" in normalized or "pending" in normalized:
-                    return False
-                return None
+                    info["is_friend"] = False
+                    return info
+                if "requestreceived" in normalized or (
+                    "request" in normalized and "received" in normalized
+                ):
+                    info.update(is_friend=False, is_pending=True, pending_incoming=True)
+                    return info
+                if "requestsent" in normalized or (
+                    "request" in normalized and "sent" in normalized
+                ):
+                    info.update(is_friend=False, is_pending=True, pending_outgoing=True)
+                    return info
+                if "incoming" in normalized:
+                    info.update(is_friend=False, is_pending=True, pending_incoming=True)
+                    return info
+                if "outgoing" in normalized:
+                    info.update(is_friend=False, is_pending=True, pending_outgoing=True)
+                    return info
+                if "pending" in normalized or "request" in normalized:
+                    info.update(is_friend=False, is_pending=True)
+                    return info
+                return info
 
             try:
                 numeric = int(value)
             except (TypeError, ValueError):
-                return None
+                return info
 
-            if numeric in {3, 4}:
-                return True
-            if numeric in {1, 2}:  # outgoing or incoming request – treat as pending
-                return False
-            if numeric == 0:
-                return False
-            return None
+            if numeric == 2:
+                info["is_friend"] = True
+            elif numeric == 3:
+                info.update(is_friend=False, is_pending=True, pending_outgoing=True)
+            elif numeric == 4:
+                info.update(is_friend=False, is_pending=True, pending_incoming=True)
+            elif numeric in {0, 1}:
+                info["is_friend"] = False
+
+            return info
 
         async def _populate_from_endpoint(url: str) -> str:
             for i in range(0, len(ids), 100):
@@ -512,13 +625,17 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                                 "Roblox friends status API returned %s", resp.status
                             )
                             for uid in batch:
-                                result[uid] = None
+                                result[uid] = ConnectionStatus(
+                                    is_friend=None, is_pending=False
+                                )
                             continue
                         data = await resp.json()
                 except aiohttp.ClientError as exc:
                     self._logger.warning("Roblox friends status API error: %s", exc)
                     for uid in batch:
-                        result[uid] = None
+                        result[uid] = ConnectionStatus(
+                            is_friend=None, is_pending=False
+                        )
                     continue
 
                 payload_entries = data.get("data")
@@ -527,7 +644,9 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                         "Unexpected friends status payload shape: %s", data
                     )
                     for uid in batch:
-                        result[uid] = None
+                        result[uid] = ConnectionStatus(
+                            is_friend=None, is_pending=False
+                        )
                     continue
 
                 for entry in payload_entries:
@@ -538,7 +657,9 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                     result[int(target_id)] = _interpret_friend_status(status)
 
                 for uid in batch:
-                    result.setdefault(uid, None)
+                    result.setdefault(
+                        uid, ConnectionStatus(is_friend=None, is_pending=False)
+                    )
 
             return "ok"
 
@@ -550,7 +671,9 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             auth_user_id = await self._fetch_authenticated_user_id()
             if not auth_user_id:
                 for uid in ids:
-                    result.setdefault(uid, None)
+                    result.setdefault(
+                        uid, ConnectionStatus(is_friend=None, is_pending=False)
+                    )
                 return result
 
             endpoint_used = ROBLOX_FRIEND_STATUS_URL.format(user_id=auth_user_id)
@@ -565,7 +688,18 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             self._authenticated_user_id = None
             self._skip_connection_checks = True
             for uid in ids:
-                result.setdefault(uid, None)
+                result.setdefault(uid, ConnectionStatus(is_friend=None, is_pending=False))
+
+        now = datetime.now(timezone.utc)
+        for user_id, status in list(result.items()):
+            if status.get("pending_incoming") and self._should_attempt_friend_accept(
+                user_id, now
+            ):
+                success, error = await self._accept_friend_request(user_id)
+                status["auto_accepted"] = success
+                if error:
+                    status["auto_accept_error"] = error
+            result[user_id] = status
 
         return result
 
@@ -622,7 +756,13 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         return label
 
     def _update_presence_tracking(
-        self, user_id: int, status: Optional[bool], label: str, now: datetime
+        self,
+        user_id: int,
+        status: Optional[bool],
+        label: str,
+        now: datetime,
+        *,
+        count_offline: bool = True,
     ) -> tuple[float, bool, Optional[float]]:
         self._user_labels[user_id] = label
 
@@ -632,19 +772,21 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 "status": status,
                 "last_change": now,
                 "last_update": now,
+                "count_offline": count_offline,
             }
             return 0.0, False, None
 
         previous_status = state.get("status")
         last_change = state.get("last_change", now) or now
         last_update = state.get("last_update", now) or now
+        previous_count_offline = state.get("count_offline", True)
         offline_transition = False
         ended_online_duration: Optional[float] = None
 
         elapsed = (now - last_update).total_seconds()
         if previous_status is True:
             self._duration_totals[user_id]["online"] += elapsed
-        elif previous_status is False:
+        elif previous_status is False and previous_count_offline:
             self._duration_totals[user_id]["offline"] += elapsed
 
         if status != previous_status:
@@ -657,6 +799,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             "status": status,
             "last_change": last_change,
             "last_update": now,
+            "count_offline": count_offline,
         }
 
         self._persist_user_state(user_id)
@@ -676,7 +819,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
             if status is True:
                 self._duration_totals[user_id]["online"] += elapsed
-            elif status is False:
+            elif status is False and state.get("count_offline", True):
                 self._duration_totals[user_id]["offline"] += elapsed
 
             state["last_update"] = now
@@ -692,7 +835,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         now: datetime,
         *,
         mention_offline_only: bool,
-        connections: Dict[int, Optional[bool]],
+        connections: Dict[int, ConnectionStatus],
     ) -> tuple[
         list[str],
         list[str],
@@ -736,9 +879,22 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 else mentions_text
             )
             detail["members_display"] = members_text
+            connection_status = connections.get(user_id)
+            count_offline = not (
+                is_online is False
+                and connection_status is not None
+                and (
+                    connection_status.get("is_friend") is False
+                    or connection_status.get("is_pending")
+                )
+            )
             if self._tracking_enabled and is_online is not None:
                 duration_seconds, went_offline, ended_online_duration = self._update_presence_tracking(
-                    user_id, is_online, f"**{username}**", now
+                    user_id,
+                    is_online,
+                    f"**{username}**",
+                    now,
+                    count_offline=count_offline,
                 )
                 if went_offline:
                     session_seconds = ended_online_duration or 0.0
@@ -755,10 +911,38 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             if is_online is True:
                 online_lines.append(f"🟢 **{username}** – online {duration}")
             elif is_online is False:
-                connection_status = connections.get(user_id)
-                note = None
-                if connection_status is False:
-                    note = "Player is not friends with senpaicat22"
+                note_parts: list[str] = []
+                if connection_status:
+                    if connection_status.get("is_friend") is False:
+                        if connection_status.get("is_pending"):
+                            if connection_status.get("auto_accepted"):
+                                note_parts.append(
+                                    "Friend request pending (auto-accepted; waiting for Roblox to confirm)"
+                                )
+                            elif connection_status.get("auto_accept_error"):
+                                note_parts.append(
+                                    "Friend request pending "
+                                    f"(auto-accept failed: {connection_status['auto_accept_error']})"
+                                )
+                            elif connection_status.get("pending_incoming"):
+                                note_parts.append(
+                                    "Friend request pending (incoming; attempting auto-accept)"
+                                )
+                            elif connection_status.get("pending_outgoing"):
+                                note_parts.append(
+                                    "Friend request pending (outgoing)"
+                                )
+                            else:
+                                note_parts.append("Friend request pending")
+                        else:
+                            note_parts.append("Player is not friends with senpaicat22")
+                    elif (
+                        connection_status.get("is_friend") is None
+                        and connection_status.get("is_pending")
+                    ):
+                        note_parts.append("Friend request pending")
+
+                note = "; ".join(note_parts) if note_parts else None
                 detail["note"] = note
                 status_text = f"🔴 **{username}** – offline {duration}"
                 if note:
@@ -808,6 +992,118 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         return chunks
 
+    @staticmethod
+    def _get_monospace_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+        try:
+            return ImageFont.truetype("DejaVuSansMono.ttf", size=size)
+        except OSError:
+            return ImageFont.load_default()
+
+    @classmethod
+    def render_leaderboard_image(cls, leaderboard_rows: list[str]) -> BytesIO:
+        """Render a leaderboard PNG that matches the fixed Discord layout requirements.
+
+        Example:
+            rows = [
+                "Roblox activity leaderboard",
+                "1. Alice – online 5h 12m, offline 1h 3m (83% online)",
+            ]
+            buffer = RobloxActivityCog.render_leaderboard_image(rows)
+            file = discord.File(buffer, filename="leaderboard.png")
+            view = discord.ui.LayoutView(timeout=None)
+            view.add_item(discord.ui.Container(discord.ui.TextDisplay(content=\"Leaderboard\")))
+            await interaction.followup.send(view=view, file=file, ephemeral=True)
+        """
+
+        if not leaderboard_rows:
+            raise ValueError("leaderboard_rows cannot be empty")
+
+        background_color = (0x2B, 0x1F, 0x3A)
+        text_color = (0xDC, 0xDD, 0xDE)
+        header_color = (0xFF, 0xFF, 0xFF)
+        online_color = (0x57, 0xF2, 0x87)
+        offline_color = (0xED, 0x42, 0x45)
+        circle_diameter = 14
+        circle_spacing = 8
+        margin_x = 24
+        margin_y = 24
+        font_size = 22
+
+        font = cls._get_monospace_font(font_size)
+        ascent, descent = font.getmetrics()
+        text_height = ascent + descent
+        line_height = text_height
+
+        indicator_pattern = re.compile(r"\b(online|offline)\b")
+
+        def measure_row(row: str) -> float:
+            width = 0.0
+            idx = 0
+            for match in indicator_pattern.finditer(row):
+                segment = row[idx : match.start()]
+                if segment:
+                    bbox = font.getbbox(segment)
+                    width += bbox[2] - bbox[0]
+                width += circle_diameter + circle_spacing
+                word_bbox = font.getbbox(match.group())
+                width += word_bbox[2] - word_bbox[0]
+                idx = match.end()
+            remainder = row[idx:]
+            if remainder:
+                bbox = font.getbbox(remainder)
+                width += bbox[2] - bbox[0]
+            return width
+
+        max_row_width = max(measure_row(row) for row in leaderboard_rows)
+        image_width = int(margin_x * 2 + max_row_width)
+        image_height = int(margin_y * 2 + line_height * len(leaderboard_rows))
+
+        image = Image.new("RGB", (image_width, image_height), background_color)
+        draw = ImageDraw.Draw(image)
+
+        def draw_row(row: str, row_index: int, y: int) -> None:
+            x = margin_x
+            idx = 0
+            color = header_color if row_index == 0 else text_color
+            for match in indicator_pattern.finditer(row):
+                segment = row[idx : match.start()]
+                if segment:
+                    draw.text((x, y), segment, fill=color, font=font)
+                    bbox = font.getbbox(segment)
+                    x += bbox[2] - bbox[0]
+
+                indicator_color = online_color if match.group() == "online" else offline_color
+                center_y = y + ascent
+                radius = circle_diameter / 2
+                draw.ellipse(
+                    (
+                        x,
+                        center_y - radius,
+                        x + circle_diameter,
+                        center_y + radius,
+                    ),
+                    fill=indicator_color,
+                )
+                x += circle_diameter + circle_spacing
+
+                draw.text((x, y), match.group(), fill=color, font=font)
+                word_bbox = font.getbbox(match.group())
+                x += word_bbox[2] - word_bbox[0]
+                idx = match.end()
+
+            remainder = row[idx:]
+            if remainder:
+                draw.text((x, y), remainder, fill=color, font=font)
+
+        for row_index, row in enumerate(leaderboard_rows):
+            y = margin_y + row_index * line_height
+            draw_row(row, row_index, y)
+
+        buffer = BytesIO()
+        image.save(buffer, format="PNG", dpi=(96, 96))
+        buffer.seek(0)
+        return buffer
+
     def _build_leaderboard_view(
         self, table_rows: list[dict[str, str]]
     ) -> discord.ui.LayoutView:
@@ -824,18 +1120,21 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         lines = [
             (
-                f"{idx}. {row['label']} – online {row['online']}, "
-                f"offline {row['offline']} ({row['percent']} online)"
+                f"{idx}. {row['label']} – 🟢 online {row['online']}, "
+                f"🔴 offline {row['offline']} ({row['percent']} online)"
             )
             for idx, row in enumerate(table_rows, start=1)
         ]
 
         for chunk_index, chunk in enumerate(self._chunk_lines(lines)):
-            heading = "Leaderboard" if chunk_index == 0 else f"Leaderboard (continued {chunk_index})"
             sections.extend(
                 [
                     discord.ui.Separator(visible=True),
-                    discord.ui.TextDisplay(content=f"{heading}\n{chunk}"),
+                    discord.ui.TextDisplay(
+                        content=(
+                            f"Leaderboard\n{chunk}" if chunk_index == 0 else chunk
+                        )
+                    ),
                 ]
             )
 
@@ -901,12 +1200,11 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         usernames = list(tracked.keys())
         resolved_ids, missing_usernames = await self._fetch_user_ids(usernames)
         presence = await self._fetch_presence(resolved_ids.values()) if resolved_ids else {}
-        offline_ids = [
-            resolved_ids[name]
-            for name in resolved_ids
-            if presence.get(resolved_ids[name]) is False
-        ]
-        connections = await self._fetch_connection_statuses(offline_ids)
+        connections = (
+            await self._fetch_connection_statuses(resolved_ids.values())
+            if resolved_ids
+            else {}
+        )
         now = datetime.now(timezone.utc)
 
         (
@@ -1276,7 +1574,6 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         leaderboard_view = self._build_leaderboard_view(table_rows)
 
         await interaction.followup.send(
-            content="Roblox activity leaderboard",
             view=leaderboard_view,
             ephemeral=True,
         )
