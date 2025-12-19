@@ -808,9 +808,40 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         return chunks
 
-    def _render_leaderboard_image(self, *_: object, **__: object):
-        """Compatibility shim; image rendering has been removed."""
-        return None
+    def _build_leaderboard_view(
+        self, table_rows: list[dict[str, str]]
+    ) -> discord.ui.LayoutView:
+        sections: list[discord.ui.LayoutViewItem] = [
+            discord.ui.TextDisplay(content="Roblox activity leaderboard"),
+            discord.ui.Separator(visible=True),
+            discord.ui.TextDisplay(
+                content=(
+                    "Online/offline durations since tracking was last enabled. "
+                    "Percent reflects the time spent online."
+                )
+            ),
+        ]
+
+        lines = [
+            (
+                f"{idx}. {row['label']} – online {row['online']}, "
+                f"offline {row['offline']} ({row['percent']} online)"
+            )
+            for idx, row in enumerate(table_rows, start=1)
+        ]
+
+        for chunk_index, chunk in enumerate(self._chunk_lines(lines)):
+            heading = "Leaderboard" if chunk_index == 0 else f"Leaderboard (continued {chunk_index})"
+            sections.extend(
+                [
+                    discord.ui.Separator(visible=True),
+                    discord.ui.TextDisplay(content=f"{heading}\n{chunk}"),
+                ]
+            )
+
+        view = discord.ui.LayoutView(timeout=None)
+        view.add_item(discord.ui.Container(*sections))
+        return view
 
     @staticmethod
     def _strip_basic_markdown(value: str) -> str:
@@ -1242,11 +1273,11 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 }
             )
 
+        leaderboard_view = self._build_leaderboard_view(table_rows)
+
         await interaction.followup.send(
-            file=discord.File(
-                fp=self._render_leaderboard_image(table_rows),
-                filename="roblox_leaderboard.png",
-            ),
+            content="Roblox activity leaderboard",
+            view=leaderboard_view,
             ephemeral=True,
         )
 
@@ -1273,5 +1304,3 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         await interaction.response.send_message(
             "Cookie has been saved.", ephemeral=True
         )
-
-
