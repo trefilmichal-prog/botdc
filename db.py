@@ -94,10 +94,16 @@ def init_db():
             user_id INTEGER PRIMARY KEY,
             status INTEGER,
             last_change TEXT,
-            last_update TEXT
+            last_update TEXT,
+            count_offline INTEGER
         )
         """
     )
+
+    try:
+        c.execute("ALTER TABLE roblox_presence_state ADD COLUMN count_offline INTEGER")
+    except sqlite3.OperationalError:
+        pass
 
     c.execute(
         """
