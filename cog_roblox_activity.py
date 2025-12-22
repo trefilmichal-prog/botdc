@@ -123,6 +123,19 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             name="notifications",
             description="Zapne nebo vypne DM notifikace, když hráč přejde offline.",
         )(self.set_activity_notifications)
+        self.activity_group = app_commands.Group(
+            name="roblox_activity",
+            description="Reporty a přehledy aktivity Roblox clanu.",
+            default_permissions=discord.Permissions(administrator=True),
+        )
+        self.activity_group.command(
+            name="report",
+            description="Zobrazí aktuální přehled, kdo je online a offline.",
+        )(self.roblox_activity_report)
+        self.activity_group.command(
+            name="leaderboard",
+            description="Zobrazí leaderboard od zapnutí trackování.",
+        )(self.roblox_activity_leaderboard)
         self.__cog_app_commands__ = []
 
 
@@ -139,8 +152,19 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             self.bot.tree.remove_command(
                 "roblox_activity_settings", type=discord.AppCommandType.chat_input
             )
+        existing_activity = self.bot.tree.get_command(
+            "roblox_activity", type=discord.AppCommandType.chat_input
+        )
+        if existing_activity:
+            self.bot.tree.remove_command(
+                "roblox_activity", type=discord.AppCommandType.chat_input
+            )
         try:
             self.bot.tree.add_command(self.activity_settings_group)
+        except app_commands.CommandAlreadyRegistered:
+            pass
+        try:
+            self.bot.tree.add_command(self.activity_group)
         except app_commands.CommandAlreadyRegistered:
             pass
 
@@ -161,6 +185,13 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         if existing_group:
             self.bot.tree.remove_command(
                 "roblox_activity_settings", type=discord.AppCommandType.chat_input
+            )
+        existing_activity = self.bot.tree.get_command(
+            "roblox_activity", type=discord.AppCommandType.chat_input
+        )
+        if existing_activity:
+            self.bot.tree.remove_command(
+                "roblox_activity", type=discord.AppCommandType.chat_input
             )
         self.presence_notifier.cancel()
 
@@ -890,6 +921,18 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             return parts[0]
         return label
 
+    def _uptime_percent_for_user(self, user_id: int) -> float:
+        totals = self._duration_totals.get(user_id, {"online": 0.0, "offline": 0.0})
+        total_time = totals["online"] + totals["offline"]
+        if total_time <= 0:
+            return 0.0
+        ratio = (totals["online"] / total_time) * 100
+        return max(0.0, min(100.0, ratio))
+
+    @staticmethod
+    def _format_uptime_percent(value: float) -> str:
+        return f"{value:.0f}%"
+
     def _update_presence_tracking(
         self,
         user_id: int,
@@ -996,6 +1039,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 "status": None,
                 "duration": "",
                 "note": None,
+                "uptime_percent": 0.0,
+                "uptime_text": "0%",
             }
 
             if lower not in resolved_ids:
@@ -1042,9 +1087,14 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 duration = "tracking disabled"
 
             detail["duration"] = duration
+            uptime_percent = self._uptime_percent_for_user(user_id)
+            detail["uptime_percent"] = uptime_percent
+            detail["uptime_text"] = self._format_uptime_percent(uptime_percent)
 
             if is_online is True:
-                online_lines.append(f"🟢 **{username}** – online {duration}")
+                online_lines.append(
+                    f"🟢 **{username}** – online {duration} • uptime {detail['uptime_text']}"
+                )
             elif is_online is False:
                 note_parts: list[str] = []
                 if connection_status:
@@ -1079,7 +1129,9 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
                 note = "; ".join(note_parts) if note_parts else None
                 detail["note"] = note
-                status_text = f"🔴 **{username}** – offline {duration}"
+                status_text = (
+                    f"🔴 **{username}** – offline {duration} • uptime {detail['uptime_text']}"
+                )
                 if note:
                     status_text = f"{status_text} ({note})"
                 offline_lines.append(status_text)
@@ -1288,6 +1340,43 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def roblox_activity(self, interaction: discord.Interaction):
+        # Legacy command kept for backward compatibility. Use /roblox_activity report instead.
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "This command can only be used in a server.", ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        player_embeds, summary_view, offline_notifications = await self._build_presence_report(
+            interaction.guild,
+            mention_mode=str(self._config.get("mention_mode", MentionMode.OFFLINE_ONLY)),
+        )
+        if summary_view is None:
+            await interaction.followup.send(
+                "No members with the required roles and a Roblox nickname in their display name were found.",
+                ephemeral=True,
+            )
+            return
+
+        await self._send_offline_notifications(offline_notifications)
+
+        for message in player_embeds:
+            await interaction.followup.send(
+                content=message.get("content"),
+                view=message.get("view"),
+                allowed_mentions=message.get("allowed_mentions"),
+                ephemeral=True,
+            )
+
+        await interaction.followup.send(
+            view=summary_view,
+            ephemeral=True,
+        )
+
+    @app_commands.checks.has_permissions(administrator=True)
+    async def roblox_activity_report(self, interaction: discord.Interaction):
         if not interaction.guild:
             await interaction.response.send_message(
                 "This command can only be used in a server.", ephemeral=True
@@ -1396,6 +1485,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                             status_label="is offline",
                             icon="🔴",
                             note=note,
+                            uptime_text=detail.get("uptime_text"),
                         ),
                         "content": None,
                         "allowed_mentions": None,
@@ -1411,6 +1501,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                             members_text,
                             status_label="could not be verified",
                             icon="⚪",
+                            uptime_text=detail.get("uptime_text"),
                         ),
                         "content": None,
                         "allowed_mentions": None,
@@ -1456,6 +1547,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         status_label: str,
         icon: str,
         note: Optional[str] = None,
+        uptime_text: Optional[str] = None,
     ) -> discord.ui.LayoutView:
         sections: list[discord.ui.LayoutViewItem] = [
             discord.ui.TextDisplay(content=f"{icon} **{username}** {status_label}.")
@@ -1465,6 +1557,9 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         sections.append(
             discord.ui.TextDisplay(content=f"Tracked accounts: {members_text}.")
         )
+
+        if uptime_text:
+            sections.append(discord.ui.TextDisplay(content=f"Uptime: {uptime_text}."))
 
         if note:
             sections.append(
@@ -1533,6 +1628,69 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         summary_view = discord.ui.LayoutView(timeout=None)
         summary_view.add_item(discord.ui.Container(*sections))
         return summary_view
+
+    async def _send_leaderboard(self, interaction: discord.Interaction) -> None:
+        if self._tracking_enabled:
+            self._finalize_totals(datetime.now(timezone.utc))
+
+        tracked_members = await self._collect_tracked_members(interaction.guild)  # type: ignore[arg-type]
+        if not tracked_members:
+            await interaction.followup.send(
+                "No members are currently being monitored for activity.",
+                ephemeral=True,
+            )
+            return
+
+        resolved_ids, _ = await self._fetch_user_ids(list(tracked_members.keys()))
+        tracked_ids = {user_id for user_id in resolved_ids.values()}
+        username_lookup = {user_id: username for username, user_id in resolved_ids.items()}
+
+        filtered_totals = {
+            user_id: totals
+            for user_id, totals in self._duration_totals.items()
+            if user_id in tracked_ids
+        }
+
+        if not filtered_totals:
+            await interaction.followup.send(
+                "No leaderboard data is available for the currently monitored members. "
+                "Enable tracking and wait for the next activity check.",
+                ephemeral=True,
+            )
+            return
+
+        table_rows: list[dict[str, str]] = []
+        for user_id, totals in sorted(
+            filtered_totals.items(),
+            key=lambda item: item[1]["online"],
+            reverse=True,
+        ):
+            stored_label = self._user_labels.get(user_id)
+            label = self._dedupe_label(stored_label) if stored_label else None
+            if stored_label and label != stored_label:
+                self._user_labels[user_id] = label
+                self._persist_user_state(user_id)
+            if not label:
+                label = f"**{username_lookup.get(user_id, f'ID {user_id}')}**"
+            online_text = self._format_timedelta(totals["online"])
+            offline_text = self._format_timedelta(totals["offline"])
+            total_time = totals["online"] + totals["offline"]
+            online_ratio = (totals["online"] / total_time * 100) if total_time > 0 else 0.0
+            table_rows.append(
+                {
+                    "label": self._strip_basic_markdown(label),
+                    "online": online_text,
+                    "offline": offline_text,
+                    "percent": f"{online_ratio:.0f}%",
+                }
+            )
+
+        leaderboard_view = self._build_leaderboard_view(table_rows)
+
+        await interaction.followup.send(
+            view=leaderboard_view,
+            ephemeral=True,
+        )
 
     async def _send_offline_notifications(
         self, notifications: list[tuple[discord.Member, str, float]]
@@ -1666,67 +1824,18 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         await interaction.response.defer(ephemeral=True)
 
-        if self._tracking_enabled:
-            self._finalize_totals(datetime.now(timezone.utc))
+        await self._send_leaderboard(interaction)
 
-        tracked_members = await self._collect_tracked_members(interaction.guild)
-        if not tracked_members:
-            await interaction.followup.send(
-                "No members are currently being monitored for activity.",
-                ephemeral=True,
+    @app_commands.checks.has_permissions(administrator=True)
+    async def roblox_activity_leaderboard(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "This command can only be used in a server.", ephemeral=True
             )
             return
 
-        resolved_ids, _ = await self._fetch_user_ids(list(tracked_members.keys()))
-        tracked_ids = {user_id for user_id in resolved_ids.values()}
-        username_lookup = {user_id: username for username, user_id in resolved_ids.items()}
-
-        filtered_totals = {
-            user_id: totals
-            for user_id, totals in self._duration_totals.items()
-            if user_id in tracked_ids
-        }
-
-        if not filtered_totals:
-            await interaction.followup.send(
-                "No leaderboard data is available for the currently monitored members. "
-                "Enable tracking and wait for the next activity check.",
-                ephemeral=True,
-            )
-            return
-
-        table_rows: list[dict[str, str]] = []
-        for user_id, totals in sorted(
-            filtered_totals.items(),
-            key=lambda item: item[1]["online"],
-            reverse=True,
-        ):
-            stored_label = self._user_labels.get(user_id)
-            label = self._dedupe_label(stored_label) if stored_label else None
-            if stored_label and label != stored_label:
-                self._user_labels[user_id] = label
-                self._persist_user_state(user_id)
-            if not label:
-                label = f"**{username_lookup.get(user_id, f'ID {user_id}')}**"
-            online_text = self._format_timedelta(totals["online"])
-            offline_text = self._format_timedelta(totals["offline"])
-            total_time = totals["online"] + totals["offline"]
-            online_ratio = (totals["online"] / total_time * 100) if total_time > 0 else 0.0
-            table_rows.append(
-                {
-                    "label": self._strip_basic_markdown(label),
-                    "online": online_text,
-                    "offline": offline_text,
-                    "percent": f"{online_ratio:.0f}%",
-                }
-            )
-
-        leaderboard_view = self._build_leaderboard_view(table_rows)
-
-        await interaction.followup.send(
-            view=leaderboard_view,
-            ephemeral=True,
-        )
+        await interaction.response.defer(ephemeral=True)
+        await self._send_leaderboard(interaction)
 
     @app_commands.choices(
         mode=[
