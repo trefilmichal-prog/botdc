@@ -641,6 +641,7 @@ class ClanApplicationModal(discord.ui.Modal):
                 send_messages=True,
                 read_message_history=True,
                 attach_files=True,
+                mention_everyone=True,
             ),
         }
 
