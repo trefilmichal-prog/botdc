@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import re
 from collections import defaultdict
@@ -38,6 +39,32 @@ ROBLOX_ACCEPT_FRIEND_URL = (
 ROBLOX_USERNAME_REGEX = re.compile(r"[A-Za-z0-9_]{3,26}")
 
 
+class MentionMode:
+    OFF = "off"
+    OFFLINE_ONLY = "offline_only"
+    ALWAYS = "always"
+
+    @classmethod
+    def is_valid(cls, value: str | None) -> bool:
+        return value in {cls.OFF, cls.OFFLINE_ONLY, cls.ALWAYS}
+
+
+def _default_activity_config() -> dict[str, object]:
+    return {
+        "mention_mode": MentionMode.OFFLINE_ONLY,
+        "report_interval_minutes": 30,
+        "notify_on_offline": True,
+    }
+
+
+def _describe_mention_mode(value: str) -> str:
+    if value == MentionMode.OFF:
+        return "vypnuto (žádné pingy)"
+    if value == MentionMode.ALWAYS:
+        return "vždy pingnout"
+    return "jen offline/neověření"
+
+
 class ConnectionStatus(TypedDict, total=False):
     is_friend: Optional[bool]
     is_pending: bool
@@ -72,12 +99,47 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         self._skip_connection_checks: bool = False
         self._csrf_token: Optional[str] = None
         self._friend_accept_attempts: Dict[int, datetime] = {}
+        self._config: dict[str, object] = _default_activity_config()
+
+        self.activity_settings_group = app_commands.Group(
+            name="roblox_activity_settings",
+            description="Nastavení reportů aktivity clanu (mention, interval, notifikace).",
+            default_permissions=discord.Permissions(administrator=True),
+        )
+        self.activity_settings_group.command(
+            name="mention",
+            description="Nastaví, jestli se mají v reportech tagovat hráči.",
+        )(self.set_activity_mentions)
+        self.activity_settings_group.command(
+            name="report_interval",
+            description="Nastaví interval automatických reportů (minuty).",
+        )(self.set_activity_report_interval)
+        self.activity_settings_group.command(
+            name="notifications",
+            description="Zapne nebo vypne DM notifikace, když hráč přejde offline.",
+        )(self.set_activity_notifications)
+        self.__cog_app_commands__ = []
 
 
     async def cog_load(self):
         self._session = aiohttp.ClientSession()
         self._load_cookie_from_db()
         self._load_state_from_db()
+        self._load_activity_config()
+        self._apply_report_interval()
+
+        existing_group = self.bot.tree.get_command(
+            "roblox_activity_settings", type=discord.AppCommandType.chat_input
+        )
+        if existing_group:
+            self.bot.tree.remove_command(
+                "roblox_activity_settings", type=discord.AppCommandType.chat_input
+            )
+        try:
+            self.bot.tree.add_command(self.activity_settings_group)
+        except app_commands.CommandAlreadyRegistered:
+            pass
+
         self.presence_notifier.start()
 
     async def cog_unload(self):
@@ -88,6 +150,13 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         if self._session and not self._session.closed:
             await self._session.close()
+        existing_group = self.bot.tree.get_command(
+            "roblox_activity_settings", type=discord.AppCommandType.chat_input
+        )
+        if existing_group:
+            self.bot.tree.remove_command(
+                "roblox_activity_settings", type=discord.AppCommandType.chat_input
+            )
         self.presence_notifier.cancel()
 
     def _serialize_datetime(self, dt: Optional[datetime]) -> Optional[str]:
@@ -141,6 +210,54 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             set_setting(self._COOKIE_SETTING_KEY, self._roblox_cookie)
         else:
             set_setting(self._COOKIE_SETTING_KEY, "")
+
+    def _load_activity_config(self) -> None:
+        raw = get_setting("roblox_activity_config")
+        if not raw:
+            self._config = _default_activity_config()
+            return
+
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            self._logger.warning("Could not decode roblox_activity_config JSON, using defaults.")
+            self._config = _default_activity_config()
+            return
+
+        mention_mode = data.get("mention_mode")
+        if not MentionMode.is_valid(mention_mode):
+            mention_mode = _default_activity_config()["mention_mode"]
+
+        report_interval = data.get("report_interval_minutes")
+        if not isinstance(report_interval, (int, float)):
+            report_interval = _default_activity_config()["report_interval_minutes"]
+        report_interval_int = int(report_interval)
+
+        notify = data.get("notify_on_offline")
+        notify_bool = notify if isinstance(notify, bool) else _default_activity_config()["notify_on_offline"]
+
+        self._config = {
+            "mention_mode": mention_mode,
+            "report_interval_minutes": max(5, min(report_interval_int, 180)),
+            "notify_on_offline": notify_bool,
+        }
+
+    def _persist_activity_config(self) -> None:
+        set_setting("roblox_activity_config", json.dumps(self._config))
+
+    def _apply_report_interval(self) -> None:
+        minutes = self._current_report_interval_minutes()
+        try:
+            self.presence_notifier.change_interval(minutes=minutes)
+        except Exception as exc:  # noqa: BLE001
+            self._logger.warning("Failed to update presence notifier interval to %s minutes: %s", minutes, exc)
+
+    def _current_report_interval_minutes(self) -> int:
+        minutes = self._config.get("report_interval_minutes", 30)
+        try:
+            return max(5, min(int(minutes), 180))
+        except (TypeError, ValueError):
+            return 30
 
     def _status_to_int(self, status: Optional[bool]) -> Optional[int]:
         if status is True:
@@ -834,7 +951,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         missing_usernames: Set[str],
         now: datetime,
         *,
-        mention_offline_only: bool,
+        mention_mode: str,
         connections: Dict[int, ConnectionStatus],
     ) -> tuple[
         list[str],
@@ -873,11 +990,11 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             user_id = resolved_ids[lower]
             is_online = presence.get(user_id)
             detail["status"] = is_online
-            members_text = (
-                names_text
-                if mention_offline_only and is_online is True
-                else mentions_text
-            )
+            members_text = names_text
+            if mention_mode == MentionMode.ALWAYS:
+                members_text = mentions_text
+            elif mention_mode == MentionMode.OFFLINE_ONLY and is_online is not True:
+                members_text = mentions_text
             detail["members_display"] = members_text
             connection_status = connections.get(user_id)
             count_offline = not (
@@ -1162,7 +1279,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         await interaction.response.defer(ephemeral=True)
 
         player_embeds, summary_view, offline_notifications = await self._build_presence_report(
-            interaction.guild, mention_offline_only=True
+            interaction.guild,
+            mention_mode=str(self._config.get("mention_mode", MentionMode.OFFLINE_ONLY)),
         )
         if summary_view is None:
             await interaction.followup.send(
@@ -1187,12 +1305,14 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         )
 
     async def _build_presence_report(
-        self, guild: discord.Guild, *, mention_offline_only: bool
+        self, guild: discord.Guild, *, mention_mode: str
     ) -> tuple[
         list[dict],
         Optional[discord.ui.LayoutView],
         list[tuple[discord.Member, str, float]],
     ]:
+        if not MentionMode.is_valid(mention_mode):
+            mention_mode = MentionMode.OFFLINE_ONLY
         tracked = await self._collect_tracked_members(guild)
         if not tracked:
             return [], None, []
@@ -1219,12 +1339,17 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             presence,
             missing_usernames,
             now,
-            mention_offline_only=mention_offline_only,
+            mention_mode=mention_mode,
             connections=connections,
         )
 
         status_message = (
-            "Monitoring is active: checks every 5 minutes; reports every 30 minutes."
+            (
+                "Monitoring is active. "
+                f"Report interval: {self._current_report_interval_minutes()} minutes. "
+                f"Mention mode: {_describe_mention_mode(str(self._config.get('mention_mode', MentionMode.OFFLINE_ONLY)))}. "
+                f"Offline DM notifications: {'on' if self._config.get('notify_on_offline', True) else 'off'}."
+            )
             if self._tracking_enabled
             else "Monitoring is disabled. Enable it with /roblox_tracking."
         )
@@ -1393,6 +1518,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
     async def _send_offline_notifications(
         self, notifications: list[tuple[discord.Member, str, float]]
     ) -> None:
+        if not self._config.get("notify_on_offline", True):
+            return
         for member, username, session_seconds in notifications:
             try:
                 duration_text = self._format_timedelta(session_seconds)
@@ -1416,7 +1543,10 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             return
 
         player_embeds, summary_view, offline_notifications = (
-            await self._build_presence_report(channel.guild, mention_offline_only=True)
+            await self._build_presence_report(
+                channel.guild,
+                mention_mode=str(self._config.get("mention_mode", MentionMode.OFFLINE_ONLY)),
+            )
         )
         await self._send_offline_notifications(offline_notifications)
 
@@ -1426,7 +1556,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         now = datetime.now(timezone.utc)
         should_report = (
             self._last_channel_report is None
-            or (now - self._last_channel_report).total_seconds() >= 30 * 60
+            or (now - self._last_channel_report).total_seconds()
+            >= self._current_report_interval_minutes() * 60
         )
 
         if not should_report:
@@ -1575,6 +1706,47 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         await interaction.followup.send(
             view=leaderboard_view,
+            ephemeral=True,
+        )
+
+    @app_commands.choices(
+        mode=[
+            app_commands.Choice(name="Vypnuto (žádné pingy)", value=MentionMode.OFF),
+            app_commands.Choice(name="Jen offline/neověření", value=MentionMode.OFFLINE_ONLY),
+            app_commands.Choice(name="Vždy pingnout", value=MentionMode.ALWAYS),
+        ]
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_activity_mentions(
+        self, interaction: discord.Interaction, mode: app_commands.Choice[str]
+    ):
+        self._config["mention_mode"] = mode.value
+        self._persist_activity_config()
+        await interaction.response.send_message(
+            f"Režim pingů pro reporty aktivity nastaven na **{_describe_mention_mode(mode.value)}**.",
+            ephemeral=True,
+        )
+
+    @app_commands.describe(minutes="Interval automatických reportů v minutách (5–180).")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_activity_report_interval(self, interaction: discord.Interaction, minutes: int):
+        limited = max(5, min(minutes, 180))
+        self._config["report_interval_minutes"] = limited
+        self._persist_activity_config()
+        self._apply_report_interval()
+        await interaction.response.send_message(
+            f"Interval automatických reportů je nyní {limited} minut.",
+            ephemeral=True,
+        )
+
+    @app_commands.describe(enabled="Posílat DM při přechodu hráče do offline?")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_activity_notifications(self, interaction: discord.Interaction, enabled: bool):
+        self._config["notify_on_offline"] = enabled
+        self._persist_activity_config()
+        await interaction.response.send_message(
+            "DM notifikace při odchodu offline jsou "
+            + ("**zapnuté**." if enabled else "**vypnuté**."),
             ephemeral=True,
         )
 
