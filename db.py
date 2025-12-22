@@ -1703,6 +1703,25 @@ def get_clan_application_by_channel(
     return _row_to_clan_application(row)
 
 
+def list_open_clan_applications(guild_id: int) -> list[Dict[str, Any]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT id, guild_id, channel_id, user_id,
+               roblox_nick, hours_per_day, rebirths, locale,
+               status, created_at, decided_at, deleted
+        FROM clan_applications
+        WHERE guild_id = ? AND status = 'open' AND deleted = 0
+        ORDER BY created_at DESC
+        """,
+        (guild_id,),
+    )
+    rows = c.fetchall()
+    conn.close()
+    return [_row_to_clan_application(row) for row in rows]
+
+
 def get_open_application_by_channel(channel_id: int) -> Optional[Dict[str, Any]]:
     conn = get_connection()
     c = conn.cursor()
