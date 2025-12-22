@@ -246,11 +246,18 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         set_setting("roblox_activity_config", json.dumps(self._config))
 
     def _apply_report_interval(self) -> None:
-        minutes = int(self._config.get("report_interval_minutes", 30))
+        minutes = self._current_report_interval_minutes()
         try:
             self.presence_notifier.change_interval(minutes=minutes)
         except Exception as exc:  # noqa: BLE001
             self._logger.warning("Failed to update presence notifier interval to %s minutes: %s", minutes, exc)
+
+    def _current_report_interval_minutes(self) -> int:
+        minutes = self._config.get("report_interval_minutes", 30)
+        try:
+            return max(5, min(int(minutes), 180))
+        except (TypeError, ValueError):
+            return 30
 
     def _status_to_int(self, status: Optional[bool]) -> Optional[int]:
         if status is True:
@@ -1339,7 +1346,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         status_message = (
             (
                 "Monitoring is active. "
-                f"Report interval: {int(self._config.get('report_interval_minutes', 30))} minutes. "
+                f"Report interval: {self._current_report_interval_minutes()} minutes. "
                 f"Mention mode: {_describe_mention_mode(str(self._config.get('mention_mode', MentionMode.OFFLINE_ONLY)))}. "
                 f"Offline DM notifications: {'on' if self._config.get('notify_on_offline', True) else 'off'}."
             )
@@ -1549,7 +1556,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         now = datetime.now(timezone.utc)
         should_report = (
             self._last_channel_report is None
-            or (now - self._last_channel_report).total_seconds() >= 30 * 60
+            or (now - self._last_channel_report).total_seconds()
+            >= self._current_report_interval_minutes() * 60
         )
 
         if not should_report:
