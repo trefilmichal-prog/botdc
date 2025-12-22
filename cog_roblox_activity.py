@@ -53,6 +53,7 @@ def _default_activity_config() -> dict[str, object]:
     return {
         "mention_mode": MentionMode.OFFLINE_ONLY,
         "report_interval_minutes": 30,
+        "poll_interval_minutes": 5,
         "notify_on_offline": True,
     }
 
@@ -115,6 +116,10 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             description="Nastaví interval automatických reportů (minuty).",
         )(self.set_activity_report_interval)
         self.activity_settings_group.command(
+            name="poll_interval",
+            description="Nastaví interval, jak často se kontroluje stav hráčů přes Roblox API (minuty).",
+        )(self.set_activity_poll_interval)
+        self.activity_settings_group.command(
             name="notifications",
             description="Zapne nebo vypne DM notifikace, když hráč přejde offline.",
         )(self.set_activity_notifications)
@@ -126,7 +131,6 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         self._load_cookie_from_db()
         self._load_state_from_db()
         self._load_activity_config()
-        self._apply_report_interval()
 
         existing_group = self.bot.tree.get_command(
             "roblox_activity_settings", type=discord.AppCommandType.chat_input
@@ -141,6 +145,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             pass
 
         self.presence_notifier.start()
+        self._apply_poll_interval()
 
     async def cog_unload(self):
         if self._tracking_enabled:
@@ -233,24 +238,30 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             report_interval = _default_activity_config()["report_interval_minutes"]
         report_interval_int = int(report_interval)
 
+        poll_interval = data.get("poll_interval_minutes")
+        if not isinstance(poll_interval, (int, float)):
+            poll_interval = _default_activity_config()["poll_interval_minutes"]
+        poll_interval_int = int(poll_interval)
+
         notify = data.get("notify_on_offline")
         notify_bool = notify if isinstance(notify, bool) else _default_activity_config()["notify_on_offline"]
 
         self._config = {
             "mention_mode": mention_mode,
             "report_interval_minutes": max(5, min(report_interval_int, 180)),
+            "poll_interval_minutes": max(1, min(poll_interval_int, 60)),
             "notify_on_offline": notify_bool,
         }
 
     def _persist_activity_config(self) -> None:
         set_setting("roblox_activity_config", json.dumps(self._config))
 
-    def _apply_report_interval(self) -> None:
-        minutes = self._current_report_interval_minutes()
+    def _apply_poll_interval(self) -> None:
+        minutes = self._current_poll_interval_minutes()
         try:
             self.presence_notifier.change_interval(minutes=minutes)
         except Exception as exc:  # noqa: BLE001
-            self._logger.warning("Failed to update presence notifier interval to %s minutes: %s", minutes, exc)
+            self._logger.warning("Failed to update presence notifier poll interval to %s minutes: %s", minutes, exc)
 
     def _current_report_interval_minutes(self) -> int:
         minutes = self._config.get("report_interval_minutes", 30)
@@ -258,6 +269,13 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             return max(5, min(int(minutes), 180))
         except (TypeError, ValueError):
             return 30
+
+    def _current_poll_interval_minutes(self) -> int:
+        minutes = self._config.get("poll_interval_minutes", 5)
+        try:
+            return max(1, min(int(minutes), 60))
+        except (TypeError, ValueError):
+            return 5
 
     def _status_to_int(self, status: Optional[bool]) -> Optional[int]:
         if status is True:
@@ -1346,6 +1364,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         status_message = (
             (
                 "Monitoring is active. "
+                f"Poll interval: {self._current_poll_interval_minutes()} minutes. "
                 f"Report interval: {self._current_report_interval_minutes()} minutes. "
                 f"Mention mode: {_describe_mention_mode(str(self._config.get('mention_mode', MentionMode.OFFLINE_ONLY)))}. "
                 f"Offline DM notifications: {'on' if self._config.get('notify_on_offline', True) else 'off'}."
@@ -1733,7 +1752,6 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         limited = max(5, min(minutes, 180))
         self._config["report_interval_minutes"] = limited
         self._persist_activity_config()
-        self._apply_report_interval()
         await interaction.response.send_message(
             f"Interval automatických reportů je nyní {limited} minut.",
             ephemeral=True,
@@ -1747,6 +1765,18 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         await interaction.response.send_message(
             "DM notifikace při odchodu offline jsou "
             + ("**zapnuté**." if enabled else "**vypnuté**."),
+            ephemeral=True,
+        )
+
+    @app_commands.describe(minutes="Jak často se má kontrolovat stav hráčů přes Roblox API (1–60 minut).")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_activity_poll_interval(self, interaction: discord.Interaction, minutes: int):
+        limited = max(1, min(minutes, 60))
+        self._config["poll_interval_minutes"] = limited
+        self._persist_activity_config()
+        self._apply_poll_interval()
+        await interaction.response.send_message(
+            f"Interval kontrol Roblox API je nyní {limited} minut.",
             ephemeral=True,
         )
 
