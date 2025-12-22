@@ -5,14 +5,19 @@ from discord import app_commands
 from db import (
     add_clan_application_panel,
     delete_clan_definition,
+    create_clan_application,
     get_all_clan_application_panels,
     get_clan_panel_config,
     get_clan_definition,
+    get_clan_application_by_channel,
+    list_open_clan_applications,
     list_clan_definitions,
     get_next_clan_sort_order,
     remove_clan_application_panel,
+    set_clan_application_status,
     set_clan_panel_config,
     upsert_clan_definition,
+    update_clan_application_form,
 )
 
 # Category where NEW ticket channels will be created (initial intake)
@@ -435,6 +440,36 @@ def _apply_status_to_name(name: str, status_emoji: str) -> str:
     return status_emoji + name
 
 
+async def _ensure_member_can_mention_everyone(
+    channel: discord.TextChannel, member: discord.Member, reason: str
+) -> bool:
+    """Ensure the applicant can mention roles/everyone inside their ticket."""
+    overwrite = channel.overwrites_for(member)
+    changed = False
+
+    if overwrite.view_channel is not True:
+        overwrite.view_channel = True
+        changed = True
+    if overwrite.send_messages is not True:
+        overwrite.send_messages = True
+        changed = True
+    if overwrite.read_message_history is not True:
+        overwrite.read_message_history = True
+        changed = True
+    if overwrite.attach_files is not True:
+        overwrite.attach_files = True
+        changed = True
+    if overwrite.mention_everyone is not True:
+        overwrite.mention_everyone = True
+        changed = True
+
+    if not changed:
+        return False
+
+    await channel.set_permissions(member, overwrite=overwrite, reason=reason)
+    return True
+
+
 async def _set_ticket_status(channel: discord.TextChannel, status_emoji: str) -> bool:
     """Update ticket status emoji in channel name."""
     new_name = _apply_status_to_name(channel.name, status_emoji)
@@ -682,10 +717,24 @@ class ClanApplicationModal(discord.ui.Modal):
             await interaction.followup.send(f"{_t(lang, 'create_api_err')} {e}", ephemeral=True)
             return
 
+        app_id = None
+        try:
+            app_id = create_clan_application(guild.id, ticket_channel.id, interaction.user.id, lang)
+            update_clan_application_form(
+                app_id,
+                roblox_display,
+                (self.hours_per_day.value or "").strip(),
+                (self.rebirths.value or "").strip(),
+            )
+        except Exception:
+            # DB errors should not block ticket creation; continue silently.
+            pass
+
         # 1) Set user's nickname on the server to the Roblox Display Name.
         nick_ok = False
         nick_err = None
         nick_diag = []
+        member: discord.Member | None = None
 
         try:
             member = guild.get_member(interaction.user.id)
@@ -715,6 +764,19 @@ class ClanApplicationModal(discord.ui.Modal):
             nick_err = f"{_t(lang, 'nick_api_err')} {e}"
         except discord.NotFound:
             nick_err = _t(lang, "nick_notfound")
+
+        # Ensure applicant can mention roles/everyone in the ticket (for new tickets)
+        try:
+            if member:
+                await _ensure_member_can_mention_everyone(
+                    ticket_channel,
+                    member,
+                    reason="Clan ticket: enable mentions for applicant (new ticket)",
+                )
+        except discord.Forbidden:
+            pass
+        except discord.HTTPException:
+            pass
 
         # 2) Rename ticket channel to: 🟠přihlášky-{clan}-{player}
         rename_ok = False
@@ -857,6 +919,75 @@ class ClanPanelCog(commands.Cog):
             select_options=select_options,
         )
 
+    async def _restore_open_ticket_mentions(self):
+        """Ensure all open clan tickets let the applicant mention roles after a restart."""
+        for guild in self.bot.guilds:
+            processed_channels: set[int] = set()
+
+            try:
+                open_apps = list_open_clan_applications(guild.id)
+            except Exception:
+                open_apps = []
+
+            for app in open_apps:
+                channel = guild.get_channel(app.get("channel_id"))
+                if not isinstance(channel, discord.TextChannel):
+                    continue
+                applicant_id = app.get("user_id")
+                applicant = guild.get_member(applicant_id)
+                if applicant is None:
+                    try:
+                        applicant = await guild.fetch_member(applicant_id)
+                    except discord.NotFound:
+                        continue
+                    except discord.HTTPException:
+                        continue
+
+                try:
+                    await _ensure_member_can_mention_everyone(
+                        channel,
+                        applicant,
+                        reason="Clan ticket: enable mentions for open ticket (persisted)",
+                    )
+                except discord.Forbidden:
+                    pass
+                except discord.HTTPException:
+                    pass
+
+                processed_channels.add(channel.id)
+
+            # Fallback for tickets that might not be stored in DB (older tickets)
+            for channel in guild.text_channels:
+                if channel.id in processed_channels:
+                    continue
+                if channel.name.startswith(STATUS_ACCEPTED) or channel.name.startswith(STATUS_DENIED):
+                    continue
+                applicant_id, _ = _parse_ticket_topic(channel.topic or "")
+                if not applicant_id:
+                    continue
+
+                applicant = guild.get_member(applicant_id)
+                if applicant is None:
+                    try:
+                        applicant = await guild.fetch_member(applicant_id)
+                    except discord.NotFound:
+                        continue
+                    except discord.HTTPException:
+                        continue
+
+                try:
+                    await _ensure_member_can_mention_everyone(
+                        channel,
+                        applicant,
+                        reason="Clan ticket: enable mentions for open ticket (fallback)",
+                    )
+                except discord.Forbidden:
+                    continue
+                except discord.HTTPException:
+                    continue
+
+                processed_channels.add(channel.id)
+
     async def cog_load(self):
         existing_group = self.bot.tree.get_command("clan_panel", type=discord.AppCommandType.chat_input)
         if existing_group:
@@ -872,6 +1003,11 @@ class ClanPanelCog(commands.Cog):
                 self.bot.add_view(self._build_panel_view(guild_id), message_id=message_id)
             except Exception:
                 continue
+
+        try:
+            await self._restore_open_ticket_mentions()
+        except Exception:
+            pass
 
     async def cog_unload(self):
         existing_group = self.bot.tree.get_command("clan_panel", type=discord.AppCommandType.chat_input)
@@ -1249,6 +1385,16 @@ class ClanPanelCog(commands.Cog):
                 except Exception:
                     pass
 
+                try:
+                    app_record = get_clan_application_by_channel(guild.id, channel_id)
+                    if app_record is None:
+                        app_id = create_clan_application(guild.id, channel_id, applicant.id, lang)
+                    else:
+                        app_id = app_record["id"]
+                    set_clan_application_status(app_id, "accepted")
+                except Exception:
+                    pass
+
                 await ticket_channel.send(f"{_t(lang, 'accepted_msg')} {clicker.mention}. {_t(lang, 'accepted_role_added')} <@&{role_id}>.")
                 await interaction.response.send_message(_t(lang, "accepted_ephemeral"), ephemeral=True)
                 return
@@ -1257,6 +1403,16 @@ class ClanPanelCog(commands.Cog):
                 # Status emoji -> 🔴
                 try:
                     await _set_ticket_status(ticket_channel, STATUS_DENIED)
+                except Exception:
+                    pass
+
+                try:
+                    app_record = get_clan_application_by_channel(guild.id, channel_id)
+                    if app_record is None:
+                        app_id = create_clan_application(guild.id, channel_id, applicant.id, lang)
+                    else:
+                        app_id = app_record["id"]
+                    set_clan_application_status(app_id, "rejected")
                 except Exception:
                     pass
 
