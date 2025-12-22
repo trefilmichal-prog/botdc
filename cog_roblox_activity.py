@@ -890,6 +890,18 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             return parts[0]
         return label
 
+    def _uptime_percent_for_user(self, user_id: int) -> float:
+        totals = self._duration_totals.get(user_id, {"online": 0.0, "offline": 0.0})
+        total_time = totals["online"] + totals["offline"]
+        if total_time <= 0:
+            return 0.0
+        ratio = (totals["online"] / total_time) * 100
+        return max(0.0, min(100.0, ratio))
+
+    @staticmethod
+    def _format_uptime_percent(value: float) -> str:
+        return f"{value:.0f}%"
+
     def _update_presence_tracking(
         self,
         user_id: int,
@@ -996,6 +1008,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 "status": None,
                 "duration": "",
                 "note": None,
+                "uptime_percent": 0.0,
+                "uptime_text": "0%",
             }
 
             if lower not in resolved_ids:
@@ -1042,9 +1056,14 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 duration = "tracking disabled"
 
             detail["duration"] = duration
+            uptime_percent = self._uptime_percent_for_user(user_id)
+            detail["uptime_percent"] = uptime_percent
+            detail["uptime_text"] = self._format_uptime_percent(uptime_percent)
 
             if is_online is True:
-                online_lines.append(f"🟢 **{username}** – online {duration}")
+                online_lines.append(
+                    f"🟢 **{username}** – online {duration} • uptime {detail['uptime_text']}"
+                )
             elif is_online is False:
                 note_parts: list[str] = []
                 if connection_status:
@@ -1079,7 +1098,9 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
                 note = "; ".join(note_parts) if note_parts else None
                 detail["note"] = note
-                status_text = f"🔴 **{username}** – offline {duration}"
+                status_text = (
+                    f"🔴 **{username}** – offline {duration} • uptime {detail['uptime_text']}"
+                )
                 if note:
                     status_text = f"{status_text} ({note})"
                 offline_lines.append(status_text)
@@ -1396,6 +1417,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                             status_label="is offline",
                             icon="🔴",
                             note=note,
+                            uptime_text=detail.get("uptime_text"),
                         ),
                         "content": None,
                         "allowed_mentions": None,
@@ -1411,6 +1433,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                             members_text,
                             status_label="could not be verified",
                             icon="⚪",
+                            uptime_text=detail.get("uptime_text"),
                         ),
                         "content": None,
                         "allowed_mentions": None,
@@ -1456,6 +1479,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         status_label: str,
         icon: str,
         note: Optional[str] = None,
+        uptime_text: Optional[str] = None,
     ) -> discord.ui.LayoutView:
         sections: list[discord.ui.LayoutViewItem] = [
             discord.ui.TextDisplay(content=f"{icon} **{username}** {status_label}.")
@@ -1465,6 +1489,9 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         sections.append(
             discord.ui.TextDisplay(content=f"Tracked accounts: {members_text}.")
         )
+
+        if uptime_text:
+            sections.append(discord.ui.TextDisplay(content=f"Uptime: {uptime_text}."))
 
         if note:
             sections.append(
