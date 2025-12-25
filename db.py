@@ -332,6 +332,9 @@ def init_db():
             status TEXT NOT NULL,       -- 'open', 'accepted', 'rejected'
             created_at TEXT NOT NULL,   -- %Y-%m-%d %H:%M:%S
             decided_at TEXT,            -- %Y-%m-%d %H:%M:%S
+            last_message_at TEXT,       -- %Y-%m-%d %H:%M:%S
+            last_message_by_bot INTEGER NOT NULL DEFAULT 0,
+            last_ping_at TEXT,          -- %Y-%m-%d %H:%M:%S
             deleted INTEGER NOT NULL DEFAULT 0
         )
         """
@@ -342,6 +345,18 @@ def init_db():
     if "locale" not in columns:
         c.execute(
             "ALTER TABLE clan_applications ADD COLUMN locale TEXT NOT NULL DEFAULT 'en'"
+        )
+    if "last_message_at" not in columns:
+        c.execute(
+            "ALTER TABLE clan_applications ADD COLUMN last_message_at TEXT"
+        )
+    if "last_message_by_bot" not in columns:
+        c.execute(
+            "ALTER TABLE clan_applications ADD COLUMN last_message_by_bot INTEGER NOT NULL DEFAULT 0"
+        )
+    if "last_ping_at" not in columns:
+        c.execute(
+            "ALTER TABLE clan_applications ADD COLUMN last_ping_at TEXT"
         )
 
     conn.commit()
@@ -1575,7 +1590,10 @@ def _row_to_clan_application(row) -> Dict[str, Any]:
         "status": row[8],
         "created_at": row[9],
         "decided_at": row[10],
-        "deleted": int(row[11]),
+        "last_message_at": row[11],
+        "last_message_by_bot": int(row[12]),
+        "last_ping_at": row[13],
+        "deleted": int(row[14]),
     }
 
 
@@ -1590,11 +1608,12 @@ def create_clan_application(
         INSERT INTO clan_applications (
             guild_id, channel_id, user_id,
             roblox_nick, hours_per_day, rebirths,
-            locale, status, created_at, decided_at, deleted
+            locale, status, created_at, decided_at,
+            last_message_at, last_message_by_bot, last_ping_at, deleted
         )
-        VALUES (?, ?, ?, NULL, NULL, NULL, ?, 'open', ?, NULL, 0)
+        VALUES (?, ?, ?, NULL, NULL, NULL, ?, 'open', ?, NULL, ?, 0, NULL, 0)
         """,
-        (guild_id, channel_id, user_id, locale, now_str),
+        (guild_id, channel_id, user_id, locale, now_str, now_str),
     )
     conn.commit()
     app_id = c.lastrowid
@@ -1609,7 +1628,8 @@ def get_open_application_by_user(guild_id: int, user_id: int) -> Optional[Dict[s
         """
         SELECT id, guild_id, channel_id, user_id,
                roblox_nick, hours_per_day, rebirths, locale,
-               status, created_at, decided_at, deleted
+               status, created_at, decided_at, last_message_at,
+               last_message_by_bot, last_ping_at, deleted
         FROM clan_applications
         WHERE guild_id = ? AND user_id = ? AND status = 'open' AND deleted = 0
         ORDER BY created_at DESC
@@ -1638,7 +1658,8 @@ def get_latest_clan_application_by_user(
         """
         SELECT id, guild_id, channel_id, user_id,
                roblox_nick, hours_per_day, rebirths, locale,
-               status, created_at, decided_at, deleted
+               status, created_at, decided_at, last_message_at,
+               last_message_by_bot, last_ping_at, deleted
         FROM clan_applications
         WHERE guild_id = ? AND user_id = ? AND deleted = 0
         ORDER BY created_at DESC
@@ -1663,7 +1684,8 @@ def get_clan_applications_by_user(
     query = """
         SELECT id, guild_id, channel_id, user_id,
                roblox_nick, hours_per_day, rebirths, locale,
-               status, created_at, decided_at, deleted
+               status, created_at, decided_at, last_message_at,
+               last_message_by_bot, last_ping_at, deleted
         FROM clan_applications
         WHERE guild_id = ? AND user_id = ?
     """
@@ -1688,7 +1710,8 @@ def get_clan_application_by_channel(
         """
         SELECT id, guild_id, channel_id, user_id,
                roblox_nick, hours_per_day, rebirths, locale,
-               status, created_at, decided_at, deleted
+               status, created_at, decided_at, last_message_at,
+               last_message_by_bot, last_ping_at, deleted
         FROM clan_applications
         WHERE guild_id = ? AND channel_id = ? AND deleted = 0
         ORDER BY created_at DESC
@@ -1710,7 +1733,8 @@ def list_open_clan_applications(guild_id: int) -> list[Dict[str, Any]]:
         """
         SELECT id, guild_id, channel_id, user_id,
                roblox_nick, hours_per_day, rebirths, locale,
-               status, created_at, decided_at, deleted
+               status, created_at, decided_at, last_message_at,
+               last_message_by_bot, last_ping_at, deleted
         FROM clan_applications
         WHERE guild_id = ? AND status = 'open' AND deleted = 0
         ORDER BY created_at DESC
@@ -1729,7 +1753,8 @@ def get_open_application_by_channel(channel_id: int) -> Optional[Dict[str, Any]]
         """
         SELECT id, guild_id, channel_id, user_id,
                roblox_nick, hours_per_day, rebirths, locale,
-               status, created_at, decided_at, deleted
+               status, created_at, decided_at, last_message_at,
+               last_message_by_bot, last_ping_at, deleted
         FROM clan_applications
         WHERE channel_id = ? AND status = 'open' AND deleted = 0
         ORDER BY created_at DESC
@@ -1782,6 +1807,56 @@ def set_clan_application_status(app_id: int, status: str, decided_at: Optional[d
     conn.close()
 
 
+def update_clan_application_last_message(
+    app_id: int,
+    message_at: Optional[datetime] = None,
+    by_bot: Optional[bool] = None,
+):
+    if message_at is None:
+        message_at = datetime.utcnow()
+    message_str = message_at.strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_connection()
+    c = conn.cursor()
+    if by_bot is None:
+        c.execute(
+            """
+            UPDATE clan_applications
+            SET last_message_at = ?
+            WHERE id = ?
+            """,
+            (message_str, app_id),
+        )
+    else:
+        c.execute(
+            """
+            UPDATE clan_applications
+            SET last_message_at = ?, last_message_by_bot = ?
+            WHERE id = ?
+            """,
+            (message_str, int(by_bot), app_id),
+        )
+    conn.commit()
+    conn.close()
+
+
+def update_clan_application_last_ping(app_id: int, pinged_at: Optional[datetime] = None):
+    if pinged_at is None:
+        pinged_at = datetime.utcnow()
+    pinged_str = pinged_at.strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        UPDATE clan_applications
+        SET last_ping_at = ?
+        WHERE id = ?
+        """,
+        (pinged_str, app_id),
+    )
+    conn.commit()
+    conn.close()
+
+
 def get_clan_applications_for_cleanup(
     age_minutes: int = CLAN_TICKET_CLEANUP_MINUTES,
 ) -> List[Dict[str, Any]]:
@@ -1797,7 +1872,8 @@ def get_clan_applications_for_cleanup(
         """
         SELECT id, guild_id, channel_id, user_id,
                roblox_nick, hours_per_day, rebirths, locale,
-               status, created_at, decided_at, deleted
+               status, created_at, decided_at, last_message_at,
+               last_message_by_bot, last_ping_at, deleted
         FROM clan_applications
         WHERE deleted = 0
           AND status IN ('accepted', 'rejected')
