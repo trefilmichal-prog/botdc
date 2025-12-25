@@ -1434,16 +1434,16 @@ class ClanPanelCog(commands.Cog):
                 return
 
             if action == "delete":
-                await interaction.response.defer(ephemeral=True)
+                await interaction.response.send_message(_t(lang, "deleted_ephemeral"), ephemeral=True)
                 app_record = None
                 try:
                     app_record = get_clan_application_by_channel(guild.id, channel_id)
                     await ticket_channel.delete(reason=f"Clan ticket deleted by {clicker}")
                 except discord.Forbidden:
-                    await interaction.followup.send(_t(lang, "delete_no_perms"), ephemeral=True)
+                    await interaction.edit_original_response(content=_t(lang, "delete_no_perms"))
                     return
                 except discord.HTTPException as e:
-                    await interaction.followup.send(f"{_t(lang, 'delete_api_err')} {e}", ephemeral=True)
+                    await interaction.edit_original_response(content=f"{_t(lang, 'delete_api_err')} {e}")
                     return
 
                 if app_record:
@@ -1452,7 +1452,6 @@ class ClanPanelCog(commands.Cog):
                     except Exception:
                         pass
 
-                await interaction.followup.send(_t(lang, "deleted_ephemeral"), ephemeral=True)
                 return
 
             applicant_id, topic_clan = _parse_ticket_topic(ticket_channel.topic or "")
