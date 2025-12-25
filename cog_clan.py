@@ -1050,7 +1050,7 @@ class ClanPanelCog(commands.Cog):
         update_clan_application_last_message(app["id"], now, by_bot=True)
         update_clan_application_last_ping(app["id"], now)
 
-    @tasks.loop(minutes=60)
+    @tasks.loop(minutes=5)
     async def _ticket_reminder_task(self):
         now = datetime.utcnow()
         for guild in self.bot.guilds:
