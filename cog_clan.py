@@ -1,6 +1,9 @@
 import re
+from datetime import datetime, timedelta
+
 import discord
 from discord.ext import commands
+from discord.ext import tasks
 from discord import app_commands
 from db import (
     add_clan_application_panel,
@@ -10,6 +13,7 @@ from db import (
     get_clan_panel_config,
     get_clan_definition,
     get_clan_application_by_channel,
+    get_open_application_by_channel,
     list_open_clan_applications,
     list_clan_definitions,
     get_next_clan_sort_order,
@@ -18,6 +22,8 @@ from db import (
     set_clan_panel_config,
     upsert_clan_definition,
     update_clan_application_form,
+    update_clan_application_last_message,
+    update_clan_application_last_ping,
 )
 
 # Category where NEW ticket channels will be created (initial intake)
@@ -176,6 +182,7 @@ I18N = {
         "manage_choose": "Vyber akci:",
         "btn_accept": "Přijmout",
         "btn_deny": "Zamítnout",
+        "ticket_reminder": "Dořešit ticket.",
     },
     "en": {
         "modal_title": "Clan application",
@@ -249,6 +256,7 @@ I18N = {
         "manage_choose": "Choose an action:",
         "btn_accept": "Accept",
         "btn_deny": "Deny",
+        "ticket_reminder": "Please finish the ticket.",
     },
 }
 
@@ -371,6 +379,15 @@ def _parse_ticket_topic(topic: str):
     applicant_id = int(m1.group(1)) if m1 else None
     clan = m2.group(1) if m2 else None
     return applicant_id, clan
+
+
+def _parse_db_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
 
 
 def _is_reviewer(member: discord.Member, clan_value: str) -> bool:
@@ -891,6 +908,10 @@ class ClanPanelCog(commands.Cog):
             name="clan", description="Správa clanů a rolí pro přihlášky",
         )(self.clan_panel_clan)
         self.__cog_app_commands__ = []
+        self._ticket_reminder_task.start()
+
+    def cog_unload(self):
+        self._ticket_reminder_task.cancel()
 
     @staticmethod
     def _default_clan_panel_config() -> tuple[str, str, str]:
@@ -943,16 +964,11 @@ class ClanPanelCog(commands.Cog):
                     except discord.HTTPException:
                         continue
 
-                try:
-                    await _ensure_member_can_mention_everyone(
-                        channel,
-                        applicant,
-                        reason="Clan ticket: enable mentions for open ticket (persisted)",
-                    )
-                except discord.Forbidden:
-                    pass
-                except discord.HTTPException:
-                    pass
+                await self._ensure_ticket_mentions(
+                    channel,
+                    applicant,
+                    reason="Clan ticket: enable mentions for open ticket (persisted)",
+                )
 
                 processed_channels.add(channel.id)
 
@@ -975,12 +991,82 @@ class ClanPanelCog(commands.Cog):
                     except discord.HTTPException:
                         continue
 
+                await self._ensure_ticket_mentions(
+                    channel,
+                    applicant,
+                    reason="Clan ticket: enable mentions for open ticket (fallback)",
+                )
+
+    async def _ensure_ticket_mentions(
+        self,
+        channel: discord.TextChannel,
+        applicant: discord.Member,
+        reason: str,
+    ) -> None:
+        try:
+            await _ensure_member_can_mention_everyone(
+                channel,
+                applicant,
+                reason=reason,
+            )
+        except discord.Forbidden:
+            pass
+        except discord.HTTPException:
+            pass
+
+    async def _maybe_send_ticket_reminder(
+        self, guild: discord.Guild, app: dict, now: datetime
+    ) -> None:
+        channel = guild.get_channel(app["channel_id"])
+        if not isinstance(channel, discord.TextChannel):
+            return
+        _, clan_value = _parse_ticket_topic(channel.topic or "")
+        if not clan_value:
+            return
+        role_mention = _role_mention_for_clan(clan_value, guild.id)
+        if not role_mention:
+            return
+
+        last_message_at = _parse_db_datetime(app.get("last_message_at"))
+        if last_message_at is None:
+            last_message_at = _parse_db_datetime(app.get("created_at"))
+        if last_message_at is None:
+            return
+        if int(app.get("last_message_by_bot") or 0) == 1:
+            return
+
+        if now - last_message_at < timedelta(hours=1):
+            return
+
+        last_ping_at = _parse_db_datetime(app.get("last_ping_at"))
+        if last_ping_at is not None and now - last_ping_at < timedelta(hours=1):
+            return
+
+        lang = app.get("locale") or "en"
+        await channel.send(
+            content=f"{role_mention} {_t(lang, 'ticket_reminder')}",
+            allowed_mentions=discord.AllowedMentions(roles=True, users=False, everyone=False),
+        )
+        update_clan_application_last_message(app["id"], now, by_bot=True)
+        update_clan_application_last_ping(app["id"], now)
+
+    @tasks.loop(minutes=60)
+    async def _ticket_reminder_task(self):
+        now = datetime.utcnow()
+        for guild in self.bot.guilds:
+            try:
+                open_apps = list_open_clan_applications(guild.id)
+            except Exception:
+                continue
+            for app in open_apps:
                 try:
-                    await _ensure_member_can_mention_everyone(
-                        channel,
-                        applicant,
-                        reason="Clan ticket: enable mentions for open ticket (fallback)",
-                    )
+                    await self._maybe_send_ticket_reminder(guild, app, now)
+                except (discord.Forbidden, discord.HTTPException):
+                    continue
+
+    @_ticket_reminder_task.before_loop
+    async def _before_ticket_reminder_task(self):
+        await self.bot.wait_until_ready()
                 except discord.Forbidden:
                     continue
                 except discord.HTTPException:
@@ -1426,3 +1512,17 @@ class ClanPanelCog(commands.Cog):
     @commands.Cog.listener()
     async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent):
         remove_clan_application_panel(payload.message_id)
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        if message.guild is None:
+            return
+        if not isinstance(message.channel, discord.TextChannel):
+            return
+        applicant_id, _ = _parse_ticket_topic(message.channel.topic or "")
+        if applicant_id is None:
+            return
+        app_record = get_open_application_by_channel(message.channel.id)
+        if not app_record:
+            return
+        update_clan_application_last_message(app_record["id"], by_bot=message.author.bot)
