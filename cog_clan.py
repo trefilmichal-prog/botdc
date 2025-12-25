@@ -20,6 +20,7 @@ from db import (
     remove_clan_application_panel,
     set_clan_application_status,
     set_clan_panel_config,
+    mark_clan_application_deleted,
     upsert_clan_definition,
     update_clan_application_form,
     update_clan_application_last_message,
@@ -182,6 +183,10 @@ I18N = {
         "manage_choose": "Vyber akci:",
         "btn_accept": "Přijmout",
         "btn_deny": "Zamítnout",
+        "btn_delete": "Smazat ticket",
+        "delete_no_perms": "Nemám práva smazat ticket (Manage Channels).",
+        "delete_api_err": "Discord API chyba při smazání ticketu:",
+        "deleted_ephemeral": "🗑️ Ticket smazán.",
         "ticket_reminder": "Dořešit ticket.",
     },
     "en": {
@@ -256,6 +261,10 @@ I18N = {
         "manage_choose": "Choose an action:",
         "btn_accept": "Accept",
         "btn_deny": "Deny",
+        "btn_delete": "Delete ticket",
+        "delete_no_perms": "I don't have permission to delete the ticket (Manage Channels).",
+        "delete_api_err": "Discord API error while deleting the ticket:",
+        "deleted_ephemeral": "🗑️ Ticket deleted.",
         "ticket_reminder": "Please finish the ticket.",
     },
 }
@@ -627,6 +636,13 @@ class AdminDecisionView(discord.ui.LayoutView):
                     label=_t(lang, "btn_deny"),
                     style=discord.ButtonStyle.danger,
                 ),
+            ),
+            discord.ui.ActionRow(
+                discord.ui.Button(
+                    custom_id=_review_custom_id("delete", ticket_channel_id, clan_value, lang),
+                    label=_t(lang, "btn_delete"),
+                    style=discord.ButtonStyle.danger,
+                )
             ),
         )
         self.add_item(container)
@@ -1415,6 +1431,28 @@ class ClanPanelCog(commands.Cog):
             ticket_channel = guild.get_channel(channel_id)
             if ticket_channel is None or not isinstance(ticket_channel, discord.TextChannel):
                 await interaction.response.send_message(_t(lang, "ticket_missing"), ephemeral=True)
+                return
+
+            if action == "delete":
+                await interaction.response.defer(ephemeral=True)
+                app_record = None
+                try:
+                    app_record = get_clan_application_by_channel(guild.id, channel_id)
+                    await ticket_channel.delete(reason=f"Clan ticket deleted by {clicker}")
+                except discord.Forbidden:
+                    await interaction.followup.send(_t(lang, "delete_no_perms"), ephemeral=True)
+                    return
+                except discord.HTTPException as e:
+                    await interaction.followup.send(f"{_t(lang, 'delete_api_err')} {e}", ephemeral=True)
+                    return
+
+                if app_record:
+                    try:
+                        mark_clan_application_deleted(app_record["id"])
+                    except Exception:
+                        pass
+
+                await interaction.followup.send(_t(lang, "deleted_ephemeral"), ephemeral=True)
                 return
 
             applicant_id, topic_clan = _parse_ticket_topic(ticket_channel.topic or "")
