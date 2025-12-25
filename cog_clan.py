@@ -964,16 +964,11 @@ class ClanPanelCog(commands.Cog):
                     except discord.HTTPException:
                         continue
 
-                try:
-                    await _ensure_member_can_mention_everyone(
-                        channel,
-                        applicant,
-                        reason="Clan ticket: enable mentions for open ticket (persisted)",
-                    )
-                except discord.Forbidden:
-                    pass
-                except discord.HTTPException:
-                    pass
+                await self._ensure_ticket_mentions(
+                    channel,
+                    applicant,
+                    reason="Clan ticket: enable mentions for open ticket (persisted)",
+                )
 
                 processed_channels.add(channel.id)
 
@@ -996,70 +991,28 @@ class ClanPanelCog(commands.Cog):
                     except discord.HTTPException:
                         continue
 
-                try:
-                await _ensure_member_can_mention_everyone(
+                await self._ensure_ticket_mentions(
                     channel,
                     applicant,
                     reason="Clan ticket: enable mentions for open ticket (fallback)",
                 )
 
-    async def _maybe_send_ticket_reminder(
-        self, guild: discord.Guild, app: dict, now: datetime
+    async def _ensure_ticket_mentions(
+        self,
+        channel: discord.TextChannel,
+        applicant: discord.Member,
+        reason: str,
     ) -> None:
-        channel = guild.get_channel(app["channel_id"])
-        if not isinstance(channel, discord.TextChannel):
-            return
-        _, clan_value = _parse_ticket_topic(channel.topic or "")
-        if not clan_value:
-            return
-        role_mention = _role_mention_for_clan(clan_value, guild.id)
-        if not role_mention:
-            return
-
-        last_message_at = _parse_db_datetime(app.get("last_message_at"))
-        if last_message_at is None:
-            last_message_at = _parse_db_datetime(app.get("created_at"))
-        if last_message_at is None:
-            return
-        if int(app.get("last_message_by_bot") or 0) == 1:
-            return
-
-        if now - last_message_at < timedelta(hours=1):
-            return
-
-        last_ping_at = _parse_db_datetime(app.get("last_ping_at"))
-        if last_ping_at is not None and now - last_ping_at < timedelta(hours=1):
-            return
-
-        lang = app.get("locale") or "en"
-        await channel.send(
-            content=f"{role_mention} {_t(lang, 'ticket_reminder')}",
-            allowed_mentions=discord.AllowedMentions(roles=True, users=False, everyone=False),
-        )
-        update_clan_application_last_message(app["id"], now, by_bot=True)
-        update_clan_application_last_ping(app["id"], now)
-
-    @tasks.loop(minutes=60)
-    async def _ticket_reminder_task(self):
-        now = datetime.utcnow()
-        for guild in self.bot.guilds:
-            try:
-                open_apps = list_open_clan_applications(guild.id)
-            except Exception:
-                continue
-            for app in open_apps:
-                try:
-                    await self._maybe_send_ticket_reminder(guild, app, now)
-                except (discord.Forbidden, discord.HTTPException):
-                    continue
-
-    @_ticket_reminder_task.before_loop
-    async def _before_ticket_reminder_task(self):
-        await self.bot.wait_until_ready()
-                except discord.Forbidden:
-                    pass
-                except discord.HTTPException:
-                    pass
+        try:
+            await _ensure_member_can_mention_everyone(
+                channel,
+                applicant,
+                reason=reason,
+            )
+        except discord.Forbidden:
+            pass
+        except discord.HTTPException:
+            pass
 
     async def _maybe_send_ticket_reminder(
         self, guild: discord.Guild, app: dict, now: datetime
