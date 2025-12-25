@@ -1067,12 +1067,6 @@ class ClanPanelCog(commands.Cog):
     @_ticket_reminder_task.before_loop
     async def _before_ticket_reminder_task(self):
         await self.bot.wait_until_ready()
-                except discord.Forbidden:
-                    continue
-                except discord.HTTPException:
-                    continue
-
-                processed_channels.add(channel.id)
 
     async def cog_load(self):
         existing_group = self.bot.tree.get_command("clan_panel", type=discord.AppCommandType.chat_input)
