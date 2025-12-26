@@ -340,6 +340,21 @@ def init_db():
         """
     )
 
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS clan_ticket_vacations (
+            channel_id INTEGER PRIMARY KEY,
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            clan_key TEXT,
+            prev_category_id INTEGER,
+            removed_role_ids_json TEXT NOT NULL,
+            vacation_role_id INTEGER NOT NULL,
+            moved_at TEXT NOT NULL
+        )
+        """
+    )
+
     c.execute("PRAGMA table_info(clan_applications)")
     columns = [row[1] for row in c.fetchall()]
     if "locale" not in columns:
@@ -1894,5 +1909,92 @@ def mark_clan_application_deleted(app_id: int):
         "UPDATE clan_applications SET deleted = 1 WHERE id = ?",
         (app_id,),
     )
+    conn.commit()
+    conn.close()
+
+
+def save_clan_ticket_vacation(
+    guild_id: int,
+    channel_id: int,
+    user_id: int,
+    clan_key: str | None,
+    prev_category_id: int | None,
+    removed_role_ids: list[int],
+    vacation_role_id: int,
+    moved_at: Optional[datetime] = None,
+):
+    moved_at = moved_at or datetime.utcnow()
+    moved_at_str = moved_at.strftime("%Y-%m-%d %H:%M:%S")
+    removed_role_ids_json = json.dumps(removed_role_ids)
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO clan_ticket_vacations (
+            channel_id, guild_id, user_id, clan_key, prev_category_id,
+            removed_role_ids_json, vacation_role_id, moved_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(channel_id) DO UPDATE SET
+            guild_id = excluded.guild_id,
+            user_id = excluded.user_id,
+            clan_key = excluded.clan_key,
+            prev_category_id = excluded.prev_category_id,
+            removed_role_ids_json = excluded.removed_role_ids_json,
+            vacation_role_id = excluded.vacation_role_id,
+            moved_at = excluded.moved_at
+        """,
+        (
+            channel_id,
+            guild_id,
+            user_id,
+            clan_key,
+            prev_category_id,
+            removed_role_ids_json,
+            vacation_role_id,
+            moved_at_str,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_clan_ticket_vacation(channel_id: int) -> Optional[Dict[str, Any]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT channel_id, guild_id, user_id, clan_key, prev_category_id,
+               removed_role_ids_json, vacation_role_id, moved_at
+        FROM clan_ticket_vacations
+        WHERE channel_id = ?
+        """,
+        (channel_id,),
+    )
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None
+    removed_role_ids_json = row[5] or "[]"
+    try:
+        removed_role_ids = json.loads(removed_role_ids_json)
+    except json.JSONDecodeError:
+        removed_role_ids = []
+    return {
+        "channel_id": row[0],
+        "guild_id": row[1],
+        "user_id": row[2],
+        "clan_key": row[3],
+        "prev_category_id": row[4],
+        "removed_role_ids": removed_role_ids,
+        "vacation_role_id": row[6],
+        "moved_at": row[7],
+    }
+
+
+def delete_clan_ticket_vacation(channel_id: int):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM clan_ticket_vacations WHERE channel_id = ?", (channel_id,))
     conn.commit()
     conn.close()
