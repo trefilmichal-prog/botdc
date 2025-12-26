@@ -17,9 +17,12 @@ from db import (
     list_open_clan_applications,
     list_clan_definitions,
     get_next_clan_sort_order,
+    get_clan_ticket_vacation,
     remove_clan_application_panel,
+    delete_clan_ticket_vacation,
     set_clan_application_status,
     set_clan_panel_config,
+    save_clan_ticket_vacation,
     mark_clan_application_deleted,
     upsert_clan_definition,
     update_clan_application_form,
@@ -29,6 +32,12 @@ from db import (
 
 # Category where NEW ticket channels will be created (initial intake)
 TICKET_CATEGORY_ID = 1440977431577235456
+
+# Category where tickets go while member is on vacation
+VACATION_CATEGORY_ID = 1443684733061042187
+
+# Role assigned while member is on vacation
+VACATION_ROLE_ID = 1450590927054831777
 
 # Optional admin role name that can manage tickets
 ADMIN_ROLE_NAME = "Admin"
@@ -183,10 +192,25 @@ I18N = {
         "manage_choose": "Vyber akci:",
         "btn_accept": "Přijmout",
         "btn_deny": "Zamítnout",
+        "btn_vacation": "Dovolená",
+        "btn_vacation_restore": "Vrátit zpět",
         "btn_delete": "Smazat ticket",
         "delete_no_perms": "Nemám práva smazat ticket (Manage Channels).",
         "delete_api_err": "Discord API chyba při smazání ticketu:",
         "deleted_ephemeral": "🗑️ Ticket smazán.",
+        "vacation_missing_category": "Kategorie pro dovolenou neexistuje.",
+        "vacation_role_missing": "Role pro dovolenou nebyla nalezena.",
+        "vacation_already": "Ticket už je v režimu dovolené.",
+        "vacation_set": "🛫 Ticket přesunut na dovolenou a role upraveny.",
+        "vacation_restore_missing": "Ticket není označený jako dovolená.",
+        "vacation_restored": "✅ Ticket a role vráceny zpět.",
+        "vacation_restore_category_missing": "Původní kategorie už neexistuje.",
+        "vacation_remove_forbidden": "Nemám práva odebrat roli (Manage Roles / hierarchie).",
+        "vacation_remove_api_err": "Discord API chyba při odebrání role:",
+        "vacation_add_forbidden": "Nemám práva přidat roli (Manage Roles / hierarchie).",
+        "vacation_add_api_err": "Discord API chyba při přidání role:",
+        "vacation_move_forbidden": "Nemám práva přesunout ticket (Manage Channels).",
+        "vacation_move_api_err": "Discord API chyba při přesunu ticketu:",
         "ticket_reminder": "Dořešit ticket.",
     },
     "en": {
@@ -261,10 +285,25 @@ I18N = {
         "manage_choose": "Choose an action:",
         "btn_accept": "Accept",
         "btn_deny": "Deny",
+        "btn_vacation": "Vacation",
+        "btn_vacation_restore": "Restore",
         "btn_delete": "Delete ticket",
         "delete_no_perms": "I don't have permission to delete the ticket (Manage Channels).",
         "delete_api_err": "Discord API error while deleting the ticket:",
         "deleted_ephemeral": "🗑️ Ticket deleted.",
+        "vacation_missing_category": "Vacation category is missing.",
+        "vacation_role_missing": "Vacation role was not found.",
+        "vacation_already": "This ticket is already in vacation mode.",
+        "vacation_set": "🛫 Ticket moved to vacation and roles updated.",
+        "vacation_restore_missing": "This ticket is not marked as vacation.",
+        "vacation_restored": "✅ Ticket and roles restored.",
+        "vacation_restore_category_missing": "The original category no longer exists.",
+        "vacation_remove_forbidden": "I don't have permission to remove the role (Manage Roles / hierarchy).",
+        "vacation_remove_api_err": "Discord API error while removing role:",
+        "vacation_add_forbidden": "I don't have permission to add the role (Manage Roles / hierarchy).",
+        "vacation_add_api_err": "Discord API error while adding role:",
+        "vacation_move_forbidden": "I don't have permission to move the ticket (Manage Channels).",
+        "vacation_move_api_err": "Discord API error while moving the ticket:",
         "ticket_reminder": "Please finish the ticket.",
     },
 }
@@ -364,6 +403,27 @@ def _member_role_id_for_accept(clan_value: str, applicant: discord.Member):
     return _member_role_id_for_clan(clan_value, guild_id)
 
     return _member_role_id_for_clan(clan_value, guild_id)
+
+
+def _candidate_member_role_ids_for_clan(clan_value: str, guild_id: int | None = None) -> list[int]:
+    role_ids: set[int] = set()
+    clan_key = (clan_value or "").strip().lower()
+    db_conf = _guild_clan_config(guild_id, clan_value)
+
+    if db_conf:
+        for key in ("accept_role_id", "accept_role_id_cz", "accept_role_id_en"):
+            rid = db_conf.get(key)
+            if rid:
+                role_ids.add(rid)
+
+    if clan_key == "hrot":
+        role_ids.update([HROT_MEMBER_ROLE_CZ, HROT_MEMBER_ROLE_EN])
+    else:
+        fallback_role = _member_role_id_for_clan(clan_value, guild_id)
+        if fallback_role:
+            role_ids.add(fallback_role)
+
+    return [rid for rid in role_ids if rid]
 
 def _category_id_for_clan(clan_value: str, guild_id: int | None = None):
     clan_key = (clan_value or "").strip().lower()
@@ -635,6 +695,18 @@ class AdminDecisionView(discord.ui.LayoutView):
                     custom_id=_review_custom_id("deny", ticket_channel_id, clan_value, lang),
                     label=_t(lang, "btn_deny"),
                     style=discord.ButtonStyle.danger,
+                ),
+            ),
+            discord.ui.ActionRow(
+                discord.ui.Button(
+                    custom_id=_review_custom_id("vacation", ticket_channel_id, clan_value, lang),
+                    label=_t(lang, "btn_vacation"),
+                    style=discord.ButtonStyle.secondary,
+                ),
+                discord.ui.Button(
+                    custom_id=_review_custom_id("vacation_restore", ticket_channel_id, clan_value, lang),
+                    label=_t(lang, "btn_vacation_restore"),
+                    style=discord.ButtonStyle.secondary,
                 ),
             ),
             discord.ui.ActionRow(
@@ -1466,6 +1538,258 @@ class ClanPanelCog(commands.Cog):
                 applicant = guild.get_member(applicant_id) or await guild.fetch_member(applicant_id)
             except discord.NotFound:
                 await interaction.response.send_message(_t(lang, "applicant_left"), ephemeral=True)
+                return
+
+            if action == "vacation":
+                existing = get_clan_ticket_vacation(channel_id)
+                if existing:
+                    await interaction.response.send_message(_t(lang, "vacation_already"), ephemeral=True)
+                    return
+
+                vacation_role = guild.get_role(VACATION_ROLE_ID)
+                if vacation_role is None:
+                    await interaction.response.send_message(_t(lang, "vacation_role_missing"), ephemeral=True)
+                    return
+
+                vacation_category = guild.get_channel(VACATION_CATEGORY_ID)
+                if vacation_category is None or not isinstance(
+                    vacation_category, discord.CategoryChannel
+                ):
+                    await interaction.response.send_message(
+                        _t(lang, "vacation_missing_category"), ephemeral=True
+                    )
+                    return
+
+                candidate_role_ids = _candidate_member_role_ids_for_clan(
+                    clan_value, guild.id if guild else None
+                )
+                roles_to_remove = [role for role in applicant.roles if role.id in candidate_role_ids]
+                removed_role_ids = [role.id for role in roles_to_remove]
+
+                if roles_to_remove:
+                    try:
+                        await applicant.remove_roles(
+                            *roles_to_remove,
+                            reason=f"Clan vacation: remove clan roles for {clan_value}",
+                        )
+                    except discord.Forbidden:
+                        await interaction.response.send_message(
+                            _t(lang, "vacation_remove_forbidden"), ephemeral=True
+                        )
+                        return
+                    except discord.HTTPException as e:
+                        await interaction.response.send_message(
+                            f"{_t(lang, 'vacation_remove_api_err')} {e}", ephemeral=True
+                        )
+                        return
+
+                if vacation_role not in applicant.roles:
+                    try:
+                        await applicant.add_roles(
+                            vacation_role,
+                            reason=f"Clan vacation: add vacation role for {clan_value}",
+                        )
+                    except discord.Forbidden:
+                        if roles_to_remove:
+                            try:
+                                await applicant.add_roles(
+                                    *roles_to_remove,
+                                    reason="Clan vacation: rollback after add failure",
+                                )
+                            except discord.HTTPException:
+                                pass
+                        await interaction.response.send_message(
+                            _t(lang, "vacation_add_forbidden"), ephemeral=True
+                        )
+                        return
+                    except discord.HTTPException as e:
+                        if roles_to_remove:
+                            try:
+                                await applicant.add_roles(
+                                    *roles_to_remove,
+                                    reason="Clan vacation: rollback after add failure",
+                                )
+                            except discord.HTTPException:
+                                pass
+                        await interaction.response.send_message(
+                            f"{_t(lang, 'vacation_add_api_err')} {e}", ephemeral=True
+                        )
+                        return
+
+                prev_category_id = (
+                    ticket_channel.category.id if ticket_channel.category else None
+                )
+
+                try:
+                    await ticket_channel.edit(
+                        category=vacation_category,
+                        reason=f"Clan vacation: moved by {clicker}",
+                    )
+                except discord.Forbidden:
+                    try:
+                        await applicant.remove_roles(
+                            vacation_role,
+                            reason="Clan vacation: rollback after move failure",
+                        )
+                        if roles_to_remove:
+                            await applicant.add_roles(
+                                *roles_to_remove,
+                                reason="Clan vacation: rollback after move failure",
+                            )
+                    except discord.HTTPException:
+                        pass
+                    await interaction.response.send_message(
+                        _t(lang, "vacation_move_forbidden"), ephemeral=True
+                    )
+                    return
+                except discord.HTTPException as e:
+                    try:
+                        await applicant.remove_roles(
+                            vacation_role,
+                            reason="Clan vacation: rollback after move failure",
+                        )
+                        if roles_to_remove:
+                            await applicant.add_roles(
+                                *roles_to_remove,
+                                reason="Clan vacation: rollback after move failure",
+                            )
+                    except discord.HTTPException:
+                        pass
+                    await interaction.response.send_message(
+                        f"{_t(lang, 'vacation_move_api_err')} {e}", ephemeral=True
+                    )
+                    return
+
+                save_clan_ticket_vacation(
+                    guild.id,
+                    channel_id,
+                    applicant.id,
+                    clan_value,
+                    prev_category_id,
+                    removed_role_ids,
+                    VACATION_ROLE_ID,
+                )
+
+                await interaction.response.send_message(_t(lang, "vacation_set"), ephemeral=True)
+                return
+
+            if action == "vacation_restore":
+                record = get_clan_ticket_vacation(channel_id)
+                if not record:
+                    await interaction.response.send_message(
+                        _t(lang, "vacation_restore_missing"), ephemeral=True
+                    )
+                    return
+
+                removed_role_ids = record.get("removed_role_ids") or []
+                prev_category_id = record.get("prev_category_id")
+                vacation_role_id = record.get("vacation_role_id") or VACATION_ROLE_ID
+                vacation_role = guild.get_role(vacation_role_id)
+
+                prev_category = None
+                if prev_category_id:
+                    prev_category = guild.get_channel(prev_category_id)
+                    if prev_category is None or not isinstance(
+                        prev_category, discord.CategoryChannel
+                    ):
+                        await interaction.response.send_message(
+                            _t(lang, "vacation_restore_category_missing"), ephemeral=True
+                        )
+                        return
+
+                roles_to_restore = [
+                    guild.get_role(role_id)
+                    for role_id in removed_role_ids
+                    if guild.get_role(role_id) is not None
+                ]
+
+                if vacation_role and vacation_role in applicant.roles:
+                    try:
+                        await applicant.remove_roles(
+                            vacation_role,
+                            reason=f"Clan vacation: restore roles for {clan_value}",
+                        )
+                    except discord.Forbidden:
+                        await interaction.response.send_message(
+                            _t(lang, "vacation_remove_forbidden"), ephemeral=True
+                        )
+                        return
+                    except discord.HTTPException as e:
+                        await interaction.response.send_message(
+                            f"{_t(lang, 'vacation_remove_api_err')} {e}", ephemeral=True
+                        )
+                        return
+
+                if roles_to_restore:
+                    try:
+                        await applicant.add_roles(
+                            *roles_to_restore,
+                            reason=f"Clan vacation: restore clan roles for {clan_value}",
+                        )
+                    except discord.Forbidden:
+                        await interaction.response.send_message(
+                            _t(lang, "vacation_add_forbidden"), ephemeral=True
+                        )
+                        return
+                    except discord.HTTPException as e:
+                        await interaction.response.send_message(
+                            f"{_t(lang, 'vacation_add_api_err')} {e}", ephemeral=True
+                        )
+                        return
+
+                if prev_category:
+                    try:
+                        await ticket_channel.edit(
+                            category=prev_category,
+                            reason=f"Clan vacation: restored by {clicker}",
+                        )
+                    except discord.Forbidden:
+                        if vacation_role:
+                            try:
+                                await applicant.add_roles(
+                                    vacation_role,
+                                    reason="Clan vacation: rollback after move failure",
+                                )
+                            except discord.HTTPException:
+                                pass
+                        if roles_to_restore:
+                            try:
+                                await applicant.remove_roles(
+                                    *roles_to_restore,
+                                    reason="Clan vacation: rollback after move failure",
+                                )
+                            except discord.HTTPException:
+                                pass
+                        await interaction.response.send_message(
+                            _t(lang, "vacation_move_forbidden"), ephemeral=True
+                        )
+                        return
+                    except discord.HTTPException as e:
+                        if vacation_role:
+                            try:
+                                await applicant.add_roles(
+                                    vacation_role,
+                                    reason="Clan vacation: rollback after move failure",
+                                )
+                            except discord.HTTPException:
+                                pass
+                        if roles_to_restore:
+                            try:
+                                await applicant.remove_roles(
+                                    *roles_to_restore,
+                                    reason="Clan vacation: rollback after move failure",
+                                )
+                            except discord.HTTPException:
+                                pass
+                        await interaction.response.send_message(
+                            f"{_t(lang, 'vacation_move_api_err')} {e}", ephemeral=True
+                        )
+                        return
+
+                delete_clan_ticket_vacation(channel_id)
+                await interaction.response.send_message(
+                    _t(lang, "vacation_restored"), ephemeral=True
+                )
                 return
 
             if action == "accept":
