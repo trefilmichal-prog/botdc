@@ -792,9 +792,12 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         message = await self._resolve_message(payload)
         if message is None:
             raise RuntimeError("Zpráva k úpravě nebyla nalezena.")
-        if self._original_message_edit is None:
+        original = getattr(type(message), "__discord_write_original_edit__", None)
+        if original is None:
+            original = getattr(type(message), "edit", None)
+        if original is None:
             raise RuntimeError("Message.edit není dostupné.")
-        return await self._original_message_edit(message, **payload["kwargs"])
+        return await original(message, **payload["kwargs"])
 
     async def _op_delete_message(self, payload: dict[str, Any]):
         message = await self._resolve_message(payload)
