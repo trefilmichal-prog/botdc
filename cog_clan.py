@@ -194,10 +194,16 @@ I18N = {
         "btn_deny": "Zamítnout",
         "btn_vacation": "Dovolená",
         "btn_vacation_restore": "Vrátit zpět",
+        "btn_move_clan1": "Přesun do HROT",
+        "btn_move_clan2": "Přesun do HR2T",
         "btn_delete": "Smazat ticket",
         "delete_no_perms": "Nemám práva smazat ticket (Manage Channels).",
         "delete_api_err": "Discord API chyba při smazání ticketu:",
         "deleted_ephemeral": "🗑️ Ticket smazán.",
+        "move_done": "🔁 Ticket přesunut do clanu: {clan}.",
+        "move_same": "Ticket už patří do clanu: {clan}.",
+        "move_no_perms": "Nemám práva přesunout ticket (Manage Channels).",
+        "move_api_err": "Discord API chyba při přesunu ticketu:",
         "vacation_missing_category": "Kategorie pro dovolenou neexistuje.",
         "vacation_role_missing": "Role pro dovolenou nebyla nalezena.",
         "vacation_already": "Ticket už je v režimu dovolené.",
@@ -287,10 +293,16 @@ I18N = {
         "btn_deny": "Deny",
         "btn_vacation": "Vacation",
         "btn_vacation_restore": "Restore",
+        "btn_move_clan1": "Move to HROT",
+        "btn_move_clan2": "Move to HR2T",
         "btn_delete": "Delete ticket",
         "delete_no_perms": "I don't have permission to delete the ticket (Manage Channels).",
         "delete_api_err": "Discord API error while deleting the ticket:",
         "deleted_ephemeral": "🗑️ Ticket deleted.",
+        "move_done": "🔁 Ticket moved to clan: {clan}.",
+        "move_same": "Ticket already belongs to clan: {clan}.",
+        "move_no_perms": "I don't have permission to move the ticket (Manage Channels).",
+        "move_api_err": "Discord API error while moving the ticket:",
         "vacation_missing_category": "Vacation category is missing.",
         "vacation_role_missing": "Vacation role was not found.",
         "vacation_already": "This ticket is already in vacation mode.",
@@ -439,6 +451,15 @@ def _role_mention_for_clan(clan_value: str, guild_id: int | None = None) -> str:
     return f"<@&{rid}>" if rid else ""
 
 
+def _display_name_for_clan(clan_value: str, guild_id: int | None = None) -> str:
+    db_conf = _guild_clan_config(guild_id, clan_value)
+    if db_conf:
+        display_name = (db_conf.get("display_name") or "").strip()
+        if display_name:
+            return display_name
+    return (clan_value or "").strip().upper() or "CLAN"
+
+
 def _parse_ticket_topic(topic: str):
     """Parse channel.topic for applicant and clan. Returns (applicant_id:int|None, clan:str|None)."""
     if not topic:
@@ -500,6 +521,26 @@ async def _ensure_review_role_can_view(channel: discord.TextChannel, clan_value:
     return True
 
 
+async def _swap_review_role_visibility(
+    channel: discord.TextChannel, old_clan: str, new_clan: str
+) -> None:
+    guild_id = channel.guild.id if channel.guild else None
+    old_role_id = _review_role_id_for_clan(old_clan, guild_id)
+    new_role_id = _review_role_id_for_clan(new_clan, guild_id)
+
+    if old_role_id and old_role_id != new_role_id:
+        old_role = channel.guild.get_role(old_role_id)
+        if old_role:
+            await channel.set_permissions(
+                old_role,
+                overwrite=None,
+                reason="Clan ticket: remove old review role",
+            )
+
+    if new_role_id:
+        await _ensure_review_role_can_view(channel, new_clan)
+
+
 async def _move_ticket_to_clan_category(channel: discord.TextChannel, clan_value: str) -> bool:
     """Move the ticket to the configured clan category (only used on ACCEPT)."""
     cid = _category_id_for_clan(clan_value, channel.guild.id if channel.guild else None)
@@ -524,6 +565,14 @@ def _apply_status_to_name(name: str, status_emoji: str) -> str:
     if name[0] in STATUS_SET:
         return status_emoji + name[1:]
     return status_emoji + name
+
+
+def _status_emoji_from_name(name: str) -> str:
+    if not name:
+        return STATUS_OPEN
+    if name[0] in STATUS_SET:
+        return name[0]
+    return STATUS_OPEN
 
 
 async def _ensure_member_can_mention_everyone(
@@ -706,6 +755,18 @@ class AdminDecisionView(discord.ui.LayoutView):
                 discord.ui.Button(
                     custom_id=_review_custom_id("vacation_restore", ticket_channel_id, clan_value, lang),
                     label=_t(lang, "btn_vacation_restore"),
+                    style=discord.ButtonStyle.secondary,
+                ),
+            ),
+            discord.ui.ActionRow(
+                discord.ui.Button(
+                    custom_id=_review_custom_id("move_hrot", ticket_channel_id, clan_value, lang),
+                    label=_t(lang, "btn_move_clan1"),
+                    style=discord.ButtonStyle.secondary,
+                ),
+                discord.ui.Button(
+                    custom_id=_review_custom_id("move_hr2t", ticket_channel_id, clan_value, lang),
+                    label=_t(lang, "btn_move_clan2"),
                     style=discord.ButtonStyle.secondary,
                 ),
             ),
@@ -1461,6 +1522,15 @@ class ClanPanelCog(commands.Cog):
                 await interaction.response.send_message(_t(lang, "ticket_invalid"), ephemeral=True)
                 return
 
+            ticket_channel = guild.get_channel(channel_id)
+            if ticket_channel is None or not isinstance(ticket_channel, discord.TextChannel):
+                await interaction.response.send_message(_t(lang, "ticket_missing"), ephemeral=True)
+                return
+
+            _, topic_clan = _parse_ticket_topic(ticket_channel.topic or "")
+            if topic_clan:
+                clan_value = topic_clan
+
             if not _is_reviewer(clicker, clan_value):
                 await interaction.response.send_message(_t(lang, "no_perm"), ephemeral=True)
                 return
@@ -1789,6 +1859,75 @@ class ClanPanelCog(commands.Cog):
                 delete_clan_ticket_vacation(channel_id)
                 await interaction.response.send_message(
                     _t(lang, "vacation_restored"), ephemeral=True
+                )
+                return
+
+            if action in {"move_hrot", "move_hr2t"}:
+                target_clan = "hrot" if action == "move_hrot" else "hr2t"
+                current_clan = (clan_value or "").strip().lower()
+                target_display = _display_name_for_clan(target_clan, guild.id)
+                current_display = _display_name_for_clan(current_clan, guild.id)
+
+                if current_clan == target_clan:
+                    await interaction.response.send_message(
+                        _t(lang, "move_same").format(clan=current_display), ephemeral=True
+                    )
+                    return
+
+                applicant_id, _ = _parse_ticket_topic(ticket_channel.topic or "")
+                if not applicant_id:
+                    await interaction.response.send_message(_t(lang, "cant_get_applicant"), ephemeral=True)
+                    return
+
+                try:
+                    await ticket_channel.edit(
+                        topic=f"clan_applicant={applicant_id};clan={target_clan}",
+                        reason=f"Clan ticket: move to {target_clan}",
+                    )
+                except discord.Forbidden:
+                    await interaction.response.send_message(_t(lang, "move_no_perms"), ephemeral=True)
+                    return
+                except discord.HTTPException as e:
+                    await interaction.response.send_message(
+                        f"{_t(lang, 'move_api_err')} {e}", ephemeral=True
+                    )
+                    return
+
+                try:
+                    await _swap_review_role_visibility(ticket_channel, current_clan, target_clan)
+                except discord.Forbidden:
+                    await interaction.response.send_message(_t(lang, "perm_no_perms"), ephemeral=True)
+                    return
+                except discord.HTTPException as e:
+                    await interaction.response.send_message(
+                        f"{_t(lang, 'perm_api_err')} {e}", ephemeral=True
+                    )
+                    return
+
+                status_emoji = _status_emoji_from_name(ticket_channel.name)
+                app_record = get_clan_application_by_channel(guild.id, channel_id)
+                player_name = ""
+                if app_record:
+                    player_name = (app_record.get("roblox_nick") or "").strip()
+                if not player_name:
+                    player_name = applicant.display_name
+
+                try:
+                    await _rename_ticket_prefix(ticket_channel, target_clan, player_name, status_emoji)
+                except discord.Forbidden:
+                    await interaction.response.send_message(_t(lang, "rename_no_perms"), ephemeral=True)
+                    return
+                except discord.HTTPException as e:
+                    await interaction.response.send_message(
+                        f"{_t(lang, 'rename_api_err')} {e}", ephemeral=True
+                    )
+                    return
+
+                await ticket_channel.send(
+                    _t(lang, "move_done").format(clan=target_display)
+                )
+                await interaction.response.send_message(
+                    _t(lang, "move_done").format(clan=target_display), ephemeral=True
                 )
                 return
 
