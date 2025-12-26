@@ -954,7 +954,13 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             webhook, *payload.get("args", ()), **payload["kwargs"]
         )
 
-    async def send_message(self, target: discord.abc.Messageable, **kwargs):
+    async def send_message(self, target: discord.abc.Messageable, *args, **kwargs):
+        if args:
+            if len(args) > 1:
+                raise TypeError("send_message očekává nejvýše jeden poziční argument.")
+            if "content" in kwargs and kwargs["content"] is not None:
+                raise TypeError("send_message obdrželo duplicitní content.")
+            kwargs["content"] = args[0]
         payload, persist = self._build_send_payload(target, kwargs)
         return await self._enqueue("send_message", payload, persist)
 
