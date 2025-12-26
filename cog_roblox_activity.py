@@ -964,7 +964,11 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         elapsed = (now - last_update).total_seconds()
         if previous_status is True:
             self._duration_totals[user_id]["online"] += elapsed
-        elif previous_status is False and previous_count_offline:
+        elif (
+            previous_status is False
+            and previous_count_offline
+            and count_offline
+        ):
             self._duration_totals[user_id]["offline"] += elapsed
 
         if status != previous_status:
@@ -1076,7 +1080,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                     now,
                     count_offline=count_offline,
                 )
-                if went_offline:
+                if went_offline and count_offline:
                     session_seconds = ended_online_duration or 0.0
                     for member in members:
                         offline_notifications.append(
