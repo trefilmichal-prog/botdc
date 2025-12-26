@@ -242,6 +242,8 @@ I18N = {
         "vacation_move_forbidden": "Nemám práva přesunout ticket (Manage Channels).",
         "vacation_move_api_err": "Discord API chyba při přesunu ticketu:",
         "ticket_reminder": "Dořešit ticket.",
+        "ticket_reminder_manual_done": "Kontrola ticketů dokončena. Odesláno připomenutí: {count}.",
+        "ticket_reminder_manual_none": "Kontrola ticketů dokončena. Nebylo potřeba nic připomenout.",
     },
     "en": {
         "modal_title": "Clan application",
@@ -341,6 +343,8 @@ I18N = {
         "vacation_move_forbidden": "I don't have permission to move the ticket (Manage Channels).",
         "vacation_move_api_err": "Discord API error while moving the ticket:",
         "ticket_reminder": "Please finish the ticket.",
+        "ticket_reminder_manual_done": "Ticket check complete. Reminders sent: {count}.",
+        "ticket_reminder_manual_none": "Ticket check complete. No reminders were needed.",
     },
 }
 
@@ -1095,11 +1099,14 @@ class ClanPanelCog(commands.Cog):
         self.clan_panel_group.command(
             name="clan", description="Správa clanů a rolí pro přihlášky",
         )(self.clan_panel_clan)
+        self.clan_panel_group.command(
+            name="ticket_reminders",
+            description="Ruční kontrola připomínek u ticketů",
+        )(self.clan_panel_ticket_reminders)
         self.__cog_app_commands__ = []
-        self._ticket_reminder_task.start()
 
     def cog_unload(self):
-        self._ticket_reminder_task.cancel()
+        return
 
     @staticmethod
     def _default_clan_panel_config() -> tuple[str, str, str]:
@@ -1204,31 +1211,31 @@ class ClanPanelCog(commands.Cog):
 
     async def _maybe_send_ticket_reminder(
         self, guild: discord.Guild, app: dict, now: datetime
-    ) -> None:
+    ) -> bool:
         channel = guild.get_channel(app["channel_id"])
         if not isinstance(channel, discord.TextChannel):
-            return
+            return False
         _, clan_value = _parse_ticket_topic(channel.topic or "")
         if not clan_value:
-            return
+            return False
         role_mention = _role_mention_for_clan(clan_value, guild.id)
         if not role_mention:
-            return
+            return False
 
         last_message_at = _parse_db_datetime(app.get("last_message_at"))
         if last_message_at is None:
             last_message_at = _parse_db_datetime(app.get("created_at"))
         if last_message_at is None:
-            return
+            return False
         if int(app.get("last_message_by_bot") or 0) == 1:
-            return
+            return False
 
         if now - last_message_at < timedelta(hours=1):
-            return
+            return False
 
         last_ping_at = _parse_db_datetime(app.get("last_ping_at"))
         if last_ping_at is not None and now - last_ping_at < timedelta(hours=1):
-            return
+            return False
 
         lang = app.get("locale") or "en"
         await channel.send(
@@ -1237,20 +1244,27 @@ class ClanPanelCog(commands.Cog):
         )
         update_clan_application_last_message(app["id"], now, by_bot=True)
         update_clan_application_last_ping(app["id"], now)
+        return True
+
+    async def _run_ticket_reminders_for_guild(self, guild: discord.Guild) -> int:
+        now = datetime.utcnow()
+        try:
+            open_apps = list_open_clan_applications(guild.id)
+        except Exception:
+            return 0
+        sent = 0
+        for app in open_apps:
+            try:
+                if await self._maybe_send_ticket_reminder(guild, app, now):
+                    sent += 1
+            except (discord.Forbidden, discord.HTTPException):
+                continue
+        return sent
 
     @tasks.loop(minutes=5)
     async def _ticket_reminder_task(self):
-        now = datetime.utcnow()
         for guild in self.bot.guilds:
-            try:
-                open_apps = list_open_clan_applications(guild.id)
-            except Exception:
-                continue
-            for app in open_apps:
-                try:
-                    await self._maybe_send_ticket_reminder(guild, app, now)
-                except (discord.Forbidden, discord.HTTPException):
-                    continue
+            await self._run_ticket_reminders_for_guild(guild)
 
     @_ticket_reminder_task.before_loop
     async def _before_ticket_reminder_task(self):
@@ -1298,6 +1312,22 @@ class ClanPanelCog(commands.Cog):
                 self.bot.add_view(view, message_id=message.id)
             except Exception:
                 pass
+
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.guild_only()
+    async def clan_panel_ticket_reminders(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message("Příkaz lze použít pouze na serveru.", ephemeral=True)
+            return
+
+        lang = _lang_for_member(interaction.user) if isinstance(interaction.user, discord.Member) else "cs"
+        await interaction.response.defer(ephemeral=True)
+        sent = await self._run_ticket_reminders_for_guild(guild)
+        view = discord.ui.LayoutView(timeout=None)
+        message_key = "ticket_reminder_manual_done" if sent else "ticket_reminder_manual_none"
+        view.add_item(discord.ui.TextDisplay(content=_t(lang, message_key).format(count=sent)))
+        await interaction.followup.send(content="", view=view, ephemeral=True)
 
     @app_commands.checks.has_permissions(administrator=True)
     async def clan_panel_edit(self, interaction: discord.Interaction):
