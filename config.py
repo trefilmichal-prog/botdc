@@ -98,6 +98,11 @@ ANTISPAM_NOTICE_COOLDOWN_SECONDS = int(
     os.getenv("ANTISPAM_NOTICE_COOLDOWN_SECONDS", "30")
 )
 
+# Discord write queue rate limit (sekundy mezi write operacemi)
+DISCORD_WRITE_MIN_INTERVAL_SECONDS = float(
+    os.getenv("DISCORD_WRITE_MIN_INTERVAL_SECONDS", "0.25")
+)
+
 # CLAN – role pro přijaté členy
 CLAN_MEMBER_ROLE_ID = 1440268327892025438
 # CLAN – role pro přijaté členy (EN)

@@ -56,6 +56,20 @@ def init_db():
         """
     )
 
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS discord_write_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            operation TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_error TEXT
+        )
+        """
+    )
+
     # Roblox sledování aktivity
     c.execute(
         """
@@ -1996,5 +2010,75 @@ def delete_clan_ticket_vacation(channel_id: int):
     conn = get_connection()
     c = conn.cursor()
     c.execute("DELETE FROM clan_ticket_vacations WHERE channel_id = ?", (channel_id,))
+    conn.commit()
+    conn.close()
+
+
+def enqueue_discord_write(operation: str, payload: Dict[str, Any]) -> int:
+    conn = get_connection()
+    c = conn.cursor()
+    now = datetime.utcnow().isoformat()
+    payload_json = json.dumps(payload, ensure_ascii=False)
+    c.execute(
+        """
+        INSERT INTO discord_write_queue (operation, payload, status, created_at, updated_at)
+        VALUES (?, ?, 'pending', ?, ?)
+        """,
+        (operation, payload_json, now, now),
+    )
+    conn.commit()
+    row_id = c.lastrowid
+    conn.close()
+    return int(row_id)
+
+
+def fetch_pending_discord_writes(limit: int = 100) -> List[Dict[str, Any]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT id, operation, payload
+        FROM discord_write_queue
+        WHERE status = 'pending'
+        ORDER BY id ASC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+    rows = c.fetchall()
+    conn.close()
+    return [
+        {"id": row[0], "operation": row[1], "payload": row[2]} for row in rows
+    ]
+
+
+def mark_discord_write_done(write_id: int):
+    conn = get_connection()
+    c = conn.cursor()
+    now = datetime.utcnow().isoformat()
+    c.execute(
+        """
+        UPDATE discord_write_queue
+        SET status = 'done', updated_at = ?, last_error = NULL
+        WHERE id = ?
+        """,
+        (now, write_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def mark_discord_write_failed(write_id: int, error: str):
+    conn = get_connection()
+    c = conn.cursor()
+    now = datetime.utcnow().isoformat()
+    c.execute(
+        """
+        UPDATE discord_write_queue
+        SET status = 'failed', updated_at = ?, last_error = ?
+        WHERE id = ?
+        """,
+        (now, error, write_id),
+    )
     conn.commit()
     conn.close()
