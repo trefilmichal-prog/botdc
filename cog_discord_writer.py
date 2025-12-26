@@ -897,7 +897,11 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         interaction = payload["interaction"]
         if self._original_interaction_send is None:
             raise RuntimeError("InteractionResponse.send_message není dostupné.")
-        return await self._original_interaction_send(interaction.response, **payload["kwargs"])
+        return await self._original_interaction_send(
+            interaction.response,
+            *payload.get("args", ()),
+            **payload["kwargs"],
+        )
 
     async def _op_interaction_followup(self, payload: dict[str, Any]):
         interaction = payload["interaction"]
@@ -911,13 +915,21 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         interaction = payload["interaction"]
         if self._original_interaction_edit is None:
             raise RuntimeError("InteractionResponse.edit_message není dostupné.")
-        return await self._original_interaction_edit(interaction.response, **payload["kwargs"])
+        return await self._original_interaction_edit(
+            interaction.response,
+            *payload.get("args", ()),
+            **payload["kwargs"],
+        )
 
     async def _op_interaction_defer(self, payload: dict[str, Any]):
         interaction = payload["interaction"]
         if self._original_interaction_defer is None:
             raise RuntimeError("InteractionResponse.defer není dostupné.")
-        return await self._original_interaction_defer(interaction.response, **payload["kwargs"])
+        return await self._original_interaction_defer(
+            interaction.response,
+            *payload.get("args", ()),
+            **payload["kwargs"],
+        )
 
     async def _op_interaction_modal(self, payload: dict[str, Any]):
         interaction = payload["interaction"]
@@ -1028,20 +1040,24 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         persist = self._is_serializable(kwargs)
         return await self._enqueue("edit_member", payload, persist)
 
-    async def send_interaction_response(self, interaction: discord.Interaction, **kwargs):
-        payload = {"interaction": interaction, "kwargs": kwargs}
+    async def send_interaction_response(
+        self, interaction: discord.Interaction, *args, **kwargs
+    ):
+        payload = {"interaction": interaction, "args": args, "kwargs": kwargs}
         return await self._enqueue("interaction_response", payload, persist=False)
 
     async def send_interaction_followup(self, interaction: discord.Interaction, **kwargs):
         payload = {"interaction": interaction, "kwargs": kwargs}
         return await self._enqueue("interaction_followup", payload, persist=False)
 
-    async def edit_interaction_response(self, interaction: discord.Interaction, **kwargs):
-        payload = {"interaction": interaction, "kwargs": kwargs}
+    async def edit_interaction_response(
+        self, interaction: discord.Interaction, *args, **kwargs
+    ):
+        payload = {"interaction": interaction, "args": args, "kwargs": kwargs}
         return await self._enqueue("interaction_edit", payload, persist=False)
 
-    async def defer_interaction(self, interaction: discord.Interaction, **kwargs):
-        payload = {"interaction": interaction, "kwargs": kwargs}
+    async def defer_interaction(self, interaction: discord.Interaction, *args, **kwargs):
+        payload = {"interaction": interaction, "args": args, "kwargs": kwargs}
         return await self._enqueue("interaction_defer", payload, persist=False)
 
     async def send_interaction_modal(
