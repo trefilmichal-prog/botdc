@@ -926,7 +926,9 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         webhook = payload["webhook"]
         if self._original_webhook_send is None:
             raise RuntimeError("Webhook.send není dostupné v této verzi discord.py.")
-        return await self._original_webhook_send(webhook, **payload["kwargs"])
+        return await self._original_webhook_send(
+            webhook, *payload.get("args", ()), **payload["kwargs"]
+        )
 
     async def send_message(self, target: discord.abc.Messageable, **kwargs):
         payload, persist = self._build_send_payload(target, kwargs)
@@ -1045,8 +1047,8 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         payload = {"interaction": interaction, "modal": modal}
         return await self._enqueue("interaction_modal", payload, persist=False)
 
-    async def send_webhook_message(self, webhook: discord.Webhook, **kwargs):
-        payload = {"webhook": webhook, "kwargs": kwargs}
+    async def send_webhook_message(self, webhook: discord.Webhook, *args, **kwargs):
+        payload = {"webhook": webhook, "args": args, "kwargs": kwargs}
         return await self._enqueue("webhook_send", payload, persist=False)
 
     async def _enqueue(self, operation: str, payload: dict[str, Any], persist: bool):
