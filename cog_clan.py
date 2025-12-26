@@ -1,5 +1,7 @@
+import asyncio
 import re
 from datetime import datetime, timedelta
+from typing import Awaitable, Callable, TypeVar
 
 import discord
 from discord.ext import commands
@@ -82,6 +84,28 @@ DEFAULT_CLAN_SELECT_OPTIONS = [
     discord.SelectOption(label="Second Clan HR2T", value="HR2T", description="🇨🇿"),
     discord.SelectOption(label="Third Clan TGCM", value="TGCM", description="🇺🇸"),
 ]
+
+T = TypeVar("T")
+
+
+async def _retry_rate_limited(
+    action: str, action_coro: Callable[[], Awaitable[T]], max_attempts: int = 3
+) -> T:
+    last_exc: discord.HTTPException | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return await action_coro()
+        except discord.HTTPException as exc:
+            if getattr(exc, "status", None) == 429:
+                retry_after = getattr(exc, "retry_after", None)
+                delay = float(retry_after) if retry_after is not None else 1.0 + attempt
+                await asyncio.sleep(delay)
+                last_exc = exc
+                continue
+            raise
+    if last_exc:
+        raise last_exc
+    raise RuntimeError(f"Rate limit retry exhausted for {action}")
 
 
 def _guild_clan_config(guild_id: int | None, clan_value: str):
@@ -508,15 +532,18 @@ async def _ensure_review_role_can_view(channel: discord.TextChannel, clan_value:
     if role is None:
         return False
 
-    await channel.set_permissions(
-        role,
-        overwrite=discord.PermissionOverwrite(
-            view_channel=True,
-            send_messages=True,
-            read_message_history=True,
-            attach_files=True,
+    await _retry_rate_limited(
+        "ensure review role visibility",
+        lambda: channel.set_permissions(
+            role,
+            overwrite=discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                attach_files=True,
+            ),
+            reason="Clan ticket: ensure review role visibility",
         ),
-        reason="Clan ticket: ensure review role visibility",
     )
     return True
 
@@ -531,10 +558,13 @@ async def _swap_review_role_visibility(
     if old_role_id and old_role_id != new_role_id:
         old_role = channel.guild.get_role(old_role_id)
         if old_role:
-            await channel.set_permissions(
-                old_role,
-                overwrite=None,
-                reason="Clan ticket: remove old review role",
+            await _retry_rate_limited(
+                "remove old review role",
+                lambda: channel.set_permissions(
+                    old_role,
+                    overwrite=None,
+                    reason="Clan ticket: remove old review role",
+                ),
             )
 
     if new_role_id:
@@ -554,7 +584,10 @@ async def _move_ticket_to_clan_category(channel: discord.TextChannel, clan_value
     if channel.category_id == category.id:
         return True
 
-    await channel.edit(category=category, reason="Clan ticket: move to clan category (accepted)")
+    await _retry_rate_limited(
+        "move ticket to clan category",
+        lambda: channel.edit(category=category, reason="Clan ticket: move to clan category (accepted)"),
+    )
     return True
 
 
@@ -610,7 +643,10 @@ async def _set_ticket_status(channel: discord.TextChannel, status_emoji: str) ->
     new_name = _apply_status_to_name(channel.name, status_emoji)
     if new_name == channel.name:
         return True
-    await channel.edit(name=new_name, reason="Clan ticket: update status emoji")
+    await _retry_rate_limited(
+        "update ticket status emoji",
+        lambda: channel.edit(name=new_name, reason="Clan ticket: update status emoji"),
+    )
     return True
 
 
@@ -636,7 +672,10 @@ async def _rename_ticket_prefix(
     if channel.name == name:
         return True
 
-    await channel.edit(name=name, reason="Clan ticket: rename to requested format")
+    await _retry_rate_limited(
+        "rename ticket to requested format",
+        lambda: channel.edit(name=name, reason="Clan ticket: rename to requested format"),
+    )
     return True
 
 
@@ -1880,9 +1919,12 @@ class ClanPanelCog(commands.Cog):
                     return
 
                 try:
-                    await ticket_channel.edit(
-                        topic=f"clan_applicant={applicant_id};clan={target_clan}",
-                        reason=f"Clan ticket: move to {target_clan}",
+                    await _retry_rate_limited(
+                        "move ticket topic",
+                        lambda: ticket_channel.edit(
+                            topic=f"clan_applicant={applicant_id};clan={target_clan}",
+                            reason=f"Clan ticket: move to {target_clan}",
+                        ),
                     )
                 except discord.Forbidden:
                     await interaction.response.send_message(_t(lang, "move_no_perms"), ephemeral=True)
