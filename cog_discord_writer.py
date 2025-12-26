@@ -2,14 +2,22 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Callable, Optional
 
 import discord
 from discord.ext import commands
 
 from config import DISCORD_WRITE_MIN_INTERVAL_SECONDS
+
+# Poznámka: Patchování write metod je verzí podmíněné (discord.py 2.x),
+# protože některé API metody se v minor verzích mohou lišit nebo chybět.
+# Pokud metoda neexistuje, patch se přeskočí a loguje.
+# Smoke test (manuální): spusť bot a ověř v logu "Patched ... methods"
+# a "DiscordWriteCoordinator cog není načten" se neobjeví, běžné send
+# požadavky musí projít přes queue (grep: "Discord write selhal").
 from db import (
     enqueue_discord_write,
     fetch_pending_discord_writes,
@@ -46,124 +54,314 @@ def _get_client_from_state(obj: Any) -> commands.Bot:
 
 
 async def _patched_messageable_send(target: discord.abc.Messageable, *args, **kwargs):
-    writer = get_writer(_get_client_from_state(target))
-    return await writer.send_message(target, *args, **kwargs)
+    try:
+        writer = get_writer(_get_client_from_state(target))
+        return await writer.send_message(target, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální send (Messageable) pro %s.", type(target).__name__, exc_info=exc
+        )
+        original = getattr(type(target), "__discord_write_original_send__", None)
+        if original is None:
+            raise
+        return await original(target, *args, **kwargs)
 
 
 async def _patched_message_edit(message: discord.Message, *args, **kwargs):
-    writer = get_writer(_get_client_from_state(message))
-    return await writer.edit_message(message, *args, **kwargs)
+    try:
+        writer = get_writer(_get_client_from_state(message))
+        return await writer.edit_message(message, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální edit pro Message.", exc_info=exc
+        )
+        original = getattr(type(message), "__discord_write_original_edit__", None)
+        if original is None:
+            raise
+        return await original(message, *args, **kwargs)
 
 
 async def _patched_message_delete(message: discord.Message, *args, **kwargs):
-    writer = get_writer(_get_client_from_state(message))
-    return await writer.delete_message(message, *args, **kwargs)
+    try:
+        writer = get_writer(_get_client_from_state(message))
+        return await writer.delete_message(message, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální delete pro Message.", exc_info=exc
+        )
+        original = getattr(type(message), "__discord_write_original_delete__", None)
+        if original is None:
+            raise
+        return await original(message, *args, **kwargs)
 
 
 async def _patched_channel_edit(channel: discord.abc.GuildChannel, *args, **kwargs):
-    writer = get_writer(_get_client_from_state(channel))
-    return await writer.edit_channel(channel, *args, **kwargs)
+    try:
+        writer = get_writer(_get_client_from_state(channel))
+        return await writer.edit_channel(channel, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální edit pro kanál %s.", type(channel).__name__, exc_info=exc
+        )
+        original = getattr(type(channel), "__discord_write_original_edit__", None)
+        if original is None:
+            raise
+        return await original(channel, *args, **kwargs)
 
 
 async def _patched_channel_delete(channel: discord.abc.GuildChannel, *args, **kwargs):
-    writer = get_writer(_get_client_from_state(channel))
-    return await writer.delete_channel(channel, *args, **kwargs)
+    try:
+        writer = get_writer(_get_client_from_state(channel))
+        return await writer.delete_channel(channel, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální delete pro kanál %s.", type(channel).__name__, exc_info=exc
+        )
+        original = getattr(type(channel), "__discord_write_original_delete__", None)
+        if original is None:
+            raise
+        return await original(channel, *args, **kwargs)
 
 
 async def _patched_create_text_channel(guild: discord.Guild, *args, **kwargs):
-    writer = get_writer(_get_client_from_state(guild))
-    return await writer.create_text_channel(guild, *args, **kwargs)
+    try:
+        writer = get_writer(_get_client_from_state(guild))
+        return await writer.create_text_channel(guild, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální create_text_channel pro Guild.", exc_info=exc
+        )
+        original = getattr(
+            discord.Guild, "__discord_write_original_create_text_channel__", None
+        )
+        if original is None:
+            raise
+        return await original(guild, *args, **kwargs)
 
 
 async def _patched_member_add_roles(member: discord.Member, *roles, **kwargs):
-    writer = get_writer(_get_client_from_state(member))
-    return await writer.add_roles(member, *roles, **kwargs)
+    try:
+        writer = get_writer(_get_client_from_state(member))
+        return await writer.add_roles(member, *roles, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální add_roles pro Member.", exc_info=exc
+        )
+        original = getattr(discord.Member, "__discord_write_original_add_roles__", None)
+        if original is None:
+            raise
+        return await original(member, *roles, **kwargs)
 
 
 async def _patched_member_remove_roles(member: discord.Member, *roles, **kwargs):
-    writer = get_writer(_get_client_from_state(member))
-    return await writer.remove_roles(member, *roles, **kwargs)
+    try:
+        writer = get_writer(_get_client_from_state(member))
+        return await writer.remove_roles(member, *roles, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální remove_roles pro Member.", exc_info=exc
+        )
+        original = getattr(discord.Member, "__discord_write_original_remove_roles__", None)
+        if original is None:
+            raise
+        return await original(member, *roles, **kwargs)
 
 
 async def _patched_guild_ban(guild: discord.Guild, user: discord.abc.User, **kwargs):
-    writer = get_writer(_get_client_from_state(guild))
-    return await writer.ban_member(guild, user, **kwargs)
+    try:
+        writer = get_writer(_get_client_from_state(guild))
+        return await writer.ban_member(guild, user, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální ban pro Guild.", exc_info=exc
+        )
+        original = getattr(discord.Guild, "__discord_write_original_ban__", None)
+        if original is None:
+            raise
+        return await original(guild, user, **kwargs)
 
 
 async def _patched_member_kick(member: discord.Member, **kwargs):
-    writer = get_writer(_get_client_from_state(member))
-    return await writer.kick_member(member, **kwargs)
+    try:
+        writer = get_writer(_get_client_from_state(member))
+        return await writer.kick_member(member, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální kick pro Member.", exc_info=exc
+        )
+        original = getattr(discord.Member, "__discord_write_original_kick__", None)
+        if original is None:
+            raise
+        return await original(member, **kwargs)
 
 
 async def _patched_member_timeout(member: discord.Member, until, **kwargs):
-    writer = get_writer(_get_client_from_state(member))
-    return await writer.timeout_member(member, until, **kwargs)
+    try:
+        writer = get_writer(_get_client_from_state(member))
+        return await writer.timeout_member(member, until, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální timeout pro Member.", exc_info=exc
+        )
+        original = getattr(discord.Member, "__discord_write_original_timeout__", None)
+        if original is None:
+            raise
+        return await original(member, until, **kwargs)
 
 
 async def _patched_member_edit(member: discord.Member, **kwargs):
-    writer = get_writer(_get_client_from_state(member))
-    return await writer.edit_member(member, **kwargs)
+    try:
+        writer = get_writer(_get_client_from_state(member))
+        return await writer.edit_member(member, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální edit pro Member.", exc_info=exc
+        )
+        original = getattr(discord.Member, "__discord_write_original_edit__", None)
+        if original is None:
+            raise
+        return await original(member, **kwargs)
 
 
 async def _patched_interaction_send(response: discord.InteractionResponse, *args, **kwargs):
-    interaction = response._parent
-    writer = get_writer(interaction.client)
-    return await writer.send_interaction_response(interaction, *args, **kwargs)
+    interaction = getattr(response, "_parent", None)
+    try:
+        if interaction is None or interaction.client is None:
+            raise RuntimeError("Interakce nemá klienta.")
+        writer = get_writer(interaction.client)
+        return await writer.send_interaction_response(interaction, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální send_message pro InteractionResponse.", exc_info=exc
+        )
+        original = getattr(
+            discord.InteractionResponse, "__discord_write_original_send_message__", None
+        )
+        if original is None:
+            raise
+        return await original(response, *args, **kwargs)
 
 
 async def _patched_interaction_defer(response: discord.InteractionResponse, *args, **kwargs):
-    interaction = response._parent
-    writer = get_writer(interaction.client)
-    return await writer.defer_interaction(interaction, *args, **kwargs)
+    interaction = getattr(response, "_parent", None)
+    try:
+        if interaction is None or interaction.client is None:
+            raise RuntimeError("Interakce nemá klienta.")
+        writer = get_writer(interaction.client)
+        return await writer.defer_interaction(interaction, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální defer pro InteractionResponse.", exc_info=exc
+        )
+        original = getattr(discord.InteractionResponse, "__discord_write_original_defer__", None)
+        if original is None:
+            raise
+        return await original(response, *args, **kwargs)
 
 
 async def _patched_interaction_edit(response: discord.InteractionResponse, *args, **kwargs):
-    interaction = response._parent
-    writer = get_writer(interaction.client)
-    return await writer.edit_interaction_response(interaction, *args, **kwargs)
+    interaction = getattr(response, "_parent", None)
+    try:
+        if interaction is None or interaction.client is None:
+            raise RuntimeError("Interakce nemá klienta.")
+        writer = get_writer(interaction.client)
+        return await writer.edit_interaction_response(interaction, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální edit_message pro InteractionResponse.", exc_info=exc
+        )
+        original = getattr(
+            discord.InteractionResponse, "__discord_write_original_edit_message__", None
+        )
+        if original is None:
+            raise
+        return await original(response, *args, **kwargs)
 
 
 async def _patched_interaction_modal(response: discord.InteractionResponse, *args, **kwargs):
-    interaction = response._parent
-    writer = get_writer(interaction.client)
-    return await writer.send_interaction_modal(interaction, *args, **kwargs)
+    interaction = getattr(response, "_parent", None)
+    try:
+        if interaction is None or interaction.client is None:
+            raise RuntimeError("Interakce nemá klienta.")
+        writer = get_writer(interaction.client)
+        return await writer.send_interaction_modal(interaction, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální send_modal pro InteractionResponse.", exc_info=exc
+        )
+        original = getattr(
+            discord.InteractionResponse, "__discord_write_original_send_modal__", None
+        )
+        if original is None:
+            raise
+        return await original(response, *args, **kwargs)
 
 
 async def _patched_webhook_send(webhook: discord.Webhook, *args, **kwargs):
-    writer = get_writer(_get_client_from_state(webhook))
-    return await writer.send_webhook_message(webhook, *args, **kwargs)
+    state = getattr(webhook, "_state", None)
+    try:
+        if state is None:
+            raise RuntimeError("Webhook nemá state.")
+        writer = get_writer(_get_client_from_state(webhook))
+        return await writer.send_webhook_message(webhook, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální send pro webhook %s.",
+            type(webhook).__name__,
+            exc_info=exc,
+        )
+        original = getattr(type(webhook), "__discord_write_original_send__", None)
+        if original is None:
+            raise
+        return await original(webhook, *args, **kwargs)
 
 
 class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
+    """Centralizuje běžné write operace přes queue.
+
+    Patche se týkají send/edit/delete/channel/member/guild a interaction/webhook cest.
+    Interní HTTP volání discord.py mimo tyto veřejné metody nejsou patchována.
+    """
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.logger = logging.getLogger("botdc.discord_write")
+        self._patch_enabled = (
+            os.getenv("DISCORD_WRITE_PATCH_ENABLED", "true").strip().lower() != "false"
+        )
         self._queue: asyncio.Queue[WriteRequest] = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None
         self._last_write_at: float | None = None
+        # DISCORD_WRITE_MIN_INTERVAL_SECONDS (např. 0.1–1.0 s) určuje minimální rozestup zápisů.
         self._min_interval_seconds = DISCORD_WRITE_MIN_INTERVAL_SECONDS
         self._patched = False
-        self._original_messageable_send = discord.abc.Messageable.send
-        self._original_message_edit = discord.Message.edit
-        self._original_message_delete = discord.Message.delete
-        self._original_channel_edit = discord.abc.GuildChannel.edit
-        self._original_channel_delete = discord.abc.GuildChannel.delete
-        self._original_create_text_channel = discord.Guild.create_text_channel
-        self._original_add_roles = discord.Member.add_roles
-        self._original_remove_roles = discord.Member.remove_roles
-        self._original_ban = discord.Guild.ban
-        self._original_kick = discord.Member.kick
-        self._original_timeout = discord.Member.timeout
-        self._original_member_edit = discord.Member.edit
-        self._original_interaction_send = discord.InteractionResponse.send_message
-        self._original_interaction_defer = discord.InteractionResponse.defer
-        self._original_interaction_edit = discord.InteractionResponse.edit_message
-        self._original_interaction_modal = discord.InteractionResponse.send_modal
-        self._original_webhook_send = discord.Webhook.send
+        self._messageable_send_originals: dict[type, Callable[..., Any]] = {}
+        self._channel_edit_originals: dict[type, Callable[..., Any]] = {}
+        self._channel_delete_originals: dict[type, Callable[..., Any]] = {}
+        self._original_message_edit: Optional[Callable[..., Any]] = None
+        self._original_message_delete: Optional[Callable[..., Any]] = None
+        self._original_create_text_channel: Optional[Callable[..., Any]] = None
+        self._original_add_roles: Optional[Callable[..., Any]] = None
+        self._original_remove_roles: Optional[Callable[..., Any]] = None
+        self._original_ban: Optional[Callable[..., Any]] = None
+        self._original_kick: Optional[Callable[..., Any]] = None
+        self._original_timeout: Optional[Callable[..., Any]] = None
+        self._original_member_edit: Optional[Callable[..., Any]] = None
+        self._original_interaction_send: Optional[Callable[..., Any]] = None
+        self._original_interaction_defer: Optional[Callable[..., Any]] = None
+        self._original_interaction_edit: Optional[Callable[..., Any]] = None
+        self._original_interaction_modal: Optional[Callable[..., Any]] = None
+        self._original_webhook_send: Optional[Callable[..., Any]] = None
+        self._original_followup_send: Optional[Callable[..., Any]] = None
 
     async def cog_load(self):
-        await self._restore_pending()
-        self._patch_methods()
+        try:
+            await self._restore_pending()
+        except Exception:  # noqa: BLE001
+            self.logger.exception("Obnova pending Discord write fronty selhala.")
+        try:
+            self._patch_methods()
+        except Exception:  # noqa: BLE001
+            self.logger.exception("Patchování Discord write metod selhalo.")
         self._worker_task = asyncio.create_task(self._worker_loop())
 
     async def cog_unload(self):
@@ -174,50 +372,308 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         self._restore_methods()
 
     def _patch_methods(self):
+        """Globální, verzí podmíněné patchování Discord write metod."""
         if self._patched:
+            self.logger.warning("Discord write patching již bylo aplikováno.")
             return
-        discord.abc.Messageable.send = _patched_messageable_send
-        discord.Message.edit = _patched_message_edit
-        discord.Message.delete = _patched_message_delete
-        discord.abc.GuildChannel.edit = _patched_channel_edit
-        discord.abc.GuildChannel.delete = _patched_channel_delete
-        discord.Guild.create_text_channel = _patched_create_text_channel
-        discord.Member.add_roles = _patched_member_add_roles
-        discord.Member.remove_roles = _patched_member_remove_roles
-        discord.Guild.ban = _patched_guild_ban
-        discord.Member.kick = _patched_member_kick
-        discord.Member.timeout = _patched_member_timeout
-        discord.Member.edit = _patched_member_edit
-        discord.InteractionResponse.send_message = _patched_interaction_send
-        discord.InteractionResponse.defer = _patched_interaction_defer
-        discord.InteractionResponse.edit_message = _patched_interaction_edit
-        discord.InteractionResponse.send_modal = _patched_interaction_modal
-        discord.Webhook.send = _patched_webhook_send
-        self._patched = True
+        if not self._patch_enabled:
+            self.logger.warning(
+                "Discord write patching je vypnuto (DISCORD_WRITE_PATCH_ENABLED=false)."
+            )
+        apply_patches = self._patch_enabled
+        patched_targets: list[str] = []
+        self.logger.warning(
+            "Discord write patching je globální; pokud běží více botů, sdílí patche."
+        )
+
+        messageable_send = getattr(discord.abc.Messageable, "send", None)
+        if messageable_send is not None:
+            self._messageable_send_originals[discord.abc.Messageable] = messageable_send
+            if apply_patches:
+                setattr(
+                    discord.abc.Messageable,
+                    "__discord_write_original_send__",
+                    messageable_send,
+                )
+                discord.abc.Messageable.send = _patched_messageable_send
+                patched_targets.append("Messageable.send")
+        else:
+            fallback_classes = [
+                discord.TextChannel,
+                discord.Thread,
+                discord.DMChannel,
+                discord.GroupChannel,
+                discord.User,
+                discord.Member,
+            ]
+            partial_messageable = getattr(discord, "PartialMessageable", None)
+            if partial_messageable is not None:
+                fallback_classes.append(partial_messageable)
+            for cls in fallback_classes:
+                original = getattr(cls, "send", None)
+                if original is None:
+                    continue
+                self._messageable_send_originals[cls] = original
+                if apply_patches:
+                    setattr(cls, "__discord_write_original_send__", original)
+                    cls.send = _patched_messageable_send
+                    patched_targets.append(f"{cls.__name__}.send")
+
+        self._original_message_edit = getattr(discord.Message, "edit", None)
+        if self._original_message_edit is not None:
+            if apply_patches:
+                setattr(
+                    discord.Message, "__discord_write_original_edit__", self._original_message_edit
+                )
+                discord.Message.edit = _patched_message_edit
+                patched_targets.append("Message.edit")
+        self._original_message_delete = getattr(discord.Message, "delete", None)
+        if self._original_message_delete is not None:
+            if apply_patches:
+                setattr(
+                    discord.Message,
+                    "__discord_write_original_delete__",
+                    self._original_message_delete,
+                )
+                discord.Message.delete = _patched_message_delete
+                patched_targets.append("Message.delete")
+
+        # Třídy s edit/delete v discord.py 2.x (Text/Thread/Voice/Stage/Category/Forum).
+        channel_classes = [
+            discord.TextChannel,
+            discord.Thread,
+            discord.VoiceChannel,
+            discord.StageChannel,
+            discord.CategoryChannel,
+            discord.ForumChannel,
+        ]
+        if hasattr(discord.abc.GuildChannel, "edit"):
+            channel_classes.append(discord.abc.GuildChannel)
+        for cls in channel_classes:
+            original_edit = getattr(cls, "edit", None)
+            if original_edit is not None and cls not in self._channel_edit_originals:
+                self._channel_edit_originals[cls] = original_edit
+                if apply_patches:
+                    setattr(cls, "__discord_write_original_edit__", original_edit)
+                    cls.edit = _patched_channel_edit
+                    patched_targets.append(f"{cls.__name__}.edit")
+            original_delete = getattr(cls, "delete", None)
+            if original_delete is not None and cls not in self._channel_delete_originals:
+                self._channel_delete_originals[cls] = original_delete
+                if apply_patches:
+                    setattr(cls, "__discord_write_original_delete__", original_delete)
+                    cls.delete = _patched_channel_delete
+                    patched_targets.append(f"{cls.__name__}.delete")
+
+        self._original_create_text_channel = getattr(discord.Guild, "create_text_channel", None)
+        if self._original_create_text_channel is not None:
+            if apply_patches:
+                setattr(
+                    discord.Guild,
+                    "__discord_write_original_create_text_channel__",
+                    self._original_create_text_channel,
+                )
+                discord.Guild.create_text_channel = _patched_create_text_channel
+                patched_targets.append("Guild.create_text_channel")
+
+        self._original_add_roles = getattr(discord.Member, "add_roles", None)
+        if self._original_add_roles is not None:
+            if apply_patches:
+                setattr(
+                    discord.Member,
+                    "__discord_write_original_add_roles__",
+                    self._original_add_roles,
+                )
+                discord.Member.add_roles = _patched_member_add_roles
+                patched_targets.append("Member.add_roles")
+        self._original_remove_roles = getattr(discord.Member, "remove_roles", None)
+        if self._original_remove_roles is not None:
+            if apply_patches:
+                setattr(
+                    discord.Member,
+                    "__discord_write_original_remove_roles__",
+                    self._original_remove_roles,
+                )
+                discord.Member.remove_roles = _patched_member_remove_roles
+                patched_targets.append("Member.remove_roles")
+
+        self._original_ban = getattr(discord.Guild, "ban", None)
+        if self._original_ban is not None:
+            if apply_patches:
+                setattr(discord.Guild, "__discord_write_original_ban__", self._original_ban)
+                discord.Guild.ban = _patched_guild_ban
+                patched_targets.append("Guild.ban")
+        self._original_kick = getattr(discord.Member, "kick", None)
+        if self._original_kick is not None:
+            if apply_patches:
+                setattr(discord.Member, "__discord_write_original_kick__", self._original_kick)
+                discord.Member.kick = _patched_member_kick
+                patched_targets.append("Member.kick")
+        self._original_timeout = getattr(discord.Member, "timeout", None)
+        if self._original_timeout is not None:
+            if apply_patches:
+                setattr(
+                    discord.Member, "__discord_write_original_timeout__", self._original_timeout
+                )
+                discord.Member.timeout = _patched_member_timeout
+                patched_targets.append("Member.timeout")
+        self._original_member_edit = getattr(discord.Member, "edit", None)
+        if self._original_member_edit is not None:
+            if apply_patches:
+                setattr(discord.Member, "__discord_write_original_edit__", self._original_member_edit)
+                discord.Member.edit = _patched_member_edit
+                patched_targets.append("Member.edit")
+
+        self._original_interaction_send = getattr(discord.InteractionResponse, "send_message", None)
+        if self._original_interaction_send is not None:
+            if apply_patches:
+                setattr(
+                    discord.InteractionResponse,
+                    "__discord_write_original_send_message__",
+                    self._original_interaction_send,
+                )
+                discord.InteractionResponse.send_message = _patched_interaction_send
+                patched_targets.append("InteractionResponse.send_message")
+        self._original_interaction_defer = getattr(discord.InteractionResponse, "defer", None)
+        if self._original_interaction_defer is not None:
+            if apply_patches:
+                setattr(
+                    discord.InteractionResponse,
+                    "__discord_write_original_defer__",
+                    self._original_interaction_defer,
+                )
+                discord.InteractionResponse.defer = _patched_interaction_defer
+                patched_targets.append("InteractionResponse.defer")
+        self._original_interaction_edit = getattr(discord.InteractionResponse, "edit_message", None)
+        if self._original_interaction_edit is not None:
+            if apply_patches:
+                setattr(
+                    discord.InteractionResponse,
+                    "__discord_write_original_edit_message__",
+                    self._original_interaction_edit,
+                )
+                discord.InteractionResponse.edit_message = _patched_interaction_edit
+                patched_targets.append("InteractionResponse.edit_message")
+        self._original_interaction_modal = getattr(discord.InteractionResponse, "send_modal", None)
+        if self._original_interaction_modal is not None:
+            if apply_patches:
+                setattr(
+                    discord.InteractionResponse,
+                    "__discord_write_original_send_modal__",
+                    self._original_interaction_modal,
+                )
+                discord.InteractionResponse.send_modal = _patched_interaction_modal
+                patched_targets.append("InteractionResponse.send_modal")
+
+        self._original_webhook_send = getattr(discord.Webhook, "send", None)
+        if self._original_webhook_send is not None:
+            if apply_patches:
+                setattr(
+                    discord.Webhook, "__discord_write_original_send__", self._original_webhook_send
+                )
+                discord.Webhook.send = _patched_webhook_send
+                patched_targets.append("Webhook.send")
+        else:
+            followup_cls = getattr(discord, "InteractionFollowup", None)
+            if followup_cls is not None:
+                self._original_followup_send = getattr(followup_cls, "send", None)
+                if self._original_followup_send is not None:
+                    if apply_patches:
+                        setattr(
+                            followup_cls,
+                            "__discord_write_original_send__",
+                            self._original_followup_send,
+                        )
+                        followup_cls.send = _patched_webhook_send
+                        patched_targets.append("InteractionFollowup.send")
+
+        if apply_patches:
+            self._patched = True
+            self.logger.info(
+                "Patched %d methods for Discord write coordinator: %s",
+                len(patched_targets),
+                ", ".join(patched_targets),
+            )
 
     def _restore_methods(self):
+        """Vrací originální metody po globálním patchování."""
         if not self._patched:
             return
-        discord.abc.Messageable.send = self._original_messageable_send
-        discord.Message.edit = self._original_message_edit
-        discord.Message.delete = self._original_message_delete
-        discord.abc.GuildChannel.edit = self._original_channel_edit
-        discord.abc.GuildChannel.delete = self._original_channel_delete
-        discord.Guild.create_text_channel = self._original_create_text_channel
-        discord.Member.add_roles = self._original_add_roles
-        discord.Member.remove_roles = self._original_remove_roles
-        discord.Guild.ban = self._original_ban
-        discord.Member.kick = self._original_kick
-        discord.Member.timeout = self._original_timeout
-        discord.Member.edit = self._original_member_edit
-        discord.InteractionResponse.send_message = self._original_interaction_send
-        discord.InteractionResponse.defer = self._original_interaction_defer
-        discord.InteractionResponse.edit_message = self._original_interaction_edit
-        discord.InteractionResponse.send_modal = self._original_interaction_modal
-        discord.Webhook.send = self._original_webhook_send
+        for cls, original in self._messageable_send_originals.items():
+            if getattr(cls, "send", None) is _patched_messageable_send:
+                cls.send = original
+        self._messageable_send_originals.clear()
+
+        if self._original_message_edit and discord.Message.edit is _patched_message_edit:
+            discord.Message.edit = self._original_message_edit
+        if self._original_message_delete and discord.Message.delete is _patched_message_delete:
+            discord.Message.delete = self._original_message_delete
+
+        for cls, original in self._channel_edit_originals.items():
+            if getattr(cls, "edit", None) is _patched_channel_edit:
+                cls.edit = original
+        for cls, original in self._channel_delete_originals.items():
+            if getattr(cls, "delete", None) is _patched_channel_delete:
+                cls.delete = original
+        self._channel_edit_originals.clear()
+        self._channel_delete_originals.clear()
+
+        if (
+            self._original_create_text_channel
+            and discord.Guild.create_text_channel is _patched_create_text_channel
+        ):
+            discord.Guild.create_text_channel = self._original_create_text_channel
+        if self._original_add_roles and discord.Member.add_roles is _patched_member_add_roles:
+            discord.Member.add_roles = self._original_add_roles
+        if (
+            self._original_remove_roles
+            and discord.Member.remove_roles is _patched_member_remove_roles
+        ):
+            discord.Member.remove_roles = self._original_remove_roles
+        if self._original_ban and discord.Guild.ban is _patched_guild_ban:
+            discord.Guild.ban = self._original_ban
+        if self._original_kick and discord.Member.kick is _patched_member_kick:
+            discord.Member.kick = self._original_kick
+        if self._original_timeout and discord.Member.timeout is _patched_member_timeout:
+            discord.Member.timeout = self._original_timeout
+        if self._original_member_edit and discord.Member.edit is _patched_member_edit:
+            discord.Member.edit = self._original_member_edit
+
+        if (
+            self._original_interaction_send
+            and discord.InteractionResponse.send_message is _patched_interaction_send
+        ):
+            discord.InteractionResponse.send_message = self._original_interaction_send
+        if (
+            self._original_interaction_defer
+            and discord.InteractionResponse.defer is _patched_interaction_defer
+        ):
+            discord.InteractionResponse.defer = self._original_interaction_defer
+        if (
+            self._original_interaction_edit
+            and discord.InteractionResponse.edit_message is _patched_interaction_edit
+        ):
+            discord.InteractionResponse.edit_message = self._original_interaction_edit
+        if (
+            self._original_interaction_modal
+            and discord.InteractionResponse.send_modal is _patched_interaction_modal
+        ):
+            discord.InteractionResponse.send_modal = self._original_interaction_modal
+
+        if self._original_webhook_send and discord.Webhook.send is _patched_webhook_send:
+            discord.Webhook.send = self._original_webhook_send
+        followup_cls = getattr(discord, "InteractionFollowup", None)
+        if (
+            followup_cls is not None
+            and self._original_followup_send
+            and getattr(followup_cls, "send", None) is _patched_webhook_send
+        ):
+            followup_cls.send = self._original_followup_send
+
         self._patched = False
 
     async def _restore_pending(self):
+        count = 0
         for item in fetch_pending_discord_writes():
             try:
                 payload = json.loads(item["payload"])
@@ -235,6 +691,8 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                     db_id=item["id"],
                 )
             )
+            count += 1
+        self.logger.info("Obnoveno %d pending Discord write záznamů.", count)
 
     async def _worker_loop(self):
         while True:
@@ -325,45 +783,62 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         target = await self._resolve_target(payload)
         if target is None:
             raise RuntimeError("Cíl zprávy nebyl nalezen.")
-        return await self._original_messageable_send(target, **payload["kwargs"])
+        original = self._get_messageable_original(target)
+        if original is None:
+            raise RuntimeError("Send není dostupný pro daný target.")
+        return await original(target, **payload["kwargs"])
 
     async def _op_edit_message(self, payload: dict[str, Any]):
         message = await self._resolve_message(payload)
         if message is None:
             raise RuntimeError("Zpráva k úpravě nebyla nalezena.")
+        if self._original_message_edit is None:
+            raise RuntimeError("Message.edit není dostupné.")
         return await self._original_message_edit(message, **payload["kwargs"])
 
     async def _op_delete_message(self, payload: dict[str, Any]):
         message = await self._resolve_message(payload)
         if message is None:
             raise RuntimeError("Zpráva ke smazání nebyla nalezena.")
+        if self._original_message_delete is None:
+            raise RuntimeError("Message.delete není dostupné.")
         return await self._original_message_delete(message, **payload["kwargs"])
 
     async def _op_edit_channel(self, payload: dict[str, Any]):
         channel = await self._resolve_channel(payload["channel_id"])
         if channel is None:
             raise RuntimeError("Kanál k úpravě nebyl nalezen.")
-        return await self._original_channel_edit(channel, **payload["kwargs"])
+        original = self._get_channel_original(channel, self._channel_edit_originals, "edit")
+        if original is None:
+            self.logger.warning("Edit kanálu není podporován pro %s.", type(channel).__name__)
+            raise RuntimeError("Kanál k úpravě nemá podporovaný edit.")
+        return await original(channel, **payload["kwargs"])
 
     async def _op_delete_channel(self, payload: dict[str, Any]):
         channel = await self._resolve_channel(payload["channel_id"])
         if channel is None:
             raise RuntimeError("Kanál ke smazání nebyl nalezen.")
-        return await self._original_channel_delete(channel, **payload["kwargs"])
+        original = self._get_channel_original(channel, self._channel_delete_originals, "delete")
+        if original is None:
+            self.logger.warning("Delete kanálu není podporován pro %s.", type(channel).__name__)
+            raise RuntimeError("Kanál ke smazání nemá podporovaný delete.")
+        return await original(channel, **payload["kwargs"])
 
     async def _op_create_text_channel(self, payload: dict[str, Any]):
         guild = self.bot.get_guild(payload["guild_id"])
         if guild is None:
             raise RuntimeError("Guild nebyla nalezena.")
-        return await self._original_create_text_channel(
-            guild, payload["name"], **payload["kwargs"]
-        )
+        if self._original_create_text_channel is None:
+            raise RuntimeError("Guild.create_text_channel není dostupné.")
+        return await self._original_create_text_channel(guild, payload["name"], **payload["kwargs"])
 
     async def _op_add_roles(self, payload: dict[str, Any]):
         member = await self._resolve_member(payload)
         if member is None:
             raise RuntimeError("Člen nebyl nalezen pro přidání role.")
         roles = self._resolve_roles(member.guild, payload["role_ids"])
+        if self._original_add_roles is None:
+            raise RuntimeError("Member.add_roles není dostupné.")
         return await self._original_add_roles(member, *roles, reason=payload.get("reason"))
 
     async def _op_remove_roles(self, payload: dict[str, Any]):
@@ -371,9 +846,9 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         if member is None:
             raise RuntimeError("Člen nebyl nalezen pro odebrání role.")
         roles = self._resolve_roles(member.guild, payload["role_ids"])
-        return await self._original_remove_roles(
-            member, *roles, reason=payload.get("reason")
-        )
+        if self._original_remove_roles is None:
+            raise RuntimeError("Member.remove_roles není dostupné.")
+        return await self._original_remove_roles(member, *roles, reason=payload.get("reason"))
 
     async def _op_ban_member(self, payload: dict[str, Any]):
         guild = self.bot.get_guild(payload["guild_id"])
@@ -382,6 +857,8 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         user = await self._resolve_user(payload["user_id"])
         if user is None:
             raise RuntimeError("Uživatel nebyl nalezen pro ban.")
+        if self._original_ban is None:
+            raise RuntimeError("Guild.ban není dostupné.")
         return await self._original_ban(
             guild,
             user,
@@ -393,54 +870,62 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         member = await self._resolve_member(payload)
         if member is None:
             raise RuntimeError("Člen nebyl nalezen pro kick.")
+        if self._original_kick is None:
+            raise RuntimeError("Member.kick není dostupné.")
         return await self._original_kick(member, reason=payload.get("reason"))
 
     async def _op_timeout_member(self, payload: dict[str, Any]):
         member = await self._resolve_member(payload)
         if member is None:
             raise RuntimeError("Člen nebyl nalezen pro timeout.")
-        return await self._original_timeout(
-            member, payload["until"], reason=payload.get("reason")
-        )
+        if self._original_timeout is None:
+            raise RuntimeError("Member.timeout není dostupné.")
+        return await self._original_timeout(member, payload["until"], reason=payload.get("reason"))
 
     async def _op_edit_member(self, payload: dict[str, Any]):
         member = await self._resolve_member(payload)
         if member is None:
             raise RuntimeError("Člen nebyl nalezen pro editaci.")
+        if self._original_member_edit is None:
+            raise RuntimeError("Member.edit není dostupné.")
         return await self._original_member_edit(member, **payload["kwargs"])
 
     async def _op_interaction_response(self, payload: dict[str, Any]):
         interaction = payload["interaction"]
-        return await self._original_interaction_send(
-            interaction.response, **payload["kwargs"]
-        )
+        if self._original_interaction_send is None:
+            raise RuntimeError("InteractionResponse.send_message není dostupné.")
+        return await self._original_interaction_send(interaction.response, **payload["kwargs"])
 
     async def _op_interaction_followup(self, payload: dict[str, Any]):
         interaction = payload["interaction"]
-        return await self._original_webhook_send(
-            interaction.followup, **payload["kwargs"]
-        )
+        if self._original_webhook_send is not None:
+            return await self._original_webhook_send(interaction.followup, **payload["kwargs"])
+        if self._original_followup_send is not None:
+            return await self._original_followup_send(interaction.followup, **payload["kwargs"])
+        raise RuntimeError("Followup send není dostupné v této verzi discord.py.")
 
     async def _op_interaction_edit(self, payload: dict[str, Any]):
         interaction = payload["interaction"]
-        return await self._original_interaction_edit(
-            interaction.response, **payload["kwargs"]
-        )
+        if self._original_interaction_edit is None:
+            raise RuntimeError("InteractionResponse.edit_message není dostupné.")
+        return await self._original_interaction_edit(interaction.response, **payload["kwargs"])
 
     async def _op_interaction_defer(self, payload: dict[str, Any]):
         interaction = payload["interaction"]
-        return await self._original_interaction_defer(
-            interaction.response, **payload["kwargs"]
-        )
+        if self._original_interaction_defer is None:
+            raise RuntimeError("InteractionResponse.defer není dostupné.")
+        return await self._original_interaction_defer(interaction.response, **payload["kwargs"])
 
     async def _op_interaction_modal(self, payload: dict[str, Any]):
         interaction = payload["interaction"]
-        return await self._original_interaction_modal(
-            interaction.response, payload["modal"]
-        )
+        if self._original_interaction_modal is None:
+            raise RuntimeError("InteractionResponse.send_modal není dostupné.")
+        return await self._original_interaction_modal(interaction.response, payload["modal"])
 
     async def _op_webhook_send(self, payload: dict[str, Any]):
         webhook = payload["webhook"]
+        if self._original_webhook_send is None:
+            raise RuntimeError("Webhook.send není dostupné v této verzi discord.py.")
         return await self._original_webhook_send(webhook, **payload["kwargs"])
 
     async def send_message(self, target: discord.abc.Messageable, **kwargs):
@@ -716,3 +1201,22 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             if role is not None:
                 roles.append(role)
         return roles
+
+    def _get_channel_original(
+        self,
+        channel: discord.abc.GuildChannel,
+        originals: dict[type, Callable[..., Any]],
+        op_name: str,
+    ):
+        for cls, original in originals.items():
+            if isinstance(channel, cls):
+                return original
+        self.logger.warning("Nenalezen originální %s pro kanál %s.", op_name, type(channel).__name__)
+        return None
+
+    def _get_messageable_original(self, target: discord.abc.Messageable):
+        for cls, original in self._messageable_send_originals.items():
+            if isinstance(target, cls):
+                return original
+        self.logger.warning("Nenalezen originální send pro %s.", type(target).__name__)
+        return None
