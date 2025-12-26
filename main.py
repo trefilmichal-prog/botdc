@@ -8,6 +8,7 @@ from discord.ext import commands
 
 from cog_attendance import AttendanceCog
 from cog_clan import ClanPanelCog
+from cog_discord_writer import DiscordWriteCoordinatorCog
 from cog_giveaway import GiveawayCog
 from cog_prophecy import ProphecyCog
 from cog_roblox_activity import RobloxActivityCog
@@ -66,6 +67,8 @@ class MyBot(commands.Bot):
                     "Přidání cogu %s selhalo, pokračuji dál.",
                     getattr(cog, "qualified_name", type(cog).__name__),
                 )
+
+        await add_cog_safe(DiscordWriteCoordinatorCog(self))
 
         # Nejdříve načteme kritické cogy, které musí fungovat i při chybě ostatních.
         await load_extension_safe("cog_logging")
