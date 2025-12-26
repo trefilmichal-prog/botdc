@@ -331,6 +331,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         self._queue: asyncio.Queue[WriteRequest] = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None
         self._last_write_at: float | None = None
+        self._blocked_until: float | None = None
         # DISCORD_WRITE_MIN_INTERVAL_SECONDS (např. 0.1–1.0 s) určuje minimální rozestup zápisů.
         self._min_interval_seconds = DISCORD_WRITE_MIN_INTERVAL_SECONDS
         self._patched = False
@@ -704,6 +705,10 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                 if exc.status == 429:
                     retry_after = getattr(exc, "retry_after", None)
                     delay = retry_after or self._min_interval_seconds
+                    now = asyncio.get_running_loop().time()
+                    blocked_until = now + delay
+                    if self._blocked_until is None or blocked_until > self._blocked_until:
+                        self._blocked_until = blocked_until
                     self.logger.warning(
                         "Rate limit hit, čekám %.2fs před opakováním.", delay
                     )
@@ -724,10 +729,14 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                 request.future.set_result(result)
 
     async def _respect_rate_limit(self):
-        if self._last_write_at is None:
-            return
         now = asyncio.get_running_loop().time()
-        wait_for = self._min_interval_seconds - (now - self._last_write_at)
+        wait_for = 0.0
+        if self._last_write_at is not None:
+            wait_for = max(
+                wait_for, self._min_interval_seconds - (now - self._last_write_at)
+            )
+        if self._blocked_until is not None and self._blocked_until > now:
+            wait_for = max(wait_for, self._blocked_until - now)
         if wait_for > 0:
             await asyncio.sleep(wait_for)
 
