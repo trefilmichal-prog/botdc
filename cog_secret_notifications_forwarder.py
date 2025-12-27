@@ -38,8 +38,9 @@ class SecretNotificationsForwarder(commands.Cog):
             if notifications is None:
                 return
 
-            logger.info("Přijaté notifikace: %s", len(notifications))
-            if not notifications:
+            if notifications:
+                logger.info("Přijaté notifikace: %s", len(notifications))
+            else:
                 return
 
             for notification in notifications:
