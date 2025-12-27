@@ -13,8 +13,16 @@ from config import (
     CLAN3_MEMBER_ROLE_ID,
     CLAN_MEMBER_ROLE_EN_ID,
     CLAN_MEMBER_ROLE_ID,
+    SETUP_MANAGER_ROLE_ID,
 )
-from db import get_connection, get_secret_drop_leaderboard, increment_secret_drop_stat
+from db import (
+    add_dropstats_panel,
+    get_all_dropstats_panels,
+    get_connection,
+    get_secret_drop_totals,
+    increment_secret_drop_stat,
+    remove_dropstats_panel,
+)
 
 
 API_TOKEN = "4613641698541651646845196419864189654"
@@ -48,6 +56,9 @@ class SecretNotificationsForwarder(commands.Cog):
         self.dropstats_group.command(
             name="leaderboard", description="Zobrazí celkový žebříček dropů."
         )(self.dropstats_leaderboard)
+        self.dropstats_group.command(
+            name="setup", description="Odešle do vybraného kanálu dropstats panel."
+        )(self.dropstats_setup)
         existing_group = self.bot.tree.get_command(
             "dropstats", type=discord.AppCommandType.chat_input
         )
@@ -81,6 +92,7 @@ class SecretNotificationsForwarder(commands.Cog):
             else:
                 return
 
+            updated_stats = False
             for notification in notifications:
                 lines = self._format_message_lines(notification)
                 if not lines:
@@ -93,6 +105,7 @@ class SecretNotificationsForwarder(commands.Cog):
                     continue
                 lines.append(f"Hráč: {' '.join(self._format_mentions(matched_players))}")
                 self._record_drop_stats(matched_players)
+                updated_stats = True
                 view = self._build_view(lines)
                 try:
                     await channel.send(
@@ -102,6 +115,8 @@ class SecretNotificationsForwarder(commands.Cog):
                 except Exception:
                     logger.exception("Odeslání notifikace do Discordu selhalo.")
                 await asyncio.sleep(0.3)
+            if updated_stats:
+                await self.refresh_dropstats_panels()
         except Exception:
             logger.exception("Neočekávaná chyba v notifikační smyčce.")
 
@@ -109,6 +124,7 @@ class SecretNotificationsForwarder(commands.Cog):
     async def before_poll_notifications(self):
         await self.bot.wait_until_ready()
         logger.info("Startuji smyčku pro přeposílání secret notifikací.")
+        await self.refresh_dropstats_panels()
 
     @tasks.loop(minutes=10)
     async def refresh_clan_member_cache(self):
@@ -405,34 +421,129 @@ class SecretNotificationsForwarder(commands.Cog):
                 logger.exception("Uložení denní statistiky dropu selhalo.")
 
     async def dropstats_leaderboard(self, interaction: discord.Interaction):
-        try:
-            rows = get_secret_drop_leaderboard(limit=50)
-        except Exception:
-            rows = []
-            logger.exception("Načtení statistiky dropu selhalo.")
+        view = self._build_dropstats_view()
+        await interaction.response.send_message(
+            view=view,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
 
-        clan_member_ids = {entry["id"] for entry in self._clan_member_cache.values()}
-        if clan_member_ids:
-            rows = [(user_id, count) for user_id, count in rows if user_id in clan_member_ids]
+    @app_commands.checks.has_permissions(manage_channels=True)
+    @app_commands.checks.has_role(SETUP_MANAGER_ROLE_ID)
+    @app_commands.describe(channel="Kanál, kam se má dropstats panel poslat.")
+    async def dropstats_setup(
+        self, interaction: discord.Interaction, channel: discord.TextChannel
+    ):
+        view = self._build_dropstats_view()
+        message = await channel.send(
+            view=view, allowed_mentions=discord.AllowedMentions.none()
+        )
+        if interaction.guild:
+            add_dropstats_panel(interaction.guild.id, channel.id, message.id)
+        await interaction.response.send_message(
+            f"Dropstats panel byl odeslán do {channel.mention}.", ephemeral=True
+        )
 
+    def _build_dropstats_view(self) -> discord.ui.LayoutView:
         view = discord.ui.LayoutView()
         container = discord.ui.Container()
+        container.add_item(discord.ui.TextDisplay(content="🏆 Dropstats leaderboard"))
         container.add_item(
-            discord.ui.TextDisplay(content="Celková statistika dropu")
+            discord.ui.TextDisplay(
+                content="Celkový přehled dropů pro všechny členy clanů."
+            )
         )
         container.add_item(discord.ui.Separator())
 
-        if rows:
-            top_rows = rows[:10]
-            for idx, (user_id, count) in enumerate(top_rows, start=1):
-                container.add_item(
-                    discord.ui.TextDisplay(content=f"{idx}. <@{user_id}> — {count}")
-                )
-        else:
-            container.add_item(discord.ui.TextDisplay(content="Žádná data."))
+        members = self._get_clan_member_entries()
+        if not members:
+            container.add_item(
+                discord.ui.TextDisplay(content="Žádní členové clanů nebyli nalezeni.")
+            )
+            view.add_item(container)
+            return view
 
-        view.add_item(container)
-        await interaction.response.send_message(
-            view=view,
-            allowed_mentions=discord.AllowedMentions(users=True),
+        totals = self._get_drop_totals_safe()
+        sorted_members = sorted(
+            members.items(),
+            key=lambda item: (-totals.get(item[0], 0), item[1].lower()),
         )
+        lines = [
+            f"{idx}. <@{user_id}> — {totals.get(user_id, 0)}"
+            for idx, (user_id, _) in enumerate(sorted_members, start=1)
+        ]
+        for chunk in self._chunk_lines(lines):
+            container.add_item(discord.ui.TextDisplay(content=chunk))
+
+        updated_at = int(datetime.now(timezone.utc).timestamp())
+        container.add_item(discord.ui.Separator())
+        container.add_item(
+            discord.ui.TextDisplay(content=f"Aktualizováno: <t:{updated_at}:R>")
+        )
+        view.add_item(container)
+        return view
+
+    def _get_drop_totals_safe(self) -> dict[int, int]:
+        try:
+            return get_secret_drop_totals()
+        except Exception:
+            logger.exception("Načtení statistiky dropu selhalo.")
+            return {}
+
+    def _get_clan_member_entries(self) -> dict[int, str]:
+        members: dict[int, str] = {}
+        for entry in self._clan_member_cache.values():
+            member_id = entry.get("id")
+            name = entry.get("name") or str(member_id)
+            if isinstance(member_id, int):
+                members.setdefault(member_id, str(name))
+        return members
+
+    def _chunk_lines(self, lines: List[str], max_len: int = 3500) -> List[str]:
+        chunks: List[str] = []
+        current: List[str] = []
+        current_len = 0
+        for line in lines:
+            addition = len(line) + (1 if current else 0)
+            if current and current_len + addition > max_len:
+                chunks.append("\n".join(current))
+                current = [line]
+                current_len = len(line)
+            else:
+                current.append(line)
+                current_len += addition
+        if current:
+            chunks.append("\n".join(current))
+        return chunks
+
+    async def refresh_dropstats_panels(self) -> None:
+        panels = get_all_dropstats_panels()
+        if not panels:
+            return
+
+        view = self._build_dropstats_view()
+        for guild_id, channel_id, message_id in panels:
+            guild = self.bot.get_guild(guild_id)
+            if guild is None:
+                remove_dropstats_panel(message_id)
+                continue
+
+            channel = guild.get_channel(channel_id)
+            if not isinstance(channel, discord.TextChannel):
+                remove_dropstats_panel(message_id)
+                continue
+
+            try:
+                msg = await channel.fetch_message(message_id)
+            except discord.NotFound:
+                remove_dropstats_panel(message_id)
+                continue
+            except discord.HTTPException:
+                continue
+
+            try:
+                await msg.edit(
+                    view=view, allowed_mentions=discord.AllowedMentions.none()
+                )
+                await asyncio.sleep(0.25)
+            except discord.HTTPException:
+                continue

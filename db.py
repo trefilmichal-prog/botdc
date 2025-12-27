@@ -50,6 +50,23 @@ def get_secret_drop_leaderboard(limit: int = 10) -> List[Tuple[int, int]]:
             conn.close()
 
 
+def get_secret_drop_totals() -> Dict[int, int]:
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.execute(
+            """
+            SELECT user_id, SUM(count) AS total_count
+            FROM secret_drop_stats
+            GROUP BY user_id
+            """
+        )
+        return {int(row[0]): int(row[1]) for row in cursor.fetchall()}
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def init_db():
     conn = get_connection()
     c = conn.cursor()
@@ -241,6 +258,16 @@ def init_db():
     c.execute(
         """
         CREATE TABLE IF NOT EXISTS leaderboard_panels (
+            message_id INTEGER PRIMARY KEY,
+            guild_id INTEGER NOT NULL,
+            channel_id INTEGER NOT NULL
+        )
+        """
+    )
+
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS dropstats_panels (
             message_id INTEGER PRIMARY KEY,
             guild_id INTEGER NOT NULL,
             channel_id INTEGER NOT NULL
@@ -1101,6 +1128,42 @@ def get_all_leaderboard_panels() -> list[tuple[int, int, int]]:
     conn = get_connection()
     c = conn.cursor()
     c.execute("SELECT guild_id, channel_id, message_id FROM leaderboard_panels")
+    rows = c.fetchall()
+    conn.close()
+    return [(int(g), int(ch), int(msg)) for g, ch, msg in rows]
+
+
+# ---------- DROPSTATS PANELY ----------
+
+def add_dropstats_panel(guild_id: int, channel_id: int, message_id: int):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO dropstats_panels (message_id, guild_id, channel_id)
+        VALUES (?, ?, ?)
+        ON CONFLICT(message_id) DO UPDATE SET
+            guild_id = excluded.guild_id,
+            channel_id = excluded.channel_id
+        """,
+        (message_id, guild_id, channel_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def remove_dropstats_panel(message_id: int):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM dropstats_panels WHERE message_id = ?", (message_id,))
+    conn.commit()
+    conn.close()
+
+
+def get_all_dropstats_panels() -> list[tuple[int, int, int]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT guild_id, channel_id, message_id FROM dropstats_panels")
     rows = c.fetchall()
     conn.close()
     return [(int(g), int(ch), int(msg)) for g, ch, msg in rows]
