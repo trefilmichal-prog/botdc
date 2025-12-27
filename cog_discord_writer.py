@@ -53,6 +53,77 @@ def _get_client_from_state(obj: Any) -> commands.Bot:
     return client
 
 
+def _sanitize_components_v2(components: Any, max_total: int = 4000, max_per: int = 4000):
+    try:
+        content_nodes: list[dict[str, Any]] = []
+
+        def sanitize_node(node: Any) -> None:
+            if node is None:
+                return
+            if isinstance(node, (list, tuple)):
+                for child in node:
+                    sanitize_node(child)
+                return
+            if isinstance(node, dict):
+                if "content" in node:
+                    value = node.get("content")
+                    if value is None:
+                        text = ""
+                    elif isinstance(value, str):
+                        text = value
+                    else:
+                        try:
+                            text = str(value)
+                        except Exception:  # noqa: BLE001
+                            text = ""
+                    if text.strip() == "":
+                        text = "\u200b"
+                    if len(text) > max_per:
+                        suffix = "… (zkráceno)"
+                        if len(suffix) >= max_per:
+                            text = text[:max_per]
+                        else:
+                            text = f"{text[:max_per - len(suffix)]}{suffix}"
+                    node["content"] = text
+                    content_nodes.append(node)
+                nested = node.get("components")
+                if nested is not None:
+                    sanitize_node(nested)
+                return
+
+        sanitize_node(components)
+
+        total_length = sum(len(node.get("content", "")) for node in content_nodes)
+        if total_length > max_total:
+            remaining = total_length - max_total
+            for node in reversed(content_nodes):
+                if remaining <= 0:
+                    break
+                content = node.get("content", "")
+                if not isinstance(content, str):
+                    try:
+                        content = str(content)
+                    except Exception:  # noqa: BLE001
+                        content = ""
+                if content.strip() == "":
+                    content = "\u200b"
+                current_len = len(content)
+                if current_len <= 1:
+                    node["content"] = content if content.strip() != "" else "\u200b"
+                    continue
+                reducible = current_len - 1
+                cut = min(reducible, remaining)
+                new_len = current_len - cut
+                trimmed = content[:new_len]
+                if trimmed.strip() == "":
+                    trimmed = "\u200b"
+                node["content"] = trimmed
+                remaining -= cut
+    except Exception:  # noqa: BLE001
+        return components
+    return components
+
+
 async def _patched_messageable_send(target: discord.abc.Messageable, *args, **kwargs):
     try:
         writer = get_writer(_get_client_from_state(target))
@@ -789,6 +860,14 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         raise ValueError(f"Neznámá operace: {op}")
 
     async def _op_send_message(self, payload: dict[str, Any]):
+        try:
+            kwargs = payload.get("kwargs") if isinstance(payload, dict) else None
+            if isinstance(kwargs, dict) and "components" in kwargs:
+                kwargs["components"] = _sanitize_components_v2(kwargs["components"])
+        except Exception as exc:  # noqa: BLE001
+            logging.getLogger("botdc.discord_write").warning(
+                "Sanitizace Components V2 selhala, pokračuji bez úprav.", exc_info=exc
+            )
         target = await self._resolve_target(payload)
         if target is None:
             raise RuntimeError("Cíl zprávy nebyl nalezen.")
