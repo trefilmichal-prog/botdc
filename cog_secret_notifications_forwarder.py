@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import discord
+from discord import app_commands
 from discord.ext import commands, tasks
 
 from config import (
@@ -13,7 +14,7 @@ from config import (
     CLAN_MEMBER_ROLE_EN_ID,
     CLAN_MEMBER_ROLE_ID,
 )
-from db import get_connection
+from db import get_connection, get_secret_drop_leaderboard, increment_secret_drop_stat
 
 
 API_TOKEN = "4613641698541651646845196419864189654"
@@ -41,12 +42,27 @@ class SecretNotificationsForwarder(commands.Cog):
         self._clan_member_cache: dict[str, dict[str, Any]] = {}
         self._clan_member_cache_updated_at: Optional[datetime] = None
         self._load_cached_players_from_db()
+        self.dropstats_group = app_commands.Group(
+            name="dropstats", description="Statistiky dropu"
+        )
+        self.dropstats_group.command(
+            name="daily", description="Zobrazí denní žebříček dropů."
+        )(self.dropstats_daily)
+        existing_group = self.bot.tree.get_command(
+            "dropstats", type=discord.AppCommandType.chat_input
+        )
+        if existing_group:
+            self.bot.tree.remove_command(
+                "dropstats", type=discord.AppCommandType.chat_input
+            )
+        self.bot.tree.add_command(self.dropstats_group)
         self.poll_notifications.start()
         self.refresh_clan_member_cache.start()
 
     def cog_unload(self):
         self.poll_notifications.cancel()
         self.refresh_clan_member_cache.cancel()
+        self.bot.tree.remove_command("dropstats", type=discord.AppCommandType.chat_input)
 
     @tasks.loop(seconds=2.5)
     async def poll_notifications(self):
@@ -75,7 +91,8 @@ class SecretNotificationsForwarder(commands.Cog):
                 matched_players = self._find_player_mentions(text_body)
                 if not matched_players:
                     continue
-                lines.append(f"Hráč: {' '.join(matched_players)}")
+                lines.append(f"Hráč: {' '.join(self._format_mentions(matched_players))}")
+                self._record_drop_stats(matched_players)
                 view = self._build_view(lines)
                 try:
                     await channel.send(
@@ -206,23 +223,26 @@ class SecretNotificationsForwarder(commands.Cog):
             logger.exception("Chyba při filtrování textu notifikace.")
             return False
 
-    def _find_player_mentions(self, text_line: str) -> List[str]:
+    def _find_player_mentions(self, text_line: str) -> List[int]:
         try:
             if not text_line:
                 return []
             lower_text = text_line.lower()
-            matched_mentions = []
+            matched_ids = []
             seen_ids = set()
             for name, entry in self._clan_member_cache.items():
                 if name and name in lower_text:
                     member_id = entry.get("id")
                     if member_id not in seen_ids:
-                        matched_mentions.append(f"<@{member_id}>")
+                        matched_ids.append(int(member_id))
                         seen_ids.add(member_id)
-            return matched_mentions
+            return matched_ids
         except Exception:
             logger.exception("Chyba při vyhledání hráče v textu notifikace.")
             return []
+
+    def _format_mentions(self, player_ids: List[int]) -> List[str]:
+        return [f"<@{player_id}>" for player_id in player_ids]
 
     def _build_view(self, lines: List[str]) -> discord.ui.LayoutView:
         view = discord.ui.LayoutView()
@@ -355,3 +375,42 @@ class SecretNotificationsForwarder(commands.Cog):
                     conn.close()
                 except Exception:
                     logger.exception("Uzavření DB spojení selhalo.")
+
+    def _record_drop_stats(self, player_ids: List[int]) -> None:
+        if not player_ids:
+            return
+        date_value = datetime.now(timezone.utc).date().isoformat()
+        for player_id in player_ids:
+            try:
+                increment_secret_drop_stat(date_value, int(player_id), 1)
+            except Exception:
+                logger.exception("Uložení denní statistiky dropu selhalo.")
+
+    async def dropstats_daily(self, interaction: discord.Interaction):
+        date_value = datetime.now(timezone.utc).date().isoformat()
+        try:
+            rows = get_secret_drop_leaderboard(date_value, limit=10)
+        except Exception:
+            rows = []
+            logger.exception("Načtení denní statistiky dropu selhalo.")
+
+        view = discord.ui.LayoutView()
+        container = discord.ui.Container()
+        container.add_item(
+            discord.ui.TextDisplay(content=f"Denní statistika dropu ({date_value})")
+        )
+        container.add_item(discord.ui.Separator())
+
+        if rows:
+            for idx, (user_id, count) in enumerate(rows, start=1):
+                container.add_item(
+                    discord.ui.TextDisplay(content=f"{idx}. <@{user_id}> — {count}")
+                )
+        else:
+            container.add_item(discord.ui.TextDisplay(content="Žádná data pro dnešek."))
+
+        view.add_item(container)
+        await interaction.response.send_message(
+            view=view,
+            allowed_mentions=discord.AllowedMentions(users=True),
+        )
