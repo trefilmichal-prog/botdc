@@ -811,6 +811,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             raise RuntimeError("Message.edit není dostupné.")
         if "kwargs" in payload:
             self._sanitize_view_kwargs(payload["kwargs"])
+            self._sanitize_components_v2_kwargs(payload["kwargs"])
         return await original(message, **payload["kwargs"])
 
     async def _op_delete_message(self, payload: dict[str, Any]):
