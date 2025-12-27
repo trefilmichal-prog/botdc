@@ -1202,7 +1202,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             for field in ("content", "label", "value"):
                 if field in item:
                     item[field] = self._sanitize_text_component_value(item[field])
-            nested = item.get("components") or item.get("children")
+            nested = item.get("components") or item.get("children") or item.get("items")
             if nested:
                 self._sanitize_component_item(nested)
             return
@@ -1210,7 +1210,11 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             if hasattr(item, field):
                 value = getattr(item, field, None)
                 setattr(item, field, self._sanitize_text_component_value(value))
-        children = getattr(item, "children", None) or getattr(item, "components", None)
+        children = (
+            getattr(item, "children", None)
+            or getattr(item, "components", None)
+            or getattr(item, "items", None)
+        )
         if children:
             self._sanitize_component_item(children)
 
