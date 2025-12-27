@@ -200,7 +200,8 @@ class SecretNotificationsForwarder(commands.Cog):
 
     def _should_forward(self, text_line: str) -> bool:
         try:
-            return "hatched" in (text_line or "").lower()
+            lowered = (text_line or "").lower()
+            return "hatched" in lowered or "rolled" in lowered
         except Exception:
             logger.exception("Chyba při filtrování textu notifikace.")
             return False
