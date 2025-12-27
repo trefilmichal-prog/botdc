@@ -1085,6 +1085,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         return await self._enqueue("interaction_modal", payload, persist=False)
 
     async def send_webhook_message(self, webhook: discord.Webhook, *args, **kwargs):
+        self._sanitize_view_kwargs(kwargs)
         payload = {"webhook": webhook, "args": args, "kwargs": kwargs}
         return await self._enqueue("webhook_send", payload, persist=False)
 
@@ -1155,30 +1156,50 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
     def _sanitize_view_kwargs(self, kwargs: dict[str, Any]) -> None:
         view = kwargs.get("view")
         if view is None:
+            if kwargs.get("components") is not None:
+                self._sanitize_component_item(kwargs["components"])
             return
         children = getattr(view, "children", None)
-        if children is None:
-            return
-        self._sanitize_layout_items(children)
+        if children is not None:
+            self._sanitize_layout_items(children)
+        if kwargs.get("components") is not None:
+            self._sanitize_component_item(kwargs["components"])
 
     def _sanitize_layout_items(self, items: list[Any]) -> None:
         for item in items:
-            self._sanitize_layout_item(item)
+            self._sanitize_component_item(item)
 
-    def _sanitize_layout_item(self, item: Any) -> None:
+    def _sanitize_text_component_value(self, value: Any) -> str:
+        text = str(value)
+        if text == "":
+            return " "
+        if len(text) > 4000:
+            return f"{text[:3997]}..."
+        return text
+
+    def _sanitize_component_item(self, item: Any) -> None:
         if item is None:
             return
-        content = getattr(item, "content", None)
-        if content is not None:
-            text = str(content)
-            if text == "":
-                text = " "
-            if len(text) > 4000:
-                text = f"{text[:3997]}..."
-            item.content = text
-        children = getattr(item, "children", None)
+        if isinstance(item, list):
+            for child in item:
+                self._sanitize_component_item(child)
+            return
+        if isinstance(item, dict):
+            for field in ("content", "label", "value"):
+                if field in item and item[field] is not None:
+                    item[field] = self._sanitize_text_component_value(item[field])
+            nested = item.get("components") or item.get("children")
+            if nested:
+                self._sanitize_component_item(nested)
+            return
+        for field in ("content", "label", "value"):
+            if hasattr(item, field):
+                value = getattr(item, field, None)
+                if value is not None:
+                    setattr(item, field, self._sanitize_text_component_value(value))
+        children = getattr(item, "children", None) or getattr(item, "components", None)
         if children:
-            self._sanitize_layout_items(children)
+            self._sanitize_component_item(children)
 
     def _build_send_payload(self, target: discord.abc.Messageable, kwargs: dict[str, Any]):
         payload_kwargs = kwargs.copy()
