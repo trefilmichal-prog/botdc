@@ -69,15 +69,19 @@ class SecretNotificationsForwarder(commands.Cog):
                 lines = self._format_message_lines(notification)
                 if not lines:
                     continue
-                if not self._should_forward(lines[1]):
+                text_body = "\n".join(lines[1:]) if len(lines) > 1 else ""
+                if not self._should_forward(text_body):
                     continue
-                matched_players = self._find_player_mentions(lines[1])
+                matched_players = self._find_player_mentions(text_body)
                 if not matched_players:
                     continue
                 lines.append(f"Hráč: {' '.join(matched_players)}")
                 view = self._build_view(lines)
                 try:
-                    await channel.send(view=view)
+                    await channel.send(
+                        view=view,
+                        allowed_mentions=discord.AllowedMentions(users=True),
+                    )
                 except Exception:
                     logger.exception("Odeslání notifikace do Discordu selhalo.")
                 await asyncio.sleep(0.3)
@@ -171,8 +175,8 @@ class SecretNotificationsForwarder(commands.Cog):
             text_line = text_joined or self._extract_text_from_raw(notification)
 
             line1 = f"[APP] {app_name}"
-            line2 = text_line or ""
-            return [line1, line2]
+            text_lines = (text_line or "").splitlines() or [""]
+            return [line1, *text_lines]
         except Exception:
             logger.exception("Chyba při formátování notifikace.")
             return None
