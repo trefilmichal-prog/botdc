@@ -46,8 +46,8 @@ class SecretNotificationsForwarder(commands.Cog):
             name="dropstats", description="Statistiky dropu"
         )
         self.dropstats_group.command(
-            name="daily", description="Zobrazí denní žebříček dropů."
-        )(self.dropstats_daily)
+            name="leaderboard", description="Zobrazí celkový žebříček dropů."
+        )(self.dropstats_leaderboard)
         existing_group = self.bot.tree.get_command(
             "dropstats", type=discord.AppCommandType.chat_input
         )
@@ -386,18 +386,17 @@ class SecretNotificationsForwarder(commands.Cog):
             except Exception:
                 logger.exception("Uložení denní statistiky dropu selhalo.")
 
-    async def dropstats_daily(self, interaction: discord.Interaction):
-        date_value = datetime.now(timezone.utc).date().isoformat()
+    async def dropstats_leaderboard(self, interaction: discord.Interaction):
         try:
-            rows = get_secret_drop_leaderboard(date_value, limit=10)
+            rows = get_secret_drop_leaderboard(limit=10)
         except Exception:
             rows = []
-            logger.exception("Načtení denní statistiky dropu selhalo.")
+            logger.exception("Načtení statistiky dropu selhalo.")
 
         view = discord.ui.LayoutView()
         container = discord.ui.Container()
         container.add_item(
-            discord.ui.TextDisplay(content=f"Denní statistika dropu ({date_value})")
+            discord.ui.TextDisplay(content="Celková statistika dropu")
         )
         container.add_item(discord.ui.Separator())
 
@@ -407,7 +406,7 @@ class SecretNotificationsForwarder(commands.Cog):
                     discord.ui.TextDisplay(content=f"{idx}. <@{user_id}> — {count}")
                 )
         else:
-            container.add_item(discord.ui.TextDisplay(content="Žádná data pro dnešek."))
+            container.add_item(discord.ui.TextDisplay(content="Žádná data."))
 
         view.add_item(container)
         await interaction.response.send_message(

@@ -30,19 +30,19 @@ def increment_secret_drop_stat(date_value: str, user_id: int, amount: int = 1) -
             conn.close()
 
 
-def get_secret_drop_leaderboard(date_value: str, limit: int = 10) -> List[Tuple[int, int]]:
+def get_secret_drop_leaderboard(limit: int = 10) -> List[Tuple[int, int]]:
     conn = None
     try:
         conn = get_connection()
         cursor = conn.execute(
             """
-            SELECT user_id, count
+            SELECT user_id, SUM(count) AS total_count
             FROM secret_drop_stats
-            WHERE date = ?
-            ORDER BY count DESC, user_id ASC
+            GROUP BY user_id
+            ORDER BY total_count DESC, user_id ASC
             LIMIT ?
             """,
-            (date_value, limit),
+            (limit,),
         )
         return [(int(row[0]), int(row[1])) for row in cursor.fetchall()]
     finally:
