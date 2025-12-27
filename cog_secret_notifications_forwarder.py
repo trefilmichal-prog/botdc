@@ -13,6 +13,15 @@ from config import (
     CLAN3_MEMBER_ROLE_ID,
     CLAN_MEMBER_ROLE_EN_ID,
     CLAN_MEMBER_ROLE_ID,
+    SETUP_MANAGER_ROLE_ID,
+)
+from db import (
+    add_dropstats_panel,
+    get_all_dropstats_panels,
+    get_connection,
+    get_secret_drop_totals,
+    increment_secret_drop_stat,
+    remove_dropstats_panel,
 )
 from db import (
     add_dropstats_panel,
