@@ -797,6 +797,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             raise RuntimeError("Send není dostupný pro daný target.")
         if "kwargs" in payload:
             self._sanitize_view_kwargs(payload["kwargs"])
+            self._sanitize_components_v2_kwargs(payload["kwargs"])
         return await original(target, **payload["kwargs"])
 
     async def _op_edit_message(self, payload: dict[str, Any]):
@@ -1217,6 +1218,84 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         )
         if children:
             self._sanitize_component_item(children)
+
+    def _sanitize_components_v2_kwargs(self, kwargs: dict[str, Any]) -> None:
+        components = kwargs.get("components")
+        if components is None:
+            return
+        try:
+            self._sanitize_components_v2(components)
+        except Exception as exc:  # noqa: BLE001
+            self.logger.warning(
+                "Sanitizace Components V2 selhala, pokračuji bez úprav.", exc_info=exc
+            )
+
+    def _sanitize_components_v2(self, components: Any) -> None:
+        content_entries: list[tuple[dict[str, Any], str]] = []
+
+        def collect_items(node: Any) -> None:
+            if node is None:
+                return
+            if isinstance(node, (list, tuple)):
+                for child in node:
+                    collect_items(child)
+                return
+            if isinstance(node, dict):
+                if "content" in node:
+                    content_entries.append((node, "content"))
+                nested = node.get("components")
+                if nested is not None:
+                    collect_items(nested)
+                return
+
+        collect_items(components)
+        if not content_entries:
+            return
+
+        total_length = 0
+        for item, key in content_entries:
+            text = self._sanitize_text_display_content(item.get(key))
+            item[key] = text
+            total_length += len(text)
+
+        if total_length <= 4000:
+            return
+
+        over_limit = total_length - 4000
+        for item, key in reversed(content_entries):
+            if over_limit <= 0:
+                break
+            text = str(item.get(key, ""))
+            if text == "":
+                text = "\u200b"
+            min_len = 1
+            if len(text) <= min_len:
+                continue
+            reduction = min(over_limit, len(text) - min_len)
+            new_len = len(text) - reduction
+            if new_len <= min_len:
+                new_text = "\u200b"
+            else:
+                new_text = text[:new_len]
+            item[key] = new_text
+            over_limit -= reduction
+
+    def _sanitize_text_display_content(self, value: Any) -> str:
+        if value is None:
+            return "\u200b"
+        try:
+            text = str(value)
+        except Exception:  # noqa: BLE001
+            text = repr(value)
+        if text.strip() == "":
+            return "\u200b"
+        if len(text) > 4000:
+            suffix = "… (zkráceno)"
+            limit = 4000
+            if len(suffix) >= limit:
+                return text[:limit]
+            return f"{text[:limit - len(suffix)]}{suffix}"
+        return text
 
     def _build_send_payload(self, target: discord.abc.Messageable, kwargs: dict[str, Any]):
         payload_kwargs = kwargs.copy()
