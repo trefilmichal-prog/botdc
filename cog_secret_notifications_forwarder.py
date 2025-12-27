@@ -23,6 +23,7 @@ from db import (
     get_secret_drop_totals,
     increment_secret_drop_stat,
     remove_dropstats_panel,
+    reset_secret_drop_stats,
 )
 
 
@@ -60,6 +61,9 @@ class SecretNotificationsForwarder(commands.Cog):
         self.dropstats_group.command(
             name="setup", description="Odešle do vybraného kanálu dropstats panel."
         )(self.dropstats_setup)
+        self.dropstats_group.command(
+            name="reset", description="Resetuje dropstats leaderboard."
+        )(self.dropstats_reset)
         existing_group = self.bot.tree.get_command(
             "dropstats", type=discord.AppCommandType.chat_input
         )
@@ -99,8 +103,6 @@ class SecretNotificationsForwarder(commands.Cog):
                 if not lines:
                     continue
                 text_body = "\n".join(lines[1:]) if len(lines) > 1 else ""
-                if not self._should_forward(text_body):
-                    continue
                 matched_players = self._find_player_mentions(text_body)
                 if not matched_players:
                     continue
@@ -208,6 +210,9 @@ class SecretNotificationsForwarder(commands.Cog):
 
     def _format_message_lines(self, notification: Dict[str, Any]) -> Optional[List[str]]:
         try:
+            panel_lines = self._extract_panel_text_from_notification(notification)
+            if panel_lines is not None:
+                return panel_lines
             app_display_name = notification.get("app_display_name")
             app_user_model_id = notification.get("app_user_model_id")
             app_name = app_display_name or app_user_model_id or "unknown"
@@ -221,6 +226,39 @@ class SecretNotificationsForwarder(commands.Cog):
         except Exception:
             logger.exception("Chyba při formátování notifikace.")
             return None
+
+    def _extract_panel_text_from_notification(
+        self, payload: Dict[str, Any]
+    ) -> Optional[List[str]]:
+        if "notification" not in payload:
+            return None
+        notification = payload.get("notification")
+        if not isinstance(notification, dict):
+            return None
+        text_value = notification.get("text")
+        title_text = ""
+        body_text = ""
+        if isinstance(text_value, list):
+            if text_value:
+                title_text = text_value[0]
+                body_text = text_value[1] if len(text_value) > 1 else text_value[0]
+        elif isinstance(text_value, str):
+            body_text = text_value
+        return [
+            self._normalize_panel_text(title_text),
+            self._normalize_panel_text(body_text),
+        ]
+
+    def _normalize_panel_text(self, value: Any) -> str:
+        if value is None:
+            return "\u200b"
+        try:
+            text = str(value)
+        except Exception:
+            return "\u200b"
+        if text.strip() == "":
+            return "\u200b"
+        return text
 
     def _extract_text_from_raw(self, notification: Dict[str, Any]) -> str:
         raw_json = notification.get("raw_json")
@@ -296,16 +334,16 @@ class SecretNotificationsForwarder(commands.Cog):
         normalized: List[str] = []
         for line in lines:
             if line is None:
-                normalized.append(" ")
+                normalized.append("\u200b")
                 continue
             text = str(line)
-            if text == "":
-                normalized.append(" ")
+            if text.strip() == "":
+                normalized.append("\u200b")
                 continue
             while text:
                 chunk = text[:4000]
-                if chunk == "":
-                    chunk = " "
+                if chunk.strip() == "":
+                    chunk = "\u200b"
                 normalized.append(chunk)
                 text = text[4000:]
         return normalized
@@ -465,6 +503,28 @@ class SecretNotificationsForwarder(commands.Cog):
         await interaction.response.send_message(
             f"Dropstats panel byl odeslán do kanálu #{channel.name}.", ephemeral=True
         )
+
+    @app_commands.checks.has_permissions(manage_channels=True)
+    async def dropstats_reset(self, interaction: discord.Interaction):
+        try:
+            reset_secret_drop_stats()
+            await self.refresh_dropstats_panels()
+            view = self._build_notice_view(
+                "✅ Dropstats leaderboard byl resetován."
+            )
+        except Exception:
+            logger.exception("Reset dropstats leaderboardu selhal.")
+            view = self._build_notice_view(
+                "⚠️ Reset dropstats leaderboardu se nepodařil."
+            )
+        await interaction.response.send_message(view=view, ephemeral=True)
+
+    def _build_notice_view(self, message: str) -> discord.ui.LayoutView:
+        view = discord.ui.LayoutView()
+        container = discord.ui.Container()
+        container.add_item(discord.ui.TextDisplay(content=message))
+        view.add_item(container)
+        return view
 
     def _build_dropstats_view(self) -> discord.ui.LayoutView:
         view = discord.ui.LayoutView()
