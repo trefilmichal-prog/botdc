@@ -795,6 +795,8 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         original = self._get_messageable_original(target)
         if original is None:
             raise RuntimeError("Send není dostupný pro daný target.")
+        if "kwargs" in payload:
+            self._sanitize_view_kwargs(payload["kwargs"])
         return await original(target, **payload["kwargs"])
 
     async def _op_edit_message(self, payload: dict[str, Any]):
@@ -806,6 +808,8 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             original = getattr(type(message), "edit", None)
         if original is None:
             raise RuntimeError("Message.edit není dostupné.")
+        if "kwargs" in payload:
+            self._sanitize_view_kwargs(payload["kwargs"])
         return await original(message, **payload["kwargs"])
 
     async def _op_delete_message(self, payload: dict[str, Any]):
@@ -906,6 +910,8 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         interaction = payload["interaction"]
         if self._original_interaction_send is None:
             raise RuntimeError("InteractionResponse.send_message není dostupné.")
+        if "kwargs" in payload:
+            self._sanitize_view_kwargs(payload["kwargs"])
         return await self._original_interaction_send(
             interaction.response,
             *payload.get("args", ()),
@@ -914,6 +920,8 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
 
     async def _op_interaction_followup(self, payload: dict[str, Any]):
         interaction = payload["interaction"]
+        if "kwargs" in payload:
+            self._sanitize_view_kwargs(payload["kwargs"])
         if self._original_webhook_send is not None:
             return await self._original_webhook_send(interaction.followup, **payload["kwargs"])
         if self._original_followup_send is not None:
@@ -924,6 +932,8 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         interaction = payload["interaction"]
         if self._original_interaction_edit is None:
             raise RuntimeError("InteractionResponse.edit_message není dostupné.")
+        if "kwargs" in payload:
+            self._sanitize_view_kwargs(payload["kwargs"])
         return await self._original_interaction_edit(
             interaction.response,
             *payload.get("args", ()),
@@ -950,6 +960,8 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         webhook = payload["webhook"]
         if self._original_webhook_send is None:
             raise RuntimeError("Webhook.send není dostupné v této verzi discord.py.")
+        if "kwargs" in payload:
+            self._sanitize_view_kwargs(payload["kwargs"])
         return await self._original_webhook_send(
             webhook, *payload.get("args", ()), **payload["kwargs"]
         )
