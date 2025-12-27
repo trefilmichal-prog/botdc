@@ -23,6 +23,14 @@ from db import (
     increment_secret_drop_stat,
     remove_dropstats_panel,
 )
+from db import (
+    add_dropstats_panel,
+    get_all_dropstats_panels,
+    get_connection,
+    get_secret_drop_totals,
+    increment_secret_drop_stat,
+    remove_dropstats_panel,
+)
 
 
 API_TOKEN = "4613641698541651646845196419864189654"
@@ -428,7 +436,6 @@ class SecretNotificationsForwarder(commands.Cog):
         )
 
     @app_commands.checks.has_permissions(manage_channels=True)
-    @app_commands.checks.has_role(SETUP_MANAGER_ROLE_ID)
     @app_commands.describe(channel="Kanál, kam se má dropstats panel poslat.")
     async def dropstats_setup(
         self, interaction: discord.Interaction, channel: discord.TextChannel
