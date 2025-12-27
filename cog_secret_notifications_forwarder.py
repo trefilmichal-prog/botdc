@@ -104,6 +104,9 @@ class SecretNotificationsForwarder(commands.Cog):
                 matched_players = self._find_player_mentions(text_body)
                 if not matched_players:
                     continue
+                mention_line = self._format_player_mentions(matched_players)
+                if mention_line:
+                    lines.append(f"Ping: {mention_line}")
                 lines.append(
                     f"Hráč: {', '.join(self._format_player_names(matched_players))}"
                 )
@@ -113,7 +116,9 @@ class SecretNotificationsForwarder(commands.Cog):
                 try:
                     await channel.send(
                         view=view,
-                        allowed_mentions=discord.AllowedMentions.none(),
+                        allowed_mentions=discord.AllowedMentions(
+                            users=True, roles=False, everyone=False
+                        ),
                     )
                 except Exception:
                     logger.exception("Odeslání notifikace do Discordu selhalo.")
@@ -262,6 +267,9 @@ class SecretNotificationsForwarder(commands.Cog):
 
     def _format_player_names(self, player_ids: List[int]) -> List[str]:
         return [self._get_display_name_for_id(player_id) for player_id in player_ids]
+
+    def _format_player_mentions(self, player_ids: List[int]) -> str:
+        return ", ".join(f"<@{player_id}>" for player_id in player_ids)
 
     def _get_display_name_for_id(self, player_id: int) -> str:
         for entry in self._clan_member_cache.values():
