@@ -99,18 +99,17 @@ class SecretNotificationsForwarder(commands.Cog):
                 if not lines:
                     continue
                 text_body = "\n".join(lines[1:]) if len(lines) > 1 else ""
-                matched_players: List[int] = []
-                if self._should_forward(text_body):
-                    matched_players = self._find_player_mentions(text_body)
-                    if matched_players:
-                        mention_line = self._format_player_mentions(matched_players)
-                        if mention_line:
-                            lines.append(f"Ping: {mention_line}")
-                        lines.append(
-                            f"Hráč: {', '.join(self._format_player_names(matched_players))}"
-                        )
-                        self._record_drop_stats(matched_players)
-                        updated_stats = True
+                matched_players = self._find_player_mentions(text_body)
+                if not matched_players:
+                    continue
+                mention_line = self._format_player_mentions(matched_players)
+                if mention_line:
+                    lines.append(f"Ping: {mention_line}")
+                lines.append(
+                    f"Hráč: {', '.join(self._format_player_names(matched_players))}"
+                )
+                self._record_drop_stats(matched_players)
+                updated_stats = True
                 view = self._build_view(lines)
                 try:
                     await channel.send(
