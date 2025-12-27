@@ -104,14 +104,16 @@ class SecretNotificationsForwarder(commands.Cog):
                 matched_players = self._find_player_mentions(text_body)
                 if not matched_players:
                     continue
-                lines.append(f"Hráč: {' '.join(self._format_mentions(matched_players))}")
+                lines.append(
+                    f"Hráč: {', '.join(self._format_player_names(matched_players))}"
+                )
                 self._record_drop_stats(matched_players)
                 updated_stats = True
                 view = self._build_view(lines)
                 try:
                     await channel.send(
                         view=view,
-                        allowed_mentions=discord.AllowedMentions(users=True),
+                        allowed_mentions=discord.AllowedMentions.none(),
                     )
                 except Exception:
                     logger.exception("Odeslání notifikace do Discordu selhalo.")
@@ -258,8 +260,14 @@ class SecretNotificationsForwarder(commands.Cog):
             logger.exception("Chyba při vyhledání hráče v textu notifikace.")
             return []
 
-    def _format_mentions(self, player_ids: List[int]) -> List[str]:
-        return [f"<@{player_id}>" for player_id in player_ids]
+    def _format_player_names(self, player_ids: List[int]) -> List[str]:
+        return [self._get_display_name_for_id(player_id) for player_id in player_ids]
+
+    def _get_display_name_for_id(self, player_id: int) -> str:
+        for entry in self._clan_member_cache.values():
+            if entry.get("id") == player_id:
+                return str(entry.get("name") or player_id)
+        return str(player_id)
 
     def _has_exact_name_match(self, text: str, name: str) -> bool:
         if not text or not name:
@@ -447,16 +455,21 @@ class SecretNotificationsForwarder(commands.Cog):
         if interaction.guild:
             add_dropstats_panel(interaction.guild.id, channel.id, message.id)
         await interaction.response.send_message(
-            f"Dropstats panel byl odeslán do {channel.mention}.", ephemeral=True
+            f"Dropstats panel byl odeslán do kanálu #{channel.name}.", ephemeral=True
         )
 
     def _build_dropstats_view(self) -> discord.ui.LayoutView:
         view = discord.ui.LayoutView()
         container = discord.ui.Container()
-        container.add_item(discord.ui.TextDisplay(content="🏆 Dropstats leaderboard"))
+        container.add_item(
+            discord.ui.TextDisplay(content="🏆 **Dropstats leaderboard**")
+        )
         container.add_item(
             discord.ui.TextDisplay(
-                content="Celkový přehled dropů pro všechny členy clanů."
+                content=(
+                    "Celkový přehled dropů pro všechny členy clanů. "
+                    "Počty se aktualizují automaticky."
+                )
             )
         )
         container.add_item(discord.ui.Separator())
@@ -475,7 +488,7 @@ class SecretNotificationsForwarder(commands.Cog):
             key=lambda item: (-totals.get(item[0], 0), item[1].lower()),
         )
         lines = [
-            f"{idx}. <@{user_id}> — {totals.get(user_id, 0)}"
+            f"**{idx}. {members[user_id]}** — `{totals.get(user_id, 0)}`"
             for idx, (user_id, _) in enumerate(sorted_members, start=1)
         ]
         for chunk in self._chunk_lines(lines):
