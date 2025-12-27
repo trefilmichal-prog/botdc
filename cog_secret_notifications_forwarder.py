@@ -32,6 +32,7 @@ CLAN_MEMBER_ROLE_IDS = [
 ]
 
 logger = logging.getLogger("botdc.secret_notifications")
+logger.disabled = True
 
 
 class SecretNotificationsForwarder(commands.Cog):
