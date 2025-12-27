@@ -247,10 +247,28 @@ class SecretNotificationsForwarder(commands.Cog):
     def _build_view(self, lines: List[str]) -> discord.ui.LayoutView:
         view = discord.ui.LayoutView()
         container = discord.ui.Container()
-        for line in lines:
+        for line in self._normalize_lines(lines):
             container.add_item(discord.ui.TextDisplay(content=line))
         view.add_item(container)
         return view
+
+    def _normalize_lines(self, lines: List[str]) -> List[str]:
+        normalized: List[str] = []
+        for line in lines:
+            if line is None:
+                normalized.append(" ")
+                continue
+            text = str(line)
+            if text == "":
+                normalized.append(" ")
+                continue
+            while text:
+                chunk = text[:4000]
+                if chunk == "":
+                    chunk = " "
+                normalized.append(chunk)
+                text = text[4000:]
+        return normalized
 
     def _update_last_success(self) -> None:
         timestamp = datetime.now(timezone.utc).isoformat()
@@ -388,10 +406,14 @@ class SecretNotificationsForwarder(commands.Cog):
 
     async def dropstats_leaderboard(self, interaction: discord.Interaction):
         try:
-            rows = get_secret_drop_leaderboard(limit=10)
+            rows = get_secret_drop_leaderboard(limit=50)
         except Exception:
             rows = []
             logger.exception("Načtení statistiky dropu selhalo.")
+
+        clan_member_ids = {entry["id"] for entry in self._clan_member_cache.values()}
+        if clan_member_ids:
+            rows = [(user_id, count) for user_id, count in rows if user_id in clan_member_ids]
 
         view = discord.ui.LayoutView()
         container = discord.ui.Container()
@@ -401,7 +423,8 @@ class SecretNotificationsForwarder(commands.Cog):
         container.add_item(discord.ui.Separator())
 
         if rows:
-            for idx, (user_id, count) in enumerate(rows, start=1):
+            top_rows = rows[:10]
+            for idx, (user_id, count) in enumerate(top_rows, start=1):
                 container.add_item(
                     discord.ui.TextDisplay(content=f"{idx}. <@{user_id}> — {count}")
                 )
