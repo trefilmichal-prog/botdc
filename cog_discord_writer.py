@@ -811,6 +811,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             raise RuntimeError("Message.edit není dostupné.")
         if "kwargs" in payload:
             self._sanitize_view_kwargs(payload["kwargs"])
+            self._sanitize_components_v2_kwargs(payload["kwargs"])
         return await original(message, **payload["kwargs"])
 
     async def _op_delete_message(self, payload: dict[str, Any]):
@@ -913,6 +914,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             raise RuntimeError("InteractionResponse.send_message není dostupné.")
         if "kwargs" in payload:
             self._sanitize_view_kwargs(payload["kwargs"])
+            self._sanitize_components_v2_kwargs(payload["kwargs"])
         return await self._original_interaction_send(
             interaction.response,
             *payload.get("args", ()),
@@ -923,6 +925,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         interaction = payload["interaction"]
         if "kwargs" in payload:
             self._sanitize_view_kwargs(payload["kwargs"])
+            self._sanitize_components_v2_kwargs(payload["kwargs"])
         if self._original_webhook_send is not None:
             return await self._original_webhook_send(interaction.followup, **payload["kwargs"])
         if self._original_followup_send is not None:
@@ -935,6 +938,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             raise RuntimeError("InteractionResponse.edit_message není dostupné.")
         if "kwargs" in payload:
             self._sanitize_view_kwargs(payload["kwargs"])
+            self._sanitize_components_v2_kwargs(payload["kwargs"])
         return await self._original_interaction_edit(
             interaction.response,
             *payload.get("args", ()),
@@ -963,6 +967,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             raise RuntimeError("Webhook.send není dostupné v této verzi discord.py.")
         if "kwargs" in payload:
             self._sanitize_view_kwargs(payload["kwargs"])
+            self._sanitize_components_v2_kwargs(payload["kwargs"])
         return await self._original_webhook_send(
             webhook, *payload.get("args", ()), **payload["kwargs"]
         )
@@ -1231,62 +1236,33 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             )
 
     def _sanitize_components_v2(self, components: Any) -> None:
-        content_entries: list[tuple[dict[str, Any], str]] = []
-
-        def collect_items(node: Any) -> None:
+        def sanitize_node(node: Any) -> None:
             if node is None:
                 return
             if isinstance(node, (list, tuple)):
                 for child in node:
-                    collect_items(child)
+                    sanitize_node(child)
                 return
             if isinstance(node, dict):
                 if "content" in node:
-                    content_entries.append((node, "content"))
+                    node["content"] = self.safe_textdisplay_content(node.get("content"))
                 nested = node.get("components")
                 if nested is not None:
-                    collect_items(nested)
+                    sanitize_node(nested)
                 return
 
-        collect_items(components)
-        if not content_entries:
-            return
+        sanitize_node(components)
 
-        total_length = 0
-        for item, key in content_entries:
-            text = self._sanitize_text_display_content(item.get(key))
-            item[key] = text
-            total_length += len(text)
-
-        if total_length <= 4000:
-            return
-
-        over_limit = total_length - 4000
-        for item, key in reversed(content_entries):
-            if over_limit <= 0:
-                break
-            text = str(item.get(key, ""))
-            if text == "":
-                text = "\u200b"
-            min_len = 1
-            if len(text) <= min_len:
-                continue
-            reduction = min(over_limit, len(text) - min_len)
-            new_len = len(text) - reduction
-            if new_len <= min_len:
-                new_text = "\u200b"
-            else:
-                new_text = text[:new_len]
-            item[key] = new_text
-            over_limit -= reduction
-
-    def _sanitize_text_display_content(self, value: Any) -> str:
+    def safe_textdisplay_content(self, value: Any) -> str:
         if value is None:
-            return "\u200b"
-        try:
-            text = str(value)
-        except Exception:  # noqa: BLE001
-            text = repr(value)
+            text = ""
+        elif isinstance(value, str):
+            text = value
+        else:
+            try:
+                text = str(value)
+            except Exception:  # noqa: BLE001
+                text = ""
         if text.strip() == "":
             return "\u200b"
         if len(text) > 4000:
