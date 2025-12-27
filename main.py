@@ -12,6 +12,7 @@ from cog_discord_writer import DiscordWriteCoordinatorCog
 from cog_giveaway import GiveawayCog
 from cog_prophecy import ProphecyCog
 from cog_roblox_activity import RobloxActivityCog
+from cog_secret_notifications_forwarder import SecretNotificationsForwarder
 
 from config import TOKEN
 from db import init_db
@@ -106,6 +107,7 @@ class MyBot(commands.Bot):
             AttendanceCog(self),
             ProphecyCog(self),
             RobloxActivityCog(self),
+            SecretNotificationsForwarder(self),
         ]:
             await add_cog_safe(cog)
 
