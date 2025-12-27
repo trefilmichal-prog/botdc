@@ -67,6 +67,17 @@ def get_secret_drop_totals() -> Dict[int, int]:
             conn.close()
 
 
+def reset_secret_drop_stats() -> None:
+    conn = None
+    try:
+        conn = get_connection()
+        with conn:
+            conn.execute("DELETE FROM secret_drop_stats")
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def init_db():
     conn = get_connection()
     c = conn.cursor()

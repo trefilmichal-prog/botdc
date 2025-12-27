@@ -23,6 +23,7 @@ from db import (
     get_secret_drop_totals,
     increment_secret_drop_stat,
     remove_dropstats_panel,
+    reset_secret_drop_stats,
 )
 
 
@@ -60,6 +61,9 @@ class SecretNotificationsForwarder(commands.Cog):
         self.dropstats_group.command(
             name="setup", description="Odešle do vybraného kanálu dropstats panel."
         )(self.dropstats_setup)
+        self.dropstats_group.command(
+            name="reset", description="Resetuje dropstats leaderboard."
+        )(self.dropstats_reset)
         existing_group = self.bot.tree.get_command(
             "dropstats", type=discord.AppCommandType.chat_input
         )
@@ -499,6 +503,28 @@ class SecretNotificationsForwarder(commands.Cog):
         await interaction.response.send_message(
             f"Dropstats panel byl odeslán do kanálu #{channel.name}.", ephemeral=True
         )
+
+    @app_commands.checks.has_permissions(manage_channels=True)
+    async def dropstats_reset(self, interaction: discord.Interaction):
+        try:
+            reset_secret_drop_stats()
+            await self.refresh_dropstats_panels()
+            view = self._build_notice_view(
+                "✅ Dropstats leaderboard byl resetován."
+            )
+        except Exception:
+            logger.exception("Reset dropstats leaderboardu selhal.")
+            view = self._build_notice_view(
+                "⚠️ Reset dropstats leaderboardu se nepodařil."
+            )
+        await interaction.response.send_message(view=view, ephemeral=True)
+
+    def _build_notice_view(self, message: str) -> discord.ui.LayoutView:
+        view = discord.ui.LayoutView()
+        container = discord.ui.Container()
+        container.add_item(discord.ui.TextDisplay(content=message))
+        view.add_item(container)
+        return view
 
     def _build_dropstats_view(self) -> discord.ui.LayoutView:
         view = discord.ui.LayoutView()
