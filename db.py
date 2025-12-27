@@ -11,6 +11,45 @@ def get_connection():
     return sqlite3.connect(DB_PATH)
 
 
+def increment_secret_drop_stat(date_value: str, user_id: int, amount: int = 1) -> None:
+    conn = None
+    try:
+        conn = get_connection()
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO secret_drop_stats (date, user_id, count)
+                VALUES (?, ?, ?)
+                ON CONFLICT(date, user_id)
+                DO UPDATE SET count = count + excluded.count
+                """,
+                (date_value, user_id, amount),
+            )
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def get_secret_drop_leaderboard(limit: int = 10) -> List[Tuple[int, int]]:
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.execute(
+            """
+            SELECT user_id, SUM(count) AS total_count
+            FROM secret_drop_stats
+            GROUP BY user_id
+            ORDER BY total_count DESC, user_id ASC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        return [(int(row[0]), int(row[1])) for row in cursor.fetchall()]
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def init_db():
     conn = get_connection()
     c = conn.cursor()
@@ -52,6 +91,17 @@ def init_db():
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
+        )
+        """
+    )
+
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS secret_drop_stats (
+            date TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            count INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (date, user_id)
         )
         """
     )
