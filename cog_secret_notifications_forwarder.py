@@ -4,7 +4,6 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-import aiohttp
 import discord
 from discord.ext import commands, tasks
 
@@ -22,14 +21,10 @@ logger = logging.getLogger("botdc.secret_notifications")
 class SecretNotificationsForwarder(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        timeout = aiohttp.ClientTimeout(total=10)
-        self.session = aiohttp.ClientSession(timeout=timeout)
         self.poll_notifications.start()
 
     def cog_unload(self):
         self.poll_notifications.cancel()
-        if not self.session.closed:
-            asyncio.create_task(self.session.close())
 
     @tasks.loop(seconds=2.5)
     async def poll_notifications(self):
@@ -48,11 +43,14 @@ class SecretNotificationsForwarder(commands.Cog):
                 return
 
             for notification in notifications:
-                content = self._format_message(notification)
-                if content is None:
+                lines = self._format_message_lines(notification)
+                if not lines:
                     continue
+                if not self._should_forward(lines[1]):
+                    continue
+                view = self._build_view(lines)
                 try:
-                    await channel.send(content)
+                    await channel.send(view=view)
                 except Exception:
                     logger.exception("Odeslání notifikace do Discordu selhalo.")
                 await asyncio.sleep(0.3)
@@ -75,17 +73,8 @@ class SecretNotificationsForwarder(commands.Cog):
             return None
 
     async def _fetch_notifications(self) -> Optional[List[Dict[str, Any]]]:
-        headers = {"X-Secret-Token": API_TOKEN}
         try:
-            async with self.session.get(API_URL, headers=headers) as response:
-                if response.status != 200:
-                    logger.error("HTTP chyba při fetchi notifikací: %s", response.status)
-                    return None
-                try:
-                    payload = await response.json()
-                except Exception:
-                    logger.exception("JSON parse selhal u odpovědi notifikací.")
-                    return None
+            payload = await asyncio.to_thread(self._fetch_notifications_sync)
         except Exception:
             logger.exception("HTTP požadavek na notifikace selhal.")
             return None
@@ -111,7 +100,28 @@ class SecretNotificationsForwarder(commands.Cog):
         self._update_last_success()
         return notifications
 
-    def _format_message(self, notification: Dict[str, Any]) -> Optional[str]:
+    def _fetch_notifications_sync(self) -> Any:
+        import urllib.request
+
+        headers = {"X-Secret-Token": API_TOKEN}
+        request = urllib.request.Request(API_URL, headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                if response.status != 200:
+                    logger.error("HTTP chyba při fetchi notifikací: %s", response.status)
+                    return None
+                data = response.read()
+        except Exception:
+            logger.exception("HTTP požadavek na notifikace selhal.")
+            return None
+
+        try:
+            return json.loads(data)
+        except Exception:
+            logger.exception("JSON parse selhal u odpovědi notifikací.")
+            return None
+
+    def _format_message_lines(self, notification: Dict[str, Any]) -> Optional[List[str]]:
         try:
             app_display_name = notification.get("app_display_name")
             app_user_model_id = notification.get("app_user_model_id")
@@ -131,7 +141,7 @@ class SecretNotificationsForwarder(commands.Cog):
             line3 = (
                 f"created: {creation_time} | observed: {observed_at} | id: {notification_id}"
             )
-            return "\n".join([line1, line2, line3])
+            return [line1, line2, line3]
         except Exception:
             logger.exception("Chyba při formátování notifikace.")
             return None
@@ -152,6 +162,21 @@ class SecretNotificationsForwarder(commands.Cog):
         if isinstance(text_value, str):
             return text_value
         return ""
+
+    def _should_forward(self, text_line: str) -> bool:
+        try:
+            return "hatched" in (text_line or "").lower()
+        except Exception:
+            logger.exception("Chyba při filtrování textu notifikace.")
+            return False
+
+    def _build_view(self, lines: List[str]) -> discord.ui.LayoutView:
+        view = discord.ui.LayoutView()
+        container = discord.ui.Container()
+        for line in lines:
+            container.add_item(discord.ui.TextDisplay(content=line))
+        view.add_item(container)
+        return view
 
     def _update_last_success(self) -> None:
         timestamp = datetime.now(timezone.utc).isoformat()
