@@ -1058,16 +1058,19 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
     async def send_interaction_response(
         self, interaction: discord.Interaction, *args, **kwargs
     ):
+        self._sanitize_view_kwargs(kwargs)
         payload = {"interaction": interaction, "args": args, "kwargs": kwargs}
         return await self._enqueue("interaction_response", payload, persist=False)
 
     async def send_interaction_followup(self, interaction: discord.Interaction, **kwargs):
+        self._sanitize_view_kwargs(kwargs)
         payload = {"interaction": interaction, "kwargs": kwargs}
         return await self._enqueue("interaction_followup", payload, persist=False)
 
     async def edit_interaction_response(
         self, interaction: discord.Interaction, *args, **kwargs
     ):
+        self._sanitize_view_kwargs(kwargs)
         payload = {"interaction": interaction, "args": args, "kwargs": kwargs}
         return await self._enqueue("interaction_edit", payload, persist=False)
 
@@ -1149,8 +1152,37 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             return False
         return True
 
+    def _sanitize_view_kwargs(self, kwargs: dict[str, Any]) -> None:
+        view = kwargs.get("view")
+        if view is None:
+            return
+        children = getattr(view, "children", None)
+        if children is None:
+            return
+        self._sanitize_layout_items(children)
+
+    def _sanitize_layout_items(self, items: list[Any]) -> None:
+        for item in items:
+            self._sanitize_layout_item(item)
+
+    def _sanitize_layout_item(self, item: Any) -> None:
+        if item is None:
+            return
+        content = getattr(item, "content", None)
+        if content is not None:
+            text = str(content)
+            if text == "":
+                text = " "
+            if len(text) > 4000:
+                text = f"{text[:3997]}..."
+            item.content = text
+        children = getattr(item, "children", None)
+        if children:
+            self._sanitize_layout_items(children)
+
     def _build_send_payload(self, target: discord.abc.Messageable, kwargs: dict[str, Any]):
         payload_kwargs = kwargs.copy()
+        self._sanitize_view_kwargs(payload_kwargs)
         persist = True
         if "embed" in payload_kwargs and payload_kwargs["embed"] is not None:
             payload_kwargs["embeds"] = [payload_kwargs.pop("embed")]
@@ -1172,6 +1204,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
 
     def _build_message_payload(self, message: discord.Message, kwargs: dict[str, Any]):
         payload_kwargs = kwargs.copy()
+        self._sanitize_view_kwargs(payload_kwargs)
         persist = True
         if "embed" in payload_kwargs and payload_kwargs["embed"] is not None:
             payload_kwargs["embeds"] = [payload_kwargs.pop("embed")]
