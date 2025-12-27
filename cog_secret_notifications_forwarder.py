@@ -71,7 +71,7 @@ class SecretNotificationsForwarder(commands.Cog):
                     continue
                 if not self._should_forward(lines[1]):
                     continue
-                matched_players = self._find_player_names(lines[1])
+                matched_players = self._find_player_mentions(lines[1])
                 if not matched_players:
                     continue
                 lines.append(f"Hráč: {' '.join(matched_players)}")
@@ -201,21 +201,20 @@ class SecretNotificationsForwarder(commands.Cog):
             logger.exception("Chyba při filtrování textu notifikace.")
             return False
 
-    def _find_player_names(self, text_line: str) -> List[str]:
+    def _find_player_mentions(self, text_line: str) -> List[str]:
         try:
             if not text_line:
                 return []
             lower_text = text_line.lower()
-            matched_names = []
+            matched_mentions = []
             seen_ids = set()
             for name, entry in self._clan_member_cache.items():
                 if name and name in lower_text:
                     member_id = entry.get("id")
-                    display_name = entry.get("name")
                     if member_id not in seen_ids:
-                        matched_names.append(str(display_name or name))
+                        matched_mentions.append(f"<@{member_id}>")
                         seen_ids.add(member_id)
-            return matched_names
+            return matched_mentions
         except Exception:
             logger.exception("Chyba při vyhledání hráče v textu notifikace.")
             return []
