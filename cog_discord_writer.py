@@ -1194,7 +1194,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
     def _sanitize_component_item(self, item: Any) -> None:
         if item is None:
             return
-        if isinstance(item, list):
+        if isinstance(item, (list, tuple)):
             for child in item:
                 self._sanitize_component_item(child)
             return
