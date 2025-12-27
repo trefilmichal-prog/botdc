@@ -131,18 +131,9 @@ class SecretNotificationsForwarder(commands.Cog):
             text_joined = notification.get("text_joined")
             text_line = text_joined or self._extract_text_from_raw(notification)
 
-            creation_time = notification.get("creation_time") or notification.get(
-                "created_at"
-            )
-            observed_at = notification.get("observed_at")
-            notification_id = notification.get("id")
-
             line1 = f"[APP] {app_name}"
             line2 = text_line or ""
-            line3 = (
-                f"created: {creation_time} | observed: {observed_at} | id: {notification_id}"
-            )
-            return [line1, line2, line3]
+            return [line1, line2]
         except Exception:
             logger.exception("Chyba při formátování notifikace.")
             return None
