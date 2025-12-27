@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -14,14 +15,6 @@ from config import (
     CLAN_MEMBER_ROLE_EN_ID,
     CLAN_MEMBER_ROLE_ID,
     SETUP_MANAGER_ROLE_ID,
-)
-from db import (
-    add_dropstats_panel,
-    get_all_dropstats_panels,
-    get_connection,
-    get_secret_drop_totals,
-    increment_secret_drop_stat,
-    remove_dropstats_panel,
 )
 from db import (
     add_dropstats_panel,
@@ -255,7 +248,7 @@ class SecretNotificationsForwarder(commands.Cog):
             matched_ids = []
             seen_ids = set()
             for name, entry in self._clan_member_cache.items():
-                if name and name in lower_text:
+                if name and self._has_exact_name_match(lower_text, name):
                     member_id = entry.get("id")
                     if member_id not in seen_ids:
                         matched_ids.append(int(member_id))
@@ -267,6 +260,13 @@ class SecretNotificationsForwarder(commands.Cog):
 
     def _format_mentions(self, player_ids: List[int]) -> List[str]:
         return [f"<@{player_id}>" for player_id in player_ids]
+
+    def _has_exact_name_match(self, text: str, name: str) -> bool:
+        if not text or not name:
+            return False
+        escaped = re.escape(name)
+        pattern = rf"(?<!\w){escaped}(?!\w)"
+        return re.search(pattern, text) is not None
 
     def _build_view(self, lines: List[str]) -> discord.ui.LayoutView:
         view = discord.ui.LayoutView()
