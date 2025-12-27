@@ -467,8 +467,8 @@ class SecretNotificationsForwarder(commands.Cog):
         container.add_item(
             discord.ui.TextDisplay(
                 content=(
-                    "Celkový přehled dropů pro všechny členy clanů. "
-                    "Počty se aktualizují automaticky."
+                    "Přehled dropů pro všechny členy clanů. "
+                    "Počty se aktualizují automaticky a ukládají se pro restart bota."
                 )
             )
         )
@@ -477,7 +477,9 @@ class SecretNotificationsForwarder(commands.Cog):
         members = self._get_clan_member_entries()
         if not members:
             container.add_item(
-                discord.ui.TextDisplay(content="Žádní členové clanů nebyli nalezeni.")
+                discord.ui.TextDisplay(
+                    content="⚠️ Žádní členové clanů nebyli nalezeni."
+                )
             )
             view.add_item(container)
             return view
@@ -487,17 +489,32 @@ class SecretNotificationsForwarder(commands.Cog):
             members.items(),
             key=lambda item: (-totals.get(item[0], 0), item[1].lower()),
         )
-        lines = [
-            f"**{idx}. {members[user_id]}** — `{totals.get(user_id, 0)}`"
-            for idx, (user_id, _) in enumerate(sorted_members, start=1)
-        ]
+        total_drops = sum(totals.get(user_id, 0) for user_id in members)
+        container.add_item(
+            discord.ui.TextDisplay(
+                content=(
+                    f"👥 **Počet členů:** `{len(members)}`  •  "
+                    f"🎁 **Celkem dropů:** `{total_drops}`"
+                )
+            )
+        )
+        container.add_item(discord.ui.Separator())
+        container.add_item(discord.ui.TextDisplay(content="**TOP ŽEBŘÍČEK**"))
+
+        medal_emojis = ["🥇", "🥈", "🥉"]
+        lines = []
+        for idx, (user_id, _) in enumerate(sorted_members, start=1):
+            prefix = medal_emojis[idx - 1] if idx <= 3 else f"`#{idx}`"
+            lines.append(
+                f"{prefix} **{members[user_id]}** — `{totals.get(user_id, 0)}`"
+            )
         for chunk in self._chunk_lines(lines):
             container.add_item(discord.ui.TextDisplay(content=chunk))
 
         updated_at = int(datetime.now(timezone.utc).timestamp())
         container.add_item(discord.ui.Separator())
         container.add_item(
-            discord.ui.TextDisplay(content=f"Aktualizováno: <t:{updated_at}:R>")
+            discord.ui.TextDisplay(content=f"🕒 Aktualizováno: <t:{updated_at}:R>")
         )
         view.add_item(container)
         return view
