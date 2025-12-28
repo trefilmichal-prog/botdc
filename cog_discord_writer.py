@@ -301,6 +301,13 @@ async def _patched_interaction_send(response: discord.InteractionResponse, *args
             raise RuntimeError("Interakce nemá klienta.")
         writer = get_writer(interaction.client)
         return await writer.send_interaction_response(interaction, *args, **kwargs)
+    except discord.NotFound as exc:
+        if getattr(exc, "code", None) == 10062:
+            logging.getLogger("botdc.discord_write").info(
+                "Interaction vypršela (Unknown interaction) při send_message."
+            )
+            return None
+        raise
     except Exception as exc:  # noqa: BLE001
         logging.getLogger("botdc.discord_write").warning(
             "Fallback na originální send_message pro InteractionResponse.", exc_info=exc
@@ -320,6 +327,13 @@ async def _patched_interaction_defer(response: discord.InteractionResponse, *arg
             raise RuntimeError("Interakce nemá klienta.")
         writer = get_writer(interaction.client)
         return await writer.defer_interaction(interaction, *args, **kwargs)
+    except discord.NotFound as exc:
+        if getattr(exc, "code", None) == 10062:
+            logging.getLogger("botdc.discord_write").info(
+                "Interaction vypršela (Unknown interaction) při defer."
+            )
+            return None
+        raise
     except Exception as exc:  # noqa: BLE001
         logging.getLogger("botdc.discord_write").warning(
             "Fallback na originální defer pro InteractionResponse.", exc_info=exc
@@ -337,6 +351,13 @@ async def _patched_interaction_edit(response: discord.InteractionResponse, *args
             raise RuntimeError("Interakce nemá klienta.")
         writer = get_writer(interaction.client)
         return await writer.edit_interaction_response(interaction, *args, **kwargs)
+    except discord.NotFound as exc:
+        if getattr(exc, "code", None) == 10062:
+            logging.getLogger("botdc.discord_write").info(
+                "Interaction vypršela (Unknown interaction) při edit_message."
+            )
+            return None
+        raise
     except Exception as exc:  # noqa: BLE001
         logging.getLogger("botdc.discord_write").warning(
             "Fallback na originální edit_message pro InteractionResponse.", exc_info=exc
@@ -356,6 +377,13 @@ async def _patched_interaction_modal(response: discord.InteractionResponse, *arg
             raise RuntimeError("Interakce nemá klienta.")
         writer = get_writer(interaction.client)
         return await writer.send_interaction_modal(interaction, *args, **kwargs)
+    except discord.NotFound as exc:
+        if getattr(exc, "code", None) == 10062:
+            logging.getLogger("botdc.discord_write").info(
+                "Interaction vypršela (Unknown interaction) při send_modal."
+            )
+            return None
+        raise
     except Exception as exc:  # noqa: BLE001
         logging.getLogger("botdc.discord_write").warning(
             "Fallback na originální send_modal pro InteractionResponse.", exc_info=exc
