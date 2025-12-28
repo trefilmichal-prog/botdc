@@ -1346,6 +1346,9 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             if kwargs.get("components") is not None:
                 self._sanitize_component_item(kwargs["components"])
             return
+        if isinstance(view, discord.ui.LayoutView):
+            kwargs.pop("embed", None)
+            kwargs.pop("embeds", None)
         children = getattr(view, "children", None)
         if children is not None:
             self._sanitize_layout_items(children)
