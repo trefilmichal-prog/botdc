@@ -538,6 +538,20 @@ def get_clan_stats_channel() -> Optional[int]:
         return None
 
 
+def set_log_channel_id(channel_id: int) -> None:
+    set_setting("log_channel_id", str(channel_id))
+
+
+def get_log_channel_id() -> Optional[int]:
+    value = get_setting("log_channel_id")
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
 # ---------- GIVEAWAYS ----------
 
 
