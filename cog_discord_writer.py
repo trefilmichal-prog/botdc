@@ -336,6 +336,14 @@ async def _patched_member_edit(member: discord.Member, **kwargs):
     try:
         writer = get_writer(_get_client_from_state(member))
         return await writer.edit_member(member, **kwargs)
+    except discord.Forbidden as exc:
+        if getattr(exc, "code", None) == 50013:
+            logging.getLogger("botdc.discord_write").warning(
+                "Nelze editovat člena (Missing Permissions).",
+                exc_info=exc,
+            )
+            return None
+        raise
     except Exception as exc:  # noqa: BLE001
         logging.getLogger("botdc.discord_write").warning(
             "Fallback na originální edit pro Member.", exc_info=exc
