@@ -78,7 +78,7 @@ class MyBot(commands.Bot):
                 )
 
         await add_cog_safe(DiscordWriteCoordinatorCog(self))
-        self.tree.add_check(self._check_allowed_guild)
+        self.tree.interaction_check = self._check_allowed_guild
 
         for cog in [
             LoggingCog(self),
