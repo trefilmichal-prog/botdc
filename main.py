@@ -8,7 +8,6 @@ from discord import app_commands
 from discord.ext import commands
 
 from cog_admin_tasks import AdminTasks
-from cog_antispam import AntiSpamCog
 from cog_attendance import AttendanceCog
 from cog_basic import BasicCommandsCog
 from cog_clan import ClanPanelCog
@@ -90,7 +89,6 @@ class MyBot(commands.Bot):
             ClanStatsOcrCog(self),
             BasicCommandsCog(self),
             LeaderboardCog(self),
-            AntiSpamCog(self),
             AdminTasks(self),
             RebirthPanel(self),
             AutoTranslateCog(self),
@@ -117,8 +115,11 @@ class MyBot(commands.Bot):
         ]:
             await add_cog_safe(cog)
 
-        # sync slash commandů
-        await self.tree.sync()
+        # sync slash commandů (preferuj povolený server kvůli rychlé dostupnosti)
+        if ALLOWED_GUILD_ID:
+            await self.tree.sync(guild=discord.Object(id=ALLOWED_GUILD_ID))
+        else:
+            await self.tree.sync()
 
     async def _check_allowed_guild(self, interaction: discord.Interaction) -> bool:
         guild = interaction.guild

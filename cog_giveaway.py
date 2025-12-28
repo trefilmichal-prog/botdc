@@ -175,6 +175,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
 
             self.active_giveaways[message_id] = state
             view = GiveawayView(self, state)
+            self.bot.add_view(view, message_id=message_id)
             try:
                 await message.edit(view=view)
             except discord.HTTPException as exc:
@@ -216,6 +217,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
         self.active_giveaways[message.id] = state
         view = GiveawayView(self, state)
         try:
+            self.bot.add_view(view, message_id=message.id)
             await message.edit(view=view)
             self.bot.loop.create_task(self.schedule_giveaway_auto_end(message.id))
             return state, message
@@ -613,6 +615,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
         self.active_giveaways[msg.id] = state
 
         save_giveaway_state(msg.id, state)
+        self.bot.add_view(view, message_id=msg.id)
 
         self.bot.loop.create_task(self.schedule_giveaway_auto_end(msg.id))
 
@@ -723,6 +726,7 @@ class GiveawayView(discord.ui.LayoutView):
         save_giveaway_state(restored_message.id, state)
 
         new_view = GiveawayView(self.cog, state)
+        self.cog.bot.add_view(new_view, message_id=restored_message.id)
         await restored_message.edit(view=new_view)
         await interaction.response.send_message(
             "Přihlásil ses do giveaway.",
