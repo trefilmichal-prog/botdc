@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import types
-import weakref
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -27,12 +26,21 @@ from config import (
 logger = logging.getLogger(__name__)
 
 
-class TranslationRevealView(discord.ui.View):
-    def __init__(self, *, translation: str, source_message: discord.Message, requester_id: int):
+class TranslationRevealView(discord.ui.LayoutView):
+    def __init__(
+        self, *, translation: str, source_message: discord.Message, requester_id: int
+    ):
         super().__init__(timeout=600)
         self._translation = translation
         self._source_message = source_message
         self._requester_id = requester_id
+        button = discord.ui.Button(
+            label="Zobrazit překlad",
+            style=discord.ButtonStyle.primary,
+            custom_id=f"translation_reveal_{source_message.id}",
+        )
+        button.callback = self.reveal_translation
+        self.add_item(discord.ui.ActionRow(button))
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user and interaction.user.id == self._requester_id:
@@ -44,10 +52,7 @@ class TranslationRevealView(discord.ui.View):
         )
         return False
 
-    @discord.ui.button(label="Zobrazit překlad", style=discord.ButtonStyle.primary)
-    async def reveal_translation(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ) -> None:
+    async def reveal_translation(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_message(
             f"Překlad zprávy: {self._source_message.jump_url}\n\n{self._translation}",
             ephemeral=True,
@@ -69,6 +74,30 @@ class AutoTranslateCog(commands.Cog):
         self._reaction_cooldown = commands.CooldownMapping.from_cooldown(
             3, 20, commands.BucketType.channel
         )
+        self._context_menu_names = {
+            "Přeložit do češtiny": "Czech",
+            "Translate to English": "English",
+        }
+
+    async def cog_load(self):
+        for menu_name, language in self._context_menu_names.items():
+            existing = self.bot.tree.get_command(
+                menu_name, type=discord.AppCommandType.message
+            )
+            if existing:
+                continue
+
+            async def _invoke_translation(
+                interaction: discord.Interaction,
+                message: discord.Message,
+                *,
+                _language: str = language,
+            ) -> None:
+                await self._respond_with_translation(interaction, _language, message)
+
+            self.bot.tree.add_command(
+                app_commands.ContextMenu(name=menu_name, callback=_invoke_translation)
+            )
 
     def _post_deepl(self, payload: dict[str, object]) -> str:
         request = urllib.request.Request(
@@ -356,61 +385,3 @@ class AutoTranslateCog(commands.Cog):
                 message.id,
                 error,
             )
-
-async def setup(bot: commands.Bot):
-    cog = AutoTranslateCog(bot)
-    await bot.add_cog(cog)
-
-    cog_ref = weakref.ref(cog)
-    responder_ref = weakref.WeakMethod(cog._respond_with_translation)
-
-    async def _invoke_translation(
-        language: str, interaction: discord.Interaction, message: discord.Message
-    ) -> None:
-        target_cog = cog_ref()
-
-        if not isinstance(target_cog, AutoTranslateCog):
-            logger.warning(
-                "Translation cog unavailable for %s context menu", language
-            )
-            await interaction.response.send_message(
-                "Překlad není dostupný, zkuste to prosím znovu později.",
-                ephemeral=True,
-            )
-            return
-
-        responder = responder_ref() or getattr(
-            target_cog, "_respond_with_translation", None
-        )
-        if not callable(responder):
-            logger.warning(
-                "Translation responder missing for %s context menu", language
-            )
-            await interaction.response.send_message(
-                "Překlad není dostupný, zkuste to prosím znovu později.",
-                ephemeral=True,
-            )
-            return
-
-        await responder(interaction, language, message)
-
-    async def translate_to_czech(
-        interaction: discord.Interaction, message: discord.Message
-    ) -> None:
-        await _invoke_translation("Czech", interaction, message)
-
-    async def translate_to_english(
-        interaction: discord.Interaction, message: discord.Message
-    ) -> None:
-        await _invoke_translation("English", interaction, message)
-
-    bot.tree.add_command(
-        app_commands.ContextMenu(
-            name="Přeložit do češtiny", callback=translate_to_czech
-        )
-    )
-    bot.tree.add_command(
-        app_commands.ContextMenu(
-            name="Translate to English", callback=translate_to_english
-        )
-    )
