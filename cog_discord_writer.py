@@ -1397,6 +1397,8 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         components = kwargs.get("components")
         if components is None:
             return
+        kwargs.pop("embed", None)
+        kwargs.pop("embeds", None)
         try:
             self._sanitize_components_v2(components)
         except Exception as exc:  # noqa: BLE001
@@ -1445,6 +1447,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
     def _build_send_payload(self, target: discord.abc.Messageable, kwargs: dict[str, Any]):
         payload_kwargs = kwargs.copy()
         self._sanitize_view_kwargs(payload_kwargs)
+        self._sanitize_components_v2_kwargs(payload_kwargs)
         persist = True
         if "embed" in payload_kwargs and payload_kwargs["embed"] is not None:
             payload_kwargs["embeds"] = [payload_kwargs.pop("embed")]
@@ -1473,6 +1476,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
     def _build_message_payload(self, message: discord.Message, kwargs: dict[str, Any]):
         payload_kwargs = kwargs.copy()
         self._sanitize_view_kwargs(payload_kwargs)
+        self._sanitize_components_v2_kwargs(payload_kwargs)
         persist = True
         if "embed" in payload_kwargs and payload_kwargs["embed"] is not None:
             payload_kwargs["embeds"] = [payload_kwargs.pop("embed")]
