@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import json
+import itertools
 import logging
 import os
 import re
@@ -22,6 +23,7 @@ from config import DISCORD_WRITE_MIN_INTERVAL_SECONDS
 # požadavky musí projít přes queue (grep: "Discord write selhal").
 from db import (
     clan_member_nick_exists,
+    clear_pending_discord_writes,
     enqueue_discord_write,
     fetch_pending_discord_writes,
     mark_discord_write_done,
@@ -477,7 +479,10 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         self._patch_enabled = (
             os.getenv("DISCORD_WRITE_PATCH_ENABLED", "true").strip().lower() != "false"
         )
-        self._queue: asyncio.Queue[WriteRequest] = asyncio.Queue()
+        self._queue: asyncio.PriorityQueue[tuple[int, int, WriteRequest]] = (
+            asyncio.PriorityQueue()
+        )
+        self._queue_counter = itertools.count()
         self._worker_task: asyncio.Task | None = None
         self._last_write_at: float | None = None
         self._blocked_until: float | None = None
@@ -505,6 +510,11 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
 
     async def cog_load(self):
         try:
+            cleared = clear_pending_discord_writes()
+            if cleared:
+                self.logger.warning(
+                    "Při startu smazáno %d pending Discord write záznamů.", cleared
+                )
             await self._restore_pending()
         except Exception:  # noqa: BLE001
             self.logger.exception("Obnova pending Discord write fronty selhala.")
@@ -832,21 +842,20 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                     "Nelze načíst payload pro discord zápis %s", item["id"]
                 )
                 continue
-            await self._queue.put(
-                WriteRequest(
-                    operation=item["operation"],
-                    payload=payload,
-                    persist=True,
-                    future=None,
-                    db_id=item["id"],
-                )
+            request = WriteRequest(
+                operation=item["operation"],
+                payload=payload,
+                persist=True,
+                future=None,
+                db_id=item["id"],
             )
+            await self._queue.put((1, next(self._queue_counter), request))
             count += 1
         self.logger.info("Obnoveno %d pending Discord write záznamů.", count)
 
     async def _worker_loop(self):
         while True:
-            request = await self._queue.get()
+            _priority, _order, request = await self._queue.get()
             await self._respect_rate_limit()
             try:
                 result = await self._execute_request(request)
@@ -1270,15 +1279,14 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             stored_payload = self._serialize_payload(payload)
             db_id = enqueue_discord_write(operation, stored_payload)
         future = asyncio.get_running_loop().create_future()
-        await self._queue.put(
-            WriteRequest(
-                operation=operation,
-                payload=payload,
-                persist=persist,
-                future=future,
-                db_id=db_id,
-            )
+        request = WriteRequest(
+            operation=operation,
+            payload=payload,
+            persist=persist,
+            future=future,
+            db_id=db_id,
         )
+        await self._queue.put((0, next(self._queue_counter), request))
         return await future
 
     def _serialize_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
