@@ -117,8 +117,11 @@ class MyBot(commands.Bot):
         ]:
             await add_cog_safe(cog)
 
-        # sync slash commandů
-        await self.tree.sync()
+        # sync slash commandů (preferuj povolený server kvůli rychlé dostupnosti)
+        if ALLOWED_GUILD_ID:
+            await self.tree.sync(guild=discord.Object(id=ALLOWED_GUILD_ID))
+        else:
+            await self.tree.sync()
 
     async def _check_allowed_guild(self, interaction: discord.Interaction) -> bool:
         guild = interaction.guild
