@@ -236,18 +236,6 @@ STRINGS: dict[str, dict[str, str]] = {
             "Every 10 minutes of activity you get 1 ticket (you can buy gamepasses and other items) – desert hidden room (pyramid)"
         ),
     },
-    "kick_modal_title": {
-        "cs": "Důvod kicku",
-        "en": "Kick reason",
-    },
-    "kick_modal_label": {
-        "cs": "Důvod kicku",
-        "en": "Reason for kick",
-    },
-    "kick_modal_placeholder": {
-        "cs": "Napiš stručně, proč hráče kickuješ",
-        "en": "Briefly explain why you are kicking the player",
-    },
     "guild_only": {
         "cs": "Tento příkaz lze použít pouze na serveru.",
         "en": "This command can only be used in a server.",
@@ -257,8 +245,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "en": "The user is no longer on the server.",
     },
     "kick_success": {
-        "cs": "\N{WAVING HAND SIGN} {user} byl/a vyhozen/a. Důvod: {reason}.",
-        "en": "\N{WAVING HAND SIGN} {user} has been kicked. Reason: {reason}.",
+        "cs": "\N{WAVING HAND SIGN} {user} byl/a odebrán/a z klanu. Důvod: {reason}.",
+        "en": "\N{WAVING HAND SIGN} {user} has been removed from the clan. Reason: {reason}.",
+    },
+    "clan_member_role_removed": {
+        "cs": "Odebral jsem clan roli: {roles}.",
+        "en": "Removed clan role(s): {roles}.",
+    },
+    "clan_member_role_remove_failed": {
+        "cs": "Při odebírání clan role došlo k chybě.",
+        "en": "An error occurred while removing the clan role.",
     },
     "reason_unknown": {
         "cs": "neuveden",
