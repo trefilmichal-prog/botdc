@@ -8,7 +8,6 @@ from discord import app_commands
 from discord.ext import commands
 
 from cog_admin_tasks import AdminTasks
-from cog_antispam import AntiSpamCog
 from cog_attendance import AttendanceCog
 from cog_basic import BasicCommandsCog
 from cog_clan import ClanPanelCog
@@ -90,7 +89,6 @@ class MyBot(commands.Bot):
             ClanStatsOcrCog(self),
             BasicCommandsCog(self),
             LeaderboardCog(self),
-            AntiSpamCog(self),
             AdminTasks(self),
             RebirthPanel(self),
             AutoTranslateCog(self),
