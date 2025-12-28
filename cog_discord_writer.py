@@ -3,6 +3,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Callable, Optional
@@ -24,6 +25,8 @@ from db import (
     mark_discord_write_done,
     mark_discord_write_failed,
 )
+
+PREFIX_AND_NICK_PATTERN = re.compile(r"\[(HROT|HR2T)\]\s+\S+")
 
 
 @dataclass
@@ -122,6 +125,48 @@ def _sanitize_components_v2(components: Any, max_total: int = 4000, max_per: int
     except Exception:  # noqa: BLE001
         return components
     return components
+
+
+def _find_prefix_and_nick_in_text(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        text = value
+    else:
+        try:
+            text = str(value)
+        except Exception:  # noqa: BLE001
+            return False
+    return PREFIX_AND_NICK_PATTERN.search(text) is not None
+
+
+def _find_prefix_and_nick_in_components(components: Any) -> bool:
+    found = False
+
+    def search_node(node: Any) -> None:
+        nonlocal found
+        if found or node is None:
+            return
+        if isinstance(node, (list, tuple)):
+            for child in node:
+                search_node(child)
+                if found:
+                    return
+            return
+        if isinstance(node, dict):
+            if "content" in node and _find_prefix_and_nick_in_text(node.get("content")):
+                found = True
+                return
+            nested = node.get("components")
+            if nested is not None:
+                search_node(nested)
+            return
+
+    try:
+        search_node(components)
+    except Exception:  # noqa: BLE001
+        return False
+    return found
 
 
 async def _patched_messageable_send(target: discord.abc.Messageable, *args, **kwargs):
