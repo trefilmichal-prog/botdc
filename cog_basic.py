@@ -3,9 +3,18 @@ from discord import app_commands
 from discord.ext import commands
 from datetime import timedelta, datetime
 
-from config import WARN_ROLE_1_ID, WARN_ROLE_2_ID, WARN_ROLE_3_ID
+from config import (
+    WARN_ROLE_1_ID,
+    WARN_ROLE_2_ID,
+    WARN_ROLE_3_ID,
+    CLAN_MEMBER_ROLE_EN_ID,
+    CLAN_MEMBER_ROLE_ID,
+    CLAN2_MEMBER_ROLE_ID,
+    CLAN3_MEMBER_ROLE_ID,
+)
 from db import (
     get_latest_clan_application_by_user,
+    list_clan_definitions,
     mark_clan_application_deleted,
 )
 from i18n import get_interaction_locale, t
@@ -64,11 +73,15 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
 
     @admin.command(
         name="kick",
-        description="Vyhodí člena ze serveru a odebere jeho ticket (pokud existuje).",
+        description="Odebere clan roli a odstraní ticket člena (pokud existuje).",
     )
-    @app_commands.describe(user="Uživatel, který má být vyhozen.")
+    @app_commands.describe(
+        user="Uživatel, který má být vyhozen.", reason="Důvod odebrání z klanu."
+    )
     @app_commands.checks.has_permissions(kick_members=True)
-    async def kick_member(self, interaction: discord.Interaction, user: discord.Member):
+    async def kick_member(
+        self, interaction: discord.Interaction, user: discord.Member, reason: str | None = None
+    ):
         locale = get_interaction_locale(interaction)
         if not self._can_moderate(interaction.user, user):
             await interaction.response.send_message(
@@ -81,8 +94,55 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
             )
             return
 
-        modal = KickReasonModal(self, target_member=user, locale=locale)
-        await interaction.response.send_modal(modal)
+        reason_text = (reason or "").strip() or t("reason_unknown", locale)
+        role_info = await self._remove_clan_roles_for_member(user, reason_text, locale)
+        ticket_info = await self._remove_clan_ticket_for_member(
+            interaction.guild, user, reason_text, locale
+        )
+
+        response = t("kick_success", locale, user=user.mention, reason=reason_text)
+        details = [info for info in (role_info, ticket_info) if info]
+        if details:
+            response = f"{response}\n" + "\n".join(details)
+
+        await interaction.response.send_message(response, ephemeral=True)
+
+    def _get_clan_role_ids(self, guild_id: int) -> set[int]:
+        role_ids = {
+            role_id
+            for role_id in (
+                CLAN_MEMBER_ROLE_ID,
+                CLAN_MEMBER_ROLE_EN_ID,
+                CLAN2_MEMBER_ROLE_ID,
+                CLAN3_MEMBER_ROLE_ID,
+            )
+            if role_id
+        }
+        for entry in list_clan_definitions(guild_id):
+            for key in ("accept_role_id", "accept_role_id_cz", "accept_role_id_en"):
+                role_id = entry.get(key)
+                if role_id:
+                    role_ids.add(int(role_id))
+        return role_ids
+
+    async def _remove_clan_roles_for_member(
+        self, member: discord.Member, reason: str, locale: discord.Locale
+    ) -> str | None:
+        guild = member.guild
+        role_ids = self._get_clan_role_ids(guild.id)
+        roles_to_remove = [role for role in member.roles if role.id in role_ids]
+        if not roles_to_remove:
+            return t("clan_member_not_found", locale)
+
+        try:
+            await member.remove_roles(*roles_to_remove, reason=reason)
+        except discord.Forbidden:
+            return t("clan_member_role_forbidden", locale)
+        except discord.HTTPException:
+            return t("clan_member_role_remove_failed", locale)
+
+        role_mentions = ", ".join(role.mention for role in roles_to_remove)
+        return t("clan_member_role_removed", locale, roles=role_mentions)
 
     async def _remove_clan_ticket_for_member(
         self, guild: discord.Guild, member: discord.Member, reason: str, locale: discord.Locale
@@ -99,7 +159,10 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
         if isinstance(channel, discord.TextChannel):
             try:
                 await channel.delete(
-                    reason=f"Kick uživatele {member} – odstranění ticketu (důvod: {reason})"
+                    reason=(
+                        f"Odebrání člena z klanu {member} – odstranění ticketu "
+                        f"(důvod: {reason})"
+                    )
                 )
                 return t("ticket_removed", locale, channel=channel_label)
             except discord.Forbidden:
@@ -292,60 +355,6 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
         else:
             msg = t("nickname_cleared", locale, user=user.mention)
         await interaction.response.send_message(msg, ephemeral=True)
-
-
-class KickReasonModal(discord.ui.Modal):
-    def __init__(
-        self, cog: BasicCommandsCog, target_member: discord.Member, locale: discord.Locale
-    ):
-        super().__init__(title=t("kick_modal_title", locale), timeout=None)
-        self.cog = cog
-        self.target_member_id = target_member.id
-        self.locale = locale
-
-        self.reason = discord.ui.TextInput(
-            label=t("kick_modal_label", locale),
-            placeholder=t("kick_modal_placeholder", locale),
-            style=discord.TextStyle.paragraph,
-            required=True,
-            max_length=300,
-        )
-
-        self.add_item(self.reason)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        locale = get_interaction_locale(interaction) if interaction else self.locale
-        guild = interaction.guild
-        if guild is None:
-            await interaction.response.send_message(t("guild_only", locale), ephemeral=True)
-            return
-
-        member = guild.get_member(self.target_member_id)
-        if member is None:
-            await interaction.response.send_message(t("user_missing", locale), ephemeral=True)
-            return
-
-        if not self.cog._can_moderate(interaction.user, member):
-            await interaction.response.send_message(
-                t("cannot_moderate", locale), ephemeral=True
-            )
-            return
-
-        if not self.cog._bot_can_moderate(guild, member):
-            await interaction.response.send_message(
-                t("bot_cannot_moderate", locale), ephemeral=True
-            )
-            return
-
-        reason = self.reason.value.strip() or t("reason_unknown", locale)
-        await member.kick(reason=reason)
-
-        ticket_info = await self.cog._remove_clan_ticket_for_member(guild, member, reason, locale)
-        response = t("kick_success", locale, user=member.mention, reason=reason)
-        if ticket_info:
-            response = f"{response}\n{ticket_info}"
-
-        await interaction.response.send_message(response, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
