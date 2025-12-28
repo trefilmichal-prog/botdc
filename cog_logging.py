@@ -3,7 +3,10 @@ import contextlib
 import logging
 
 import discord
+from discord import app_commands
 from discord.ext import commands
+
+from db import get_log_channel_id, set_log_channel_id
 
 LOG_CHANNEL_ID = 1440046748088402064
 
@@ -13,6 +16,7 @@ class LoggingCog(commands.Cog):
         self.bot = bot
         self.logger = logging.getLogger("botdc")
         self.logger.setLevel(logging.INFO)
+        self.log_channel_id = get_log_channel_id() or LOG_CHANNEL_ID
 
         self.log_queue: asyncio.Queue[str] = asyncio.Queue()
         self.log_task: asyncio.Task[None] | None = None
@@ -30,22 +34,70 @@ class LoggingCog(commands.Cog):
         if self._handler not in root_logger.handlers:
             root_logger.addHandler(self._handler)
 
+        self.log_settings_group = app_commands.Group(
+            name="log_settings",
+            description="Nastavení logovacího kanálu.",
+            default_permissions=discord.Permissions(administrator=True),
+        )
+        self.log_settings_group.command(
+            name="set_channel",
+            description="Nastaví kanál, kam se budou posílat logy bota.",
+        )(self.set_log_channel)
+        self.log_settings_group.command(
+            name="set_channel_id",
+            description="Nastaví ID kanálu (včetně vláken) pro logy bota.",
+        )(self.set_log_channel_id)
+        self.log_settings_group.command(
+            name="show",
+            description="Zobrazí aktuálně nastavený logovací kanál.",
+        )(self.show_log_channel)
+        self.__cog_app_commands__ = []
+
     async def cog_load(self):
         # Start log processing once the cog is fully loaded and a loop is running.
         loop = asyncio.get_running_loop()
         self.log_task = loop.create_task(self._process_log_queue())
+        existing_group = self.bot.tree.get_command(
+            "log_settings", type=discord.AppCommandType.chat_input
+        )
+        if existing_group:
+            self.bot.tree.remove_command(
+                "log_settings", type=discord.AppCommandType.chat_input
+            )
+        try:
+            self.bot.tree.add_command(self.log_settings_group)
+        except app_commands.CommandAlreadyRegistered:
+            pass
 
-    async def _get_log_channel(self) -> discord.TextChannel | None:
-        channel = self.bot.get_channel(LOG_CHANNEL_ID)
+    async def cog_unload(self):
+        root_logger = logging.getLogger()
+        if self._handler in root_logger.handlers:
+            root_logger.removeHandler(self._handler)
+        if self.log_task is not None:
+            self.log_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.log_task
+        existing_group = self.bot.tree.get_command(
+            "log_settings", type=discord.AppCommandType.chat_input
+        )
+        if existing_group:
+            self.bot.tree.remove_command(
+                "log_settings", type=discord.AppCommandType.chat_input
+            )
+
+    async def _get_log_channel(self) -> discord.TextChannel | discord.Thread | None:
+        channel = self.bot.get_channel(self.log_channel_id)
         if channel is not None:
-            return channel  # type: ignore[return-value]
+            if isinstance(channel, (discord.TextChannel, discord.Thread)):
+                return channel
+            return None
 
         try:
-            fetched = await self.bot.fetch_channel(LOG_CHANNEL_ID)
+            fetched = await self.bot.fetch_channel(self.log_channel_id)
         except (discord.Forbidden, discord.HTTPException):
             return None
 
-        if isinstance(fetched, discord.TextChannel):
+        if isinstance(fetched, (discord.TextChannel, discord.Thread)):
             return fetched
         return None
 
@@ -151,14 +203,74 @@ class LoggingCog(commands.Cog):
         )
         await channel.send(content="", view=view)
 
-    async def cog_unload(self):
-        root_logger = logging.getLogger()
-        if self._handler in root_logger.handlers:
-            root_logger.removeHandler(self._handler)
-        if self.log_task is not None:
-            self.log_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self.log_task
+    def _build_view(self, lines: list[str]) -> discord.ui.LayoutView:
+        view = discord.ui.LayoutView(timeout=None)
+        view.add_item(
+            discord.ui.Container(*(discord.ui.TextDisplay(content=line) for line in lines))
+        )
+        return view
+
+    def _update_log_channel_id(self, channel_id: int) -> None:
+        self.log_channel_id = channel_id
+        set_log_channel_id(channel_id)
+
+    async def set_log_channel(
+        self, interaction: discord.Interaction, channel: discord.TextChannel
+    ):
+        self._update_log_channel_id(channel.id)
+        view = self._build_view(
+            [
+                "## Logovací kanál nastaven",
+                f"Nový kanál: {channel.mention} ({channel.id})",
+            ]
+        )
+        await interaction.response.send_message(content="", view=view, ephemeral=True)
+
+    async def set_log_channel_id(
+        self, interaction: discord.Interaction, channel_id: int
+    ):
+        channel = interaction.guild.get_channel(channel_id) if interaction.guild else None
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(channel_id)
+            except (discord.Forbidden, discord.HTTPException):
+                channel = None
+
+        if channel is None or not isinstance(channel, (discord.TextChannel, discord.Thread)):
+            view = self._build_view(
+                [
+                    "## Nelze nastavit logovací kanál",
+                    "Zadané ID neodpovídá textovému kanálu ani vláknu.",
+                ]
+            )
+            await interaction.response.send_message(
+                content="", view=view, ephemeral=True
+            )
+            return
+
+        self._update_log_channel_id(channel.id)
+        view = self._build_view(
+            [
+                "## Logovací kanál nastaven",
+                f"Nový kanál: {channel.mention} ({channel.id})",
+            ]
+        )
+        await interaction.response.send_message(content="", view=view, ephemeral=True)
+
+    async def show_log_channel(self, interaction: discord.Interaction):
+        channel = await self._get_log_channel()
+        if channel is None:
+            lines = [
+                "## Logovací kanál nenalezen",
+                f"Aktuálně uložené ID: {self.log_channel_id}",
+            ]
+        else:
+            lines = [
+                "## Aktuální logovací kanál",
+                f"Kanál: {channel.mention} ({channel.id})",
+            ]
+        view = self._build_view(lines)
+        await interaction.response.send_message(content="", view=view, ephemeral=True)
 
 
 class _ChannelLogHandler(logging.Handler):
