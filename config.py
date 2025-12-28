@@ -101,6 +101,9 @@ ANTISPAM_NOTICE_COOLDOWN_SECONDS = int(
     os.getenv("ANTISPAM_NOTICE_COOLDOWN_SECONDS", "30")
 )
 
+# Povolený server, na kterém má bot fungovat
+ALLOWED_GUILD_ID = int(os.getenv("ALLOWED_GUILD_ID", "1440039495058854030"))
+
 # Discord write queue rate limit (sekundy mezi write operacemi)
 DISCORD_WRITE_MIN_INTERVAL_SECONDS = float(
     os.getenv("DISCORD_WRITE_MIN_INTERVAL_SECONDS", "0.25")
