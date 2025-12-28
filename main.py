@@ -4,6 +4,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 from cog_admin_tasks import AdminTasks
@@ -28,7 +29,7 @@ from cog_updater import AutoUpdater
 from cog_welcome import WelcomeCog
 from cog_wood import WoodCog
 from cog_xp import XpCog
-from config import TOKEN
+from config import ALLOWED_GUILD_ID, TOKEN
 from db import init_db
 
 
@@ -77,6 +78,7 @@ class MyBot(commands.Bot):
                 )
 
         await add_cog_safe(DiscordWriteCoordinatorCog(self))
+        self.tree.add_check(self._check_allowed_guild)
 
         for cog in [
             LoggingCog(self),
@@ -118,22 +120,23 @@ class MyBot(commands.Bot):
         # sync slash commandů
         await self.tree.sync()
 
-    async def _leave_unapproved_guilds(self) -> None:
-        for guild in list(self.guilds):
-            if guild.id != ALLOWED_GUILD_ID:
-                logger.warning(
-                    "Bot je připojen na nepovolený server %s (ID: %s), odcházím.",
-                    guild.name,
-                    guild.id,
-                )
-                try:
-                    await guild.leave()
-                except Exception:
-                    logger.exception(
-                        "Odchod z nepovoleného serveru %s (ID: %s) selhal.",
-                        guild.name,
-                        guild.id,
-                    )
+    async def _check_allowed_guild(self, interaction: discord.Interaction) -> bool:
+        guild = interaction.guild
+        if guild is not None and guild.id != ALLOWED_GUILD_ID:
+            raise app_commands.CheckFailure("guild_not_allowed")
+        return True
+
+    async def on_app_command_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> None:
+        if isinstance(error, app_commands.CheckFailure) and str(error) == "guild_not_allowed":
+            message = "Bot je dostupný pouze na povoleném serveru."
+            if interaction.response.is_done():
+                await interaction.followup.send(message, ephemeral=True)
+            else:
+                await interaction.response.send_message(message, ephemeral=True)
+            return
+        logger.exception("App command error: %s", error)
 
     async def on_ready(self):
         logger.info("Přihlášen jako %s (ID: %s)", self.user, self.user.id)

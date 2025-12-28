@@ -1290,8 +1290,6 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         return serialized
 
     def _serialize_item(self, item: Any):
-        if isinstance(item, discord.Embed):
-            return {"__embed__": item.to_dict()}
         if isinstance(item, datetime):
             return {"__datetime__": item.isoformat()}
         if isinstance(item, timedelta):
@@ -1303,8 +1301,6 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         return item
 
     def _deserialize_item(self, item: Any):
-        if isinstance(item, dict) and "__embed__" in item:
-            return discord.Embed.from_dict(item["__embed__"])
         if isinstance(item, dict) and "__datetime__" in item:
             return datetime.fromisoformat(item["__datetime__"])
         if isinstance(item, dict) and "__timedelta__" in item:
