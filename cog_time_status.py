@@ -55,11 +55,11 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
         view = self._build_view()
 
         if message:
-            await message.edit(content="Časový přehled", embeds=[], view=view)
+            await message.edit(view=view)
             set_setting("time_status_message_id", str(message.id))
             set_setting("time_status_channel_id", str(channel.id))
         else:
-            message = await channel.send(content="Časový přehled", view=view)
+            message = await channel.send(view=view)
             set_setting("time_status_message_id", str(message.id))
             set_setting("time_status_channel_id", str(channel.id))
 
@@ -102,10 +102,28 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
         async for message in channel.history(limit=50):
             if message.author.id != bot_user.id:
                 continue
-            if message.content == "Časový přehled":
+            if self._message_has_header(message):
                 return message
 
         return None
+
+    def _message_has_header(self, message: discord.Message) -> bool:
+        for component in self._iter_components(message.components):
+            content = getattr(component, "content", None)
+            if isinstance(content, str) and "Časový přehled" in content:
+                return True
+        return False
+
+    def _iter_components(
+        self, components: list[discord.Component]
+    ) -> list[discord.Component]:
+        found: list[discord.Component] = []
+        for component in components:
+            found.append(component)
+            children = getattr(component, "children", None)
+            if children:
+                found.extend(self._iter_components(children))
+        return found
 
     def _build_view(self) -> discord.ui.LayoutView:
         utc_now = datetime.now(timezone.utc)
