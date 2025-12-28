@@ -95,7 +95,7 @@ class TimersCog(commands.Cog, name="TimersCog"):
         if not timers:
             return
 
-        view = TimersView(self, timers)
+        view = build_timers_view(self, timers)
         self.bot.add_view(view)
 
     async def update_timers_panel(self):
@@ -117,33 +117,8 @@ class TimersCog(commands.Cog, name="TimersCog"):
             return
 
         timers = get_all_timers()
-        embed = discord.Embed(
-            title="Panel časovačů",
-            description=(
-                "Stiskni tlačítko pro časovač, který chceš spustit.\n"
-                "Každý hráč má vlastní časovače – běží odděleně.\n"
-                "Stejný časovač ti nemůže běžet dvakrát současně."
-            ),
-            color=0x00CC66,
-        )
-
-        if not timers:
-            embed.add_field(
-                name="Žádné časovače",
-                value="Zatím nejsou definované žádné časovače. Použij `/settimer`.",
-                inline=False,
-            )
-            view = TimersView(self, [])
-        else:
-            desc = "\n".join(f"- **{n}** – {m} min" for _id, n, m in timers)
-            embed.add_field(
-                name="Dostupné časovače",
-                value=desc,
-                inline=False,
-            )
-            view = TimersView(self, timers)
-
-        await msg.edit(embed=embed, view=view)
+        view = build_timers_view(self, timers)
+        await msg.edit(content="", embeds=[], view=view)
 
     # ---------- SLASH ----------
 
@@ -163,32 +138,8 @@ class TimersCog(commands.Cog, name="TimersCog"):
             return
 
         timers = get_all_timers()
-        embed = discord.Embed(
-            title="Panel časovačů",
-            description=(
-                "Stiskni tlačítko pro časovač, který chceš spustit.\n"
-                "Každý hráč má vlastní časovače – běží odděleně.\n"
-                "Stejný časovač ti nemůže běžet dvakrát současně."
-            ),
-            color=0x00CC66,
-        )
-        if not timers:
-            embed.add_field(
-                name="Žádné časovače",
-                value="Zatím nejsou definované žádné časovače. Použij `/settimer`.",
-                inline=False,
-            )
-            view = TimersView(self, [])
-        else:
-            desc = "\n".join(f"- **{n}** – {m} min" for _id, n, m in timers)
-            embed.add_field(
-                name="Dostupné časovače",
-                value=desc,
-                inline=False,
-            )
-            view = TimersView(self, timers)
-
-        msg = await channel.send(embed=embed, view=view)
+        view = build_timers_view(self, timers)
+        msg = await channel.send(content="", view=view)
 
         set_setting("timers_channel_id", str(channel.id))
         set_setting("timers_message_id", str(msg.id))
@@ -291,12 +242,37 @@ class TimerButton(discord.ui.Button):
         self.cog.running_timers[key] = task
 
 
-class TimersView(discord.ui.View):
-    def __init__(self, cog: TimersCog, timers: List[Tuple[int, str, int]]):
-        super().__init__(timeout=None)
-        for tid, name, minutes in timers[:25]:
-            self.add_item(TimerButton(cog, tid, name, minutes))
+def build_timers_view(
+    cog: TimersCog, timers: List[Tuple[int, str, int]]
+) -> discord.ui.LayoutView:
+    view = discord.ui.LayoutView(timeout=None)
+    info_lines = [
+        "## Panel časovačů",
+        (
+            "Stiskni tlačítko pro časovač, který chceš spustit.\n"
+            "Každý hráč má vlastní časovače – běží odděleně.\n"
+            "Stejný časovač ti nemůže běžet dvakrát současně."
+        ),
+    ]
 
+    if not timers:
+        info_lines.append("### Žádné časovače")
+        info_lines.append("Zatím nejsou definované žádné časovače. Použij `/settimer`.")
+    else:
+        desc = "\n".join(f"- **{n}** – {m} min" for _id, n, m in timers)
+        info_lines.append("### Dostupné časovače")
+        info_lines.append(desc)
 
-async def setup(bot: commands.Bot):
-    await bot.add_cog(TimersCog(bot))
+    view.add_item(
+        discord.ui.Container(
+            *(discord.ui.TextDisplay(content=line) for line in info_lines)
+        )
+    )
+
+    buttons = [
+        TimerButton(cog, tid, name, minutes) for tid, name, minutes in timers[:25]
+    ]
+    for idx in range(0, len(buttons), 5):
+        row = discord.ui.ActionRow(*buttons[idx : idx + 5])
+        view.add_item(row)
+    return view

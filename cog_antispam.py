@@ -133,7 +133,3 @@ class AntiSpamCog(commands.Cog):
                 message,
                 f"{ANTISPAM_DUPLICATE_LIMIT} stejných zpráv za {ANTISPAM_DUPLICATE_WINDOW_SECONDS} s",
             )
-
-
-async def setup(bot: commands.Bot):
-    await bot.add_cog(AntiSpamCog(bot))

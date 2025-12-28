@@ -250,7 +250,3 @@ class AutoUpdater(commands.Cog):
             ephemeral=True,
         )
         await self._restart_bot()
-
-
-async def setup(bot: commands.Bot):
-    await bot.add_cog(AutoUpdater(bot))

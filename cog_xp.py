@@ -71,33 +71,25 @@ class XpCog(commands.Cog, name="XpCog"):
         progress_bar = "▰" * filled_blocks + "▱" * (10 - filled_blocks)
         progress_percent = int(progress_fraction * 100)
 
-        embed_color = target.color if target.color.value else 0x00DD88
+        lines = [
+            f"## {t('profile_title', locale, name=target.display_name)}",
+            t("profile_subtitle", locale),
+            f"{t('profile_progress', locale)}\n"
+            f"{progress_bar} **{progress_percent}%**\n"
+            f"{xp_into_level:,}/{xp_for_next:,} XP ({t('profile_next_level', locale)}: {xp_remaining:,} XP)",
+            f"{t('profile_level', locale)}: {level}",
+            f"{t('profile_exp', locale)}: {exp:,} XP",
+            f"{t('profile_economy', locale)}: 💰 {coins:,}",
+            f"{t('profile_activity', locale)}: 💬 {message_count:,} {t('profile_messages', locale).lower()}",
+            f"{t('profile_footer', locale)}",
+            f"Avatar: {target.display_avatar.url}",
+        ]
+        view = discord.ui.LayoutView(timeout=None)
+        view.add_item(
+            discord.ui.Container(*(discord.ui.TextDisplay(content=line) for line in lines))
+        )
 
-        embed = discord.Embed(
-            title=t("profile_title", locale, name=target.display_name),
-            description=t("profile_subtitle", locale),
-            color=embed_color,
-        )
-        embed.set_thumbnail(url=target.display_avatar.url)
-        embed.add_field(
-            name=t("profile_progress", locale),
-            value=(
-                f"{progress_bar} **{progress_percent}%**\n"
-                f"{xp_into_level:,}/{xp_for_next:,} XP ({t('profile_next_level', locale)}: {xp_remaining:,} XP)"
-            ),
-            inline=False,
-        )
-        embed.add_field(name=t("profile_level", locale), value=str(level), inline=True)
-        embed.add_field(name=t("profile_exp", locale), value=f"{exp:,} XP", inline=True)
-        embed.add_field(name=t("profile_economy", locale), value=f"💰 {coins:,}", inline=True)
-        embed.add_field(
-            name=t("profile_activity", locale),
-            value=f"💬 {message_count:,} {t('profile_messages', locale).lower()}",
-            inline=True,
-        )
-        embed.set_footer(text=t("profile_footer", locale))
-
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message(content="", view=view, ephemeral=True)
 
     @app_commands.command(
         name="give_coins",
@@ -141,7 +133,3 @@ class XpCog(commands.Cog, name="XpCog"):
             ),
             ephemeral=True,
         )
-
-
-async def setup(bot: commands.Bot):
-    await bot.add_cog(XpCog(bot))

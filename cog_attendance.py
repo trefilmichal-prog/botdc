@@ -52,18 +52,15 @@ class AttendancePanelView(discord.ui.LayoutView):
         self.role_id = role_id
 
         self.summary = discord.ui.Container(
-            discord.ui.TextDisplay(
-                label="🎯 Docházkový panel", value="Označ svůj status tlačítky."
-            ),
-            discord.ui.TextDisplay(label="Role", value="Načítám…"),
+            discord.ui.TextDisplay(content="## 🎯 Docházkový panel"),
+            discord.ui.TextDisplay(content="Označ svůj status tlačítky."),
+            discord.ui.TextDisplay(content="Role: Načítám…"),
         )
 
-        self.ready_display = discord.ui.TextDisplay(label="🟢 Připraveno", value="—")
-        self.not_ready_display = discord.ui.TextDisplay(
-            label="🔴 Nepřijde", value="—"
-        )
-        self.waiting_display = discord.ui.TextDisplay(label="🟡 Čekáme", value="—")
-        self.total_display = discord.ui.TextDisplay(label="👥 Celkem", value="0")
+        self.ready_display = discord.ui.TextDisplay(content="🟢 Připraveno: —")
+        self.not_ready_display = discord.ui.TextDisplay(content="🔴 Nepřijde: —")
+        self.waiting_display = discord.ui.TextDisplay(content="🟡 Čekáme: —")
+        self.total_display = discord.ui.TextDisplay(content="👥 Celkem: 0")
 
         statuses_container = discord.ui.Container(
             self.ready_display,
@@ -123,14 +120,24 @@ class AttendancePanelView(discord.ui.LayoutView):
     def update_displays(
         self, role: discord.Role, ready: List[discord.Member], not_ready: List[discord.Member], waiting: List[discord.Member]
     ) -> None:
-        self.summary.children[1].value = role.mention
-        self.ready_display.value = "\n".join(f"🟢 {m.display_name}" for m in ready) or "—"
-        self.not_ready_display.value = "\n".join(
-            f"🔴 {m.display_name}" for m in not_ready
-        ) or "—"
-        self.waiting_display.value = "\n".join(f"🟡 {m.display_name}" for m in waiting) or "—"
+        self.summary.children[2].content = f"Role: {role.mention}"
+        self.ready_display.content = (
+            "🟢 Připraveno:\n" + "\n".join(f"🟢 {m.display_name}" for m in ready)
+            if ready
+            else "🟢 Připraveno: —"
+        )
+        self.not_ready_display.content = (
+            "🔴 Nepřijde:\n" + "\n".join(f"🔴 {m.display_name}" for m in not_ready)
+            if not_ready
+            else "🔴 Nepřijde: —"
+        )
+        self.waiting_display.content = (
+            "🟡 Čekáme:\n" + "\n".join(f"🟡 {m.display_name}" for m in waiting)
+            if waiting
+            else "🟡 Čekáme: —"
+        )
         total = len([m for m in role.members if not m.bot])
-        self.total_display.value = str(total)
+        self.total_display.content = f"👥 Celkem: {total}"
 
     async def _update_status(
         self, interaction: discord.Interaction, status: str | None

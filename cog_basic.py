@@ -29,12 +29,14 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
     @app_commands.command(name="help", description="Zobrazí užitečné informace o Rebirth Champions.")
     async def help(self, interaction: discord.Interaction):
         locale = get_interaction_locale(interaction)
-        embed = discord.Embed(
-            title=t("help_title", locale),
-            description=t("help_guide", locale),
-            color=discord.Color.blurple(),
+        view = discord.ui.LayoutView(timeout=None)
+        view.add_item(
+            discord.ui.Container(
+                discord.ui.TextDisplay(content=f"## {t('help_title', locale)}"),
+                discord.ui.TextDisplay(content=t("help_guide", locale)),
+            )
         )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message(content="", view=view, ephemeral=True)
 
     @staticmethod
     def _can_moderate(actor: discord.Member, target: discord.Member) -> bool:
@@ -355,7 +357,3 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
         else:
             msg = t("nickname_cleared", locale, user=user.mention)
         await interaction.response.send_message(msg, ephemeral=True)
-
-
-async def setup(bot: commands.Bot):
-    await bot.add_cog(BasicCommandsCog(bot))

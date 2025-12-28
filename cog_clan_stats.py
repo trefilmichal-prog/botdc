@@ -65,10 +65,10 @@ class ClanStatsOcrCog(commands.Cog, name="ClanStatsOcr"):
             "eggs_opened": eggs_opened,
         }
 
-        embed = self._build_stats_embed(interaction.user, stats)
+        view = self._build_stats_view(interaction.user, stats)
         await channel.send(
             content=f"📊 Nové clan statistiky od <@{interaction.user.id}>",
-            embed=embed,
+            view=view,
         )
         await interaction.response.send_message(
             "Statistiky byly odeslány do nastavené roomky.", ephemeral=True
@@ -91,9 +91,9 @@ class ClanStatsOcrCog(commands.Cog, name="ClanStatsOcr"):
             return fetched
         return None
 
-    def _build_stats_embed(
+    def _build_stats_view(
         self, author: discord.User, stats: Dict[str, str]
-    ) -> discord.Embed:
+    ) -> discord.ui.LayoutView:
         label_map = {
             "season_rebirths": "(Season 5) Rebirths",
             "weekly_rebirths": "Weekly Rebirths",
@@ -102,21 +102,14 @@ class ClanStatsOcrCog(commands.Cog, name="ClanStatsOcr"):
             "eggs_opened": "Eggs Opened",
         }
 
-        embed = discord.Embed(
-            title="Clan statistiky",
-            description=f"Nahlásil {author.mention}",
-            color=0x2ECC71,
-        )
-
+        lines = ["## Clan statistiky", f"Nahlásil {author.mention}"]
         for key in label_map:
-            embed.add_field(
-                name=label_map[key],
-                value=stats.get(key, "Nedetekováno"),
-                inline=False,
+            lines.append(
+                f"**{label_map[key]}:** {stats.get(key, 'Nedetekováno')}"
             )
 
-        return embed
-
-
-async def setup(bot: commands.Bot):
-    await bot.add_cog(ClanStatsOcrCog(bot))
+        view = discord.ui.LayoutView(timeout=None)
+        view.add_item(
+            discord.ui.Container(*(discord.ui.TextDisplay(content=line) for line in lines))
+        )
+        return view
