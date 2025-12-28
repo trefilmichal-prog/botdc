@@ -52,19 +52,14 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
         if message is None:
             message = await self._find_existing_message(channel)
 
-        embed = self._build_embed()
+        view = self._build_view()
 
         if message:
-            if message.embeds and message.embeds[0].to_dict() == embed.to_dict():
-                set_setting("time_status_message_id", str(message.id))
-                set_setting("time_status_channel_id", str(channel.id))
-                self.message_id = message.id
-                return
-            await message.edit(embed=embed)
+            await message.edit(content="Časový přehled", embeds=[], view=view)
             set_setting("time_status_message_id", str(message.id))
             set_setting("time_status_channel_id", str(channel.id))
         else:
-            message = await channel.send(embed=embed)
+            message = await channel.send(content="Časový přehled", view=view)
             set_setting("time_status_message_id", str(message.id))
             set_setting("time_status_channel_id", str(channel.id))
 
@@ -97,7 +92,7 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
         self, channel: discord.TextChannel
     ) -> discord.Message | None:
         """
-        Najde existující status embed bota v daném kanálu, aby se nevytvářely duplikáty.
+        Najde existující status zprávu bota v daném kanálu, aby se nevytvářely duplikáty.
         """
 
         bot_user = self.bot.user
@@ -107,31 +102,34 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
         async for message in channel.history(limit=50):
             if message.author.id != bot_user.id:
                 continue
-            if not message.embeds:
-                continue
-            if message.embeds[0].title == "Časový přehled":
+            if message.content == "Časový přehled":
                 return message
 
         return None
 
-    def _build_embed(self) -> discord.Embed:
+    def _build_view(self) -> discord.ui.LayoutView:
         utc_now = datetime.now(timezone.utc)
         cz_time = utc_now.astimezone(self._get_cz_zone())
         state_time = utc_now.astimezone(self._get_state_zone())
 
         cz_label = self._get_english_daypart(cz_time.hour)
         state_label = self._get_czech_daypart(state_time.hour)
-
-        embed = discord.Embed(
-            title="Časový přehled",
-            description=(
-                f"🇨🇿 In Czech Republic is rn **{cz_label}** ({cz_time:%H:%M})\n"
-                f"🇺🇸 Ve státě {self.state_name} je právě **{state_label}** ({state_time:%H:%M})"
-            ),
-            color=0x3498DB,
+        view = discord.ui.LayoutView(timeout=None)
+        view.add_item(
+            discord.ui.Container(
+                discord.ui.TextDisplay(content="## Časový přehled"),
+                discord.ui.TextDisplay(
+                    content=(
+                        f"🇨🇿 In Czech Republic is rn **{cz_label}** ({cz_time:%H:%M})\n"
+                        f"🇺🇸 Ve státě {self.state_name} je právě **{state_label}** ({state_time:%H:%M})"
+                    )
+                ),
+                discord.ui.TextDisplay(
+                    content="Automatická aktualizace každých 5 minut."
+                ),
+            )
         )
-        embed.set_footer(text="Automatická aktualizace každých 5 minut.")
-        return embed
+        return view
 
     def _get_cz_zone(self) -> timezone:
         zone = self._load_zone("Europe/Prague")
@@ -204,7 +202,3 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
         if 17 <= hour < 21:
             return "Večer"
         return "Noc"
-
-
-async def setup(bot: commands.Bot):
-    await bot.add_cog(TimeStatusCog(bot))

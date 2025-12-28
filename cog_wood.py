@@ -44,26 +44,29 @@ class WoodResource(str, Enum):
     SAKURA_WOOD = "sakura wood"
 
 
-def build_needed_materials_embed(rows: List[Tuple[str, int, int]], locale: discord.Locale) -> discord.Embed:
-    embed = discord.Embed(
-        title=t("wood_reminder_title", locale),
-        description=t("wood_reminder_description", locale),
-        color=0xFF8800,
-    )
+def build_needed_materials_view(
+    rows: List[Tuple[str, int, int]], locale: discord.Locale
+) -> discord.ui.LayoutView:
+    view = discord.ui.LayoutView(timeout=None)
+    lines = [
+        f"## {t('wood_reminder_title', locale)}",
+        t("wood_reminder_description", locale),
+    ]
     for name, required, delivered in rows:
         remaining = max(required - delivered, 0)
-        embed.add_field(
-            name=name,
-            value=t(
+        lines.append(
+            t(
                 "wood_reminder_field",
                 locale,
                 required=required,
                 delivered=delivered,
                 remaining=remaining,
-            ),
-            inline=False,
+            )
         )
-    return embed
+    view.add_item(
+        discord.ui.Container(*(discord.ui.TextDisplay(content=line) for line in lines))
+    )
+    return view
 
 
 def has_setup_panel_access(interaction: discord.Interaction) -> bool:
@@ -94,7 +97,7 @@ class WoodCog(commands.Cog, name="WoodCog"):
         self.pending_tickets: Dict[int, Dict[str, Any]] = {}
 
         # persistent view pro button "Vytvořit ticket"
-        self.bot.add_view(TicketButtonView(self, DEFAULT_LOCALE))
+        self.bot.add_view(build_ticket_button_view(self, DEFAULT_LOCALE))
 
         # připomínky materiálů
         self.materials_reminder_loop.start()
@@ -110,72 +113,73 @@ class WoodCog(commands.Cog, name="WoodCog"):
         empty = max(length - filled, 0)
         return f"{'█' * filled}{'░' * empty}"
 
-    def _build_panel_embeds(
+    def _build_panel_view(
         self, locale: discord.Locale, rows: List[Tuple[str, int, int]]
-    ) -> tuple[discord.Embed, discord.Embed]:
-        header = discord.Embed(
-            title=t("wood_panel_title", locale),
-            description=t("wood_panel_description", locale),
-            color=0x00AAFF,
-        )
-        header.add_field(
-            name=t("wood_panel_howto_title", locale),
-            value=t("wood_panel_howto_body", locale),
-            inline=False,
-        )
-        header.add_field(
-            name=t("wood_panel_commands_title", locale),
-            value=t("wood_panel_commands_body", locale),
-            inline=False,
-        )
-        header.set_footer(text=t("wood_panel_footer", locale))
-
-        resources_embed = discord.Embed(
-            title=t("wood_panel_resources_title", locale),
-            color=0x00AAFF,
+    ) -> discord.ui.LayoutView:
+        view = discord.ui.LayoutView(timeout=None)
+        header_lines = [
+            f"## {t('wood_panel_title', locale)}",
+            t("wood_panel_description", locale),
+            f"### {t('wood_panel_howto_title', locale)}",
+            t("wood_panel_howto_body", locale),
+            f"### {t('wood_panel_commands_title', locale)}",
+            t("wood_panel_commands_body", locale),
+            t("wood_panel_footer", locale),
+        ]
+        view.add_item(
+            discord.ui.Container(
+                *(discord.ui.TextDisplay(content=line) for line in header_lines)
+            )
         )
 
+        resources_lines = [f"## {t('wood_panel_resources_title', locale)}"]
         if rows:
-            done_count = sum(1 for _, required, delivered in rows if delivered >= required)
-            remaining_total = sum(max(required - delivered, 0) for _, required, delivered in rows)
-            resources_embed.description = t(
-                "wood_panel_resources_summary",
-                locale,
-                done=done_count,
-                total=len(rows),
-                remaining=remaining_total,
+            done_count = sum(
+                1 for _, required, delivered in rows if delivered >= required
             )
-            resources_embed.add_field(
-                name=t("wood_panel_legend_title", locale),
-                value=t("wood_panel_legend_body", locale),
-                inline=False,
+            remaining_total = sum(
+                max(required - delivered, 0) for _, required, delivered in rows
             )
+            resources_lines.append(
+                t(
+                    "wood_panel_resources_summary",
+                    locale,
+                    done=done_count,
+                    total=len(rows),
+                    remaining=remaining_total,
+                )
+            )
+            resources_lines.append(f"### {t('wood_panel_legend_title', locale)}")
+            resources_lines.append(t("wood_panel_legend_body", locale))
 
             for name, required, delivered in rows:
                 remaining = max(required - delivered, 0)
                 emoji = "✅" if delivered >= required else "⏳"
                 progress_bar = self._render_progress_bar(delivered, required)
-                resources_embed.add_field(
-                    name=f"{emoji} {name}",
-                    value=t(
+                resources_lines.append(
+                    f"{emoji} **{name}**\n"
+                    + t(
                         "wood_panel_resource_field",
                         locale,
                         delivered=delivered,
                         required=required,
                         remaining=remaining,
                         bar=progress_bar,
-                    ),
-                    inline=False,
+                    )
                 )
         else:
-            resources_embed.description = t("wood_panel_no_need", locale)
-            resources_embed.add_field(
-                name=t("wood_panel_no_data_title", locale),
-                value=t("wood_panel_no_data_body", locale),
-                inline=False,
-            )
+            resources_lines.append(t("wood_panel_no_need", locale))
+            resources_lines.append(f"### {t('wood_panel_no_data_title', locale)}")
+            resources_lines.append(t("wood_panel_no_data_body", locale))
 
-        return header, resources_embed
+        view.add_item(
+            discord.ui.Container(
+                *(discord.ui.TextDisplay(content=line) for line in resources_lines)
+            )
+        )
+
+        view.add_item(discord.ui.ActionRow(TicketButton(self, locale)))
+        return view
 
     async def update_panel(self):
         channel_id_str = get_setting("panel_channel_id")
@@ -200,9 +204,8 @@ class WoodCog(commands.Cog, name="WoodCog"):
         locale = normalize_locale(getattr(guild, "preferred_locale", None)) if guild else DEFAULT_LOCALE
 
         rows = get_resources_status()
-        header, resources_embed = self._build_panel_embeds(locale, rows)
-
-        await msg.edit(embeds=[header, resources_embed], view=TicketButtonView(self, locale))
+        view = self._build_panel_view(locale, rows)
+        await msg.edit(content="", embeds=[], view=view)
 
     async def _handle_setup_access_error(
         self, interaction: discord.Interaction, error: app_commands.AppCommandError
@@ -299,7 +302,7 @@ class WoodCog(commands.Cog, name="WoodCog"):
                 return
 
             embed_locale = DEFAULT_LOCALE
-            embed = build_needed_materials_embed(needed, embed_locale)
+            view = build_needed_materials_view(needed, embed_locale)
 
             for uid in inactive_ids:
                 user = self.bot.get_user(uid)
@@ -314,7 +317,7 @@ class WoodCog(commands.Cog, name="WoodCog"):
                 try:
                     await user.send(
                         t("wood_reminder_intro", embed_locale),
-                        embed=embed,
+                        view=view,
                     )
                 except discord.Forbidden:
                     continue
@@ -339,10 +342,8 @@ class WoodCog(commands.Cog, name="WoodCog"):
             return
 
         rows = get_resources_status()
-        header, resources_embed = self._build_panel_embeds(locale, rows)
-
-        view = TicketButtonView(self, locale)
-        msg = await channel.send(embeds=[header, resources_embed], view=view)
+        view = self._build_panel_view(locale, rows)
+        msg = await channel.send(content="", view=view)
 
         set_setting("panel_channel_id", str(channel.id))
         set_setting("panel_message_id", str(msg.id))
@@ -436,54 +437,61 @@ class WoodCog(commands.Cog, name="WoodCog"):
             )
             return
 
-        embed = discord.Embed(
-            title=t("wood_resources_title", locale),
-            color=0x00AAFF,
-        )
+        lines = [f"## {t('wood_resources_title', locale)}"]
         for name, required, delivered in rows:
             remaining = max(required - delivered, 0)
             emoji = "✅" if delivered >= required else "⏳"
-            embed.add_field(
-                name=f"{emoji} {name}",
-                value=t(
+            lines.append(
+                f"{emoji} **{name}**\n"
+                + t(
                     "wood_resources_field",
                     locale,
                     delivered=delivered,
                     required=required,
                     remaining=remaining,
-                ),
-                inline=False,
+                )
             )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        view = discord.ui.LayoutView(timeout=None)
+        view.add_item(
+            discord.ui.Container(*(discord.ui.TextDisplay(content=line) for line in lines))
+        )
+        await interaction.response.send_message(content="", view=view, ephemeral=True)
 
 
-class WoodSelectView(discord.ui.View):
-    def __init__(self, cog: WoodCog, ticket_owner_id: int, channel_id: int, locale: discord.Locale):
+class WoodSelectView(discord.ui.LayoutView):
+    def __init__(
+        self, cog: WoodCog, ticket_owner_id: int, channel_id: int, locale: discord.Locale
+    ):
         super().__init__(timeout=None)
         self.cog = cog
         self.ticket_owner_id = ticket_owner_id
         self.channel_id = channel_id
         self.locale = locale
 
-        for child in self.children:
-            if isinstance(child, discord.ui.Select):
-                child.placeholder = t("wood_ticket_select_placeholder", locale)
+        view_lines = [
+            f"## {t('wood_ticket_title', locale)}",
+            t("wood_ticket_instructions", locale),
+        ]
+        self.add_item(
+            discord.ui.Container(
+                *(discord.ui.TextDisplay(content=line) for line in view_lines)
+            )
+        )
 
-    @discord.ui.select(
-        placeholder="Vyber typ dřeva",
-        min_values=1,
-        max_values=1,
-        options=[
-            discord.SelectOption(label=res.value, value=res.value)
-            for res in WoodResource
-        ],
-        custom_id="wood_select",
-    )
-    async def select_wood(
-        self,
-        interaction: discord.Interaction,
-        select: discord.ui.Select,
-    ):
+        self.select = discord.ui.Select(
+            placeholder=t("wood_ticket_select_placeholder", locale),
+            min_values=1,
+            max_values=1,
+            options=[
+                discord.SelectOption(label=res.value, value=res.value)
+                for res in WoodResource
+            ],
+            custom_id="wood_select",
+        )
+        self.select.callback = self.select_wood
+        self.add_item(discord.ui.ActionRow(self.select))
+
+    async def select_wood(self, interaction: discord.Interaction):
         locale = get_interaction_locale(interaction)
         if interaction.user.id != self.ticket_owner_id:
             await interaction.response.send_message(
@@ -499,8 +507,7 @@ class WoodSelectView(discord.ui.View):
             "locale": locale,
         }
 
-        for child in self.children:
-            child.disabled = True
+        self.select.disabled = True
 
         await interaction.response.edit_message(
             content=(
@@ -514,26 +521,17 @@ class WoodSelectView(discord.ui.View):
         )
 
 
-class TicketButtonView(discord.ui.View):
+class TicketButton(discord.ui.Button):
     def __init__(self, cog: WoodCog, locale: discord.Locale):
-        super().__init__(timeout=None)
+        super().__init__(
+            label=t("wood_ticket_button_label", locale),
+            style=discord.ButtonStyle.primary,
+            custom_id="create_wood_ticket",
+        )
         self.cog = cog
         self.locale = locale
 
-        for child in self.children:
-            if isinstance(child, discord.ui.Button):
-                child.label = t("wood_ticket_button_label", locale)
-
-    @discord.ui.button(
-        label="Vytvořit ticket na odevzdání dřeva",
-        style=discord.ButtonStyle.primary,
-        custom_id="create_wood_ticket",
-    )
-    async def create_ticket(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ):
+    async def callback(self, interaction: discord.Interaction):
         locale = get_interaction_locale(interaction)
         guild = interaction.guild
         if guild is None:
@@ -584,15 +582,7 @@ class TicketButtonView(discord.ui.View):
         )
 
         view = WoodSelectView(self.cog, interaction.user.id, ticket_channel.id, locale)
-        await ticket_channel.send(
-            content=interaction.user.mention,
-            embed=discord.Embed(
-                title=t("wood_ticket_title", locale),
-                description=t("wood_ticket_instructions", locale),
-                color=0x00AA00,
-            ),
-            view=view,
-        )
+        await ticket_channel.send(content=interaction.user.mention, view=view)
 
         await interaction.response.send_message(
             t("wood_ticket_created", locale, channel=ticket_channel.mention),
@@ -600,5 +590,9 @@ class TicketButtonView(discord.ui.View):
         )
 
 
-async def setup(bot: commands.Bot):
-    await bot.add_cog(WoodCog(bot))
+def build_ticket_button_view(
+    cog: WoodCog, locale: discord.Locale
+) -> discord.ui.LayoutView:
+    view = discord.ui.LayoutView(timeout=None)
+    view.add_item(discord.ui.ActionRow(TicketButton(cog, locale)))
+    return view

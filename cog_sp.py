@@ -38,11 +38,6 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
     def cog_unload(self):
         self.refresh_loop.cancel()
 
-    @staticmethod
-    def _embed_has_changed(message: discord.Message, new_embed: discord.Embed) -> bool:
-        current = message.embeds[0] if message.embeds else None
-        return current is None or current.to_dict() != new_embed.to_dict()
-
     def _get_admin_connection(self) -> sqlite3.Connection:
         return sqlite3.connect(ADMIN_TASK_DB_PATH)
 
@@ -239,17 +234,19 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
         conn.close()
         return rows
 
-    def _build_rebirth_embed(self) -> discord.Embed:
+    def _build_rebirth_view(self) -> discord.ui.LayoutView:
         rows = self._fetch_rebirth_rows()
-        embed = discord.Embed(
-            title="Rebirth tabulka z webu",
-            description="Aktualizace každých 5 minut",
-            color=discord.Color.gold(),
-        )
+        view = discord.ui.LayoutView(timeout=None)
+        header_lines = ["## Rebirth tabulka z webu", "Aktualizace každých 5 minut"]
 
         if not rows:
-            embed.description = "Zatím nejsou dostupná žádná data z webu."
-            return embed
+            header_lines.append("Zatím nejsou dostupná žádná data z webu.")
+            view.add_item(
+                discord.ui.Container(
+                    *(discord.ui.TextDisplay(content=line) for line in header_lines)
+                )
+            )
+            return view
 
         def sort_key(row: RebirthRow):
             parsed = self._parse_rebirth_to_number(row[2])
@@ -257,23 +254,26 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
             return (-(parsed or -1), row[1].lower())
 
         sorted_rows = sorted(rows, key=sort_key)
-        lines = []
+        row_lines = []
         for idx, (_, display_name, rebirths, previous_rebirths, _) in enumerate(
             sorted_rows, start=1
         ):
             previous = previous_rebirths or "neuvedeno"
-            lines.append(f"**{idx}.** {display_name} – {rebirths} <- ({previous})")
+            row_lines.append(f"**{idx}.** {display_name} – {rebirths} <- ({previous})")
 
-        embed.description = "\n".join(lines[:25])
-        if len(lines) > 25:
-            embed.add_field(
-                name="Info",
-                value=f"Zobrazuji prvních 25 z {len(lines)} záznamů.",
-                inline=False,
+        output_lines = header_lines + row_lines[:25]
+        if len(row_lines) > 25:
+            output_lines.append(f"Zobrazuji prvních 25 z {len(row_lines)} záznamů.")
+
+        output_lines.append(
+            f"Naposledy obnoveno: {datetime.utcnow():%Y-%m-%d %H:%M:%S} UTC"
+        )
+        view.add_item(
+            discord.ui.Container(
+                *(discord.ui.TextDisplay(content=line) for line in output_lines)
             )
-
-        embed.set_footer(text=f"Naposledy obnoveno: {datetime.utcnow():%Y-%m-%d %H:%M:%S} UTC")
-        return embed
+        )
+        return view
 
     async def _remove_existing_panel(self, guild_id: int) -> None:
         existing = get_sp_panel_for_guild(guild_id)
@@ -294,7 +294,7 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
 
     @app_commands.command(
         name="setup_sp",
-        description="Propojí embed s webovou tabulkou rebirthů (aktualizace každých 5 minut)",
+        description="Propojí panel s webovou tabulkou rebirthů (aktualizace každých 5 minut)",
     )
     @app_commands.checks.has_permissions(manage_channels=True)
     @app_commands.checks.has_role(SETUP_MANAGER_ROLE_ID)
@@ -307,12 +307,12 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
 
         await self._remove_existing_panel(interaction.guild.id)
 
-        embed = self._build_rebirth_embed()
-        message = await channel.send(embed=embed)
+        view = self._build_rebirth_view()
+        message = await channel.send(content="", view=view)
         add_sp_panel(interaction.guild.id, channel.id, message.id)
 
         await interaction.response.send_message(
-            f"Embed s rebirthy byl odeslán do {channel.mention}.", ephemeral=True
+            f"Panel s rebirthy byl odeslán do {channel.mention}.", ephemeral=True
         )
 
     async def refresh_sp_panels(self):
@@ -320,7 +320,7 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
         if not panels:
             return
 
-        embed = self._build_rebirth_embed()
+        view = self._build_rebirth_view()
 
         for guild_id, channel_id, message_id in panels:
             guild = self.bot.get_guild(guild_id)
@@ -342,9 +342,7 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
                 continue
 
             try:
-                if not self._embed_has_changed(message, embed):
-                    continue
-                await message.edit(embed=embed)
+                await message.edit(content="", embeds=[], view=view)
                 await asyncio.sleep(0.25)
             except discord.HTTPException:
                 continue
@@ -360,7 +358,3 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
     async def before_refresh_loop(self):
         await self.bot.wait_until_ready()
         await self.refresh_sp_panels()
-
-
-async def setup(bot: commands.Bot):
-    await bot.add_cog(RebirthPanel(bot))

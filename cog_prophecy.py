@@ -20,67 +20,20 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
         self.bot = bot
         self._logger = logging.getLogger(__name__)
 
-    def _layout_components(self):
-        layout_view = getattr(discord.ui, "LayoutView", discord.ui.View)
-        container_cls = getattr(discord.ui, "Container", None)
-        text_display_cls = getattr(discord.ui, "TextDisplay", None)
-        separator_cls = getattr(discord.ui, "Separator", None)
-
-        return layout_view, container_cls, text_display_cls, separator_cls
-
     def _build_prophecy_view(self, locale, question: str, answer: str):
-        layout_view, container_cls, text_display_cls, separator_cls = self._layout_components()
         locale_code = getattr(locale, "value", str(locale))
         question_label = "Otázka" if locale_code.startswith("cs") else "Question"
         answer_label = "Odpověď" if locale_code.startswith("cs") else "Answer"
 
-        view = layout_view(timeout=None)
-
-        if container_cls and text_display_cls:
-            container = container_cls()
-            container.add_item(
-                text_display_cls(label=question_label, value=question)
-            )
-            if separator_cls:
-                container.add_item(separator_cls())
-            container.add_item(
-                text_display_cls(label=answer_label, value=answer)
-            )
-            container.add_item(
-                text_display_cls(label="Model", value=OLLAMA_MODEL)
-            )
-            if hasattr(view, "add_item"):
-                view.add_item(container)
-        else:
-            view.add_item(
-                discord.ui.Button(
-                    label=t("prophecy_title", locale),
-                    disabled=True,
-                    style=discord.ButtonStyle.primary,
-                )
-            )
-            view.add_item(
-                discord.ui.Button(
-                    label=f"{question_label}: {question[:60]}",
-                    disabled=True,
-                    style=discord.ButtonStyle.secondary,
-                )
-            )
-            view.add_item(
-                discord.ui.Button(
-                    label=f"{answer_label}: {answer[:60]}",
-                    disabled=True,
-                    style=discord.ButtonStyle.secondary,
-                )
-            )
-            view.add_item(
-                discord.ui.Button(
-                    label=f"Model: {OLLAMA_MODEL}",
-                    disabled=True,
-                    style=discord.ButtonStyle.secondary,
-                )
-            )
-
+        view = discord.ui.LayoutView(timeout=None)
+        container = discord.ui.Container(
+            discord.ui.TextDisplay(content=f"## {t('prophecy_title', locale)}"),
+            discord.ui.TextDisplay(content=f"{question_label}: {question}"),
+            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
+            discord.ui.TextDisplay(content=f"{answer_label}: {answer}"),
+            discord.ui.TextDisplay(content=f"Model: {OLLAMA_MODEL}"),
+        )
+        view.add_item(container)
         return view
 
     def _log_prophecy(

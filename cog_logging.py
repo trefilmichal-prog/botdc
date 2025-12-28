@@ -1,7 +1,6 @@
 import asyncio
 import contextlib
 import logging
-import inspect
 
 import discord
 from discord.ext import commands
@@ -72,23 +71,21 @@ class LoggingCog(commands.Cog):
         ]
 
         content = message.content or "*(Žádný text)*"
-        embed = discord.Embed(
-            title="Zpráva odstraněna",
-            description="\n".join(description_lines),
-            color=discord.Color.red(),
-            timestamp=discord.utils.utcnow(),
-        )
-        embed.add_field(name="Obsah", value=content[:1024], inline=False)
+        lines = [
+            "## Zpráva odstraněna",
+            "\n".join(description_lines),
+            f"**Obsah:** {content[:1024]}",
+        ]
 
         attachments = [attachment.url for attachment in message.attachments]
         if attachments:
-            embed.add_field(
-                name="Přílohy",
-                value="\n".join(attachments)[:1024],
-                inline=False,
-            )
+            lines.append("**Přílohy:**\n" + "\n".join(attachments)[:1024])
 
-        await channel.send(embed=embed)
+        view = discord.ui.LayoutView(timeout=None)
+        view.add_item(
+            discord.ui.Container(*(discord.ui.TextDisplay(content=line) for line in lines))
+        )
+        await channel.send(content="", view=view)
 
     @commands.Cog.listener()
     async def on_message_edit(self, before: discord.Message, after: discord.Message):
@@ -116,24 +113,17 @@ class LoggingCog(commands.Cog):
             f"Zpráva: [Odkaz]({after.jump_url})",
         ]
 
-        embed = discord.Embed(
-            title="Zpráva upravena",
-            description="\n".join(description_lines),
-            color=discord.Color.orange(),
-            timestamp=discord.utils.utcnow(),
+        lines = [
+            "## Zpráva upravena",
+            "\n".join(description_lines),
+            f"**Původní text:** {(before.content or '*(Žádný text)*')[:1024]}",
+            f"**Nový text:** {(after.content or '*(Žádný text)*')[:1024]}",
+        ]
+        view = discord.ui.LayoutView(timeout=None)
+        view.add_item(
+            discord.ui.Container(*(discord.ui.TextDisplay(content=line) for line in lines))
         )
-        embed.add_field(
-            name="Původní text",
-            value=(before.content or "*(Žádný text)*")[:1024],
-            inline=False,
-        )
-        embed.add_field(
-            name="Nový text",
-            value=(after.content or "*(Žádný text)*")[:1024],
-            inline=False,
-        )
-
-        await channel.send(embed=embed)
+        await channel.send(content="", view=view)
 
     async def _process_log_queue(self):
         try:
@@ -152,13 +142,14 @@ class LoggingCog(commands.Cog):
         if channel is None:
             return
 
-        embed = discord.Embed(
-            title="Log bota",
-            description=message[:4096],
-            color=discord.Color.blue(),
-            timestamp=discord.utils.utcnow(),
+        view = discord.ui.LayoutView(timeout=None)
+        view.add_item(
+            discord.ui.Container(
+                discord.ui.TextDisplay(content="## Log bota"),
+                discord.ui.TextDisplay(content=message[:4096]),
+            )
         )
-        await channel.send(embed=embed)
+        await channel.send(content="", view=view)
 
     async def cog_unload(self):
         root_logger = logging.getLogger()
@@ -168,13 +159,6 @@ class LoggingCog(commands.Cog):
             self.log_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self.log_task
-
-
-async def setup(bot: commands.Bot):
-    # add_cog is async in newer discord.py versions; await it when needed
-    result = bot.add_cog(LoggingCog(bot))
-    if inspect.isawaitable(result):
-        await result
 
 
 class _ChannelLogHandler(logging.Handler):
