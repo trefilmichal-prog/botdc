@@ -8,7 +8,6 @@ from discord import app_commands
 from discord.ext import commands
 
 from cog_admin_tasks import AdminTasks
-from cog_antispam import AntiSpamCog
 from cog_attendance import AttendanceCog
 from cog_basic import BasicCommandsCog
 from cog_clan import ClanPanelCog
@@ -62,9 +61,6 @@ class MyBot(commands.Bot):
         intents.message_content = True
 
         super().__init__(command_prefix="!", intents=intents)
-        self._command_cooldown = commands.CooldownMapping.from_cooldown(
-            5, 10, commands.BucketType.user
-        )
 
     async def setup_hook(self):
         async def add_cog_safe(cog: commands.Cog):
@@ -90,7 +86,6 @@ class MyBot(commands.Bot):
             ClanStatsOcrCog(self),
             BasicCommandsCog(self),
             LeaderboardCog(self),
-            AntiSpamCog(self),
             AdminTasks(self),
             RebirthPanel(self),
             AutoTranslateCog(self),
@@ -117,8 +112,11 @@ class MyBot(commands.Bot):
         ]:
             await add_cog_safe(cog)
 
-        # sync slash commandů
-        await self.tree.sync()
+        # sync slash commandů (preferuj povolený server kvůli rychlé dostupnosti)
+        if ALLOWED_GUILD_ID:
+            await self.tree.sync(guild=discord.Object(id=ALLOWED_GUILD_ID))
+        else:
+            await self.tree.sync()
 
     async def _check_allowed_guild(self, interaction: discord.Interaction) -> bool:
         guild = interaction.guild
@@ -160,16 +158,6 @@ class MyBot(commands.Bot):
 
     async def on_message(self, message: discord.Message):
         if message.author.bot:
-            return
-
-        bucket = self._command_cooldown.get_bucket(message)
-        retry_after = bucket.update_rate_limit()
-        if retry_after:
-            logger.info(
-                "Uživatel %s překročil limit příkazů, čeká %.1fs",
-                message.author.id,
-                retry_after,
-            )
             return
 
         await self.process_commands(message)

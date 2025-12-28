@@ -2238,3 +2238,14 @@ def mark_discord_write_failed(write_id: int, error: str):
     )
     conn.commit()
     conn.close()
+
+
+def clear_pending_discord_writes() -> int:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM discord_write_queue WHERE status = 'pending'")
+    count = c.fetchone()[0]
+    c.execute("DELETE FROM discord_write_queue WHERE status = 'pending'")
+    conn.commit()
+    conn.close()
+    return int(count)
