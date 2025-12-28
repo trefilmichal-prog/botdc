@@ -1,4 +1,3 @@
-import inspect
 import logging
 
 import discord
@@ -30,16 +29,21 @@ class WelcomeCog(commands.Cog):
             return fetched
         return None
 
-    def _build_embed(self, member: discord.Member, description: str) -> discord.Embed:
-        embed = discord.Embed(
-            title="🎉 Welcome!",
-            description=description,
-            color=discord.Color.gold(),
-            timestamp=discord.utils.utcnow(),
+    def _build_view(
+        self, member: discord.Member, description: str
+    ) -> discord.ui.LayoutView:
+        view = discord.ui.LayoutView(timeout=None)
+        view.add_item(
+            discord.ui.Container(
+                discord.ui.TextDisplay(content="## 🎉 Welcome!"),
+                discord.ui.TextDisplay(content=description),
+                discord.ui.TextDisplay(
+                    content=f"Avatar: {member.display_avatar.url}"
+                ),
+                discord.ui.TextDisplay(content="We're glad you're here!"),
+            )
         )
-        embed.set_thumbnail(url=member.display_avatar.url)
-        embed.set_footer(text="We're glad you're here!")
-        return embed
+        return view
 
     @commands.Cog.listener()
     async def on_member_update(
@@ -61,11 +65,5 @@ class WelcomeCog(commands.Cog):
             return
 
         await channel.send(
-            content=after.mention, embed=self._build_embed(after, WELCOME_TEXT)
+            content=after.mention, view=self._build_view(after, WELCOME_TEXT)
         )
-
-
-async def setup(bot: commands.Bot):
-    result = bot.add_cog(WelcomeCog(bot))
-    if inspect.isawaitable(result):
-        await result

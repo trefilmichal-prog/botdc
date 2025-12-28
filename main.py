@@ -4,17 +4,32 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
+from cog_admin_tasks import AdminTasks
+from cog_antispam import AntiSpamCog
 from cog_attendance import AttendanceCog
+from cog_basic import BasicCommandsCog
 from cog_clan import ClanPanelCog
+from cog_clan_stats import ClanStatsOcrCog
 from cog_discord_writer import DiscordWriteCoordinatorCog
 from cog_giveaway import GiveawayCog
+from cog_leaderboard import LeaderboardCog
+from cog_logging import LoggingCog
 from cog_prophecy import ProphecyCog
 from cog_roblox_activity import RobloxActivityCog
 from cog_secret_notifications_forwarder import SecretNotificationsForwarder
-
-from config import TOKEN
+from cog_shop import ShopCog
+from cog_sp import RebirthPanel
+from cog_time_status import TimeStatusCog
+from cog_timers import TimersCog
+from cog_translation import AutoTranslateCog
+from cog_updater import AutoUpdater
+from cog_welcome import WelcomeCog
+from cog_wood import WoodCog
+from cog_xp import XpCog
+from config import ALLOWED_GUILD_ID, TOKEN
 from db import init_db
 
 
@@ -52,13 +67,6 @@ class MyBot(commands.Bot):
         )
 
     async def setup_hook(self):
-        async def load_extension_safe(name: str):
-            try:
-                await self.load_extension(name)
-                logger.info("Cog %s byl úspěšně načten.", name)
-            except Exception:
-                logger.exception("Načtení cogu %s selhalo, pokračuji dál.", name)
-
         async def add_cog_safe(cog: commands.Cog):
             try:
                 await self.add_cog(cog)
@@ -70,28 +78,26 @@ class MyBot(commands.Bot):
                 )
 
         await add_cog_safe(DiscordWriteCoordinatorCog(self))
+        self.tree.add_check(self._check_allowed_guild)
 
-        # Nejdříve načteme kritické cogy, které musí fungovat i při chybě ostatních.
-        await load_extension_safe("cog_logging")
-        await load_extension_safe("cog_updater")
-
-        # Načtení ostatních modulů pokračuje i při chybách.
-        for extension in [
-            "cog_xp",
-            "cog_wood",
-            "cog_timers",
-            "cog_shop",
-            "cog_clan_stats",
-            "cog_basic",
-            "cog_leaderboard",
-            "cog_antispam",
-            "cog_admin_tasks",
-            "cog_sp",
-            "cog_translation",
-            "cog_time_status",
-            "cog_welcome",
+        for cog in [
+            LoggingCog(self),
+            AutoUpdater(self),
+            XpCog(self),
+            WoodCog(self),
+            TimersCog(self),
+            ShopCog(self),
+            ClanStatsOcrCog(self),
+            BasicCommandsCog(self),
+            LeaderboardCog(self),
+            AntiSpamCog(self),
+            AdminTasks(self),
+            RebirthPanel(self),
+            AutoTranslateCog(self),
+            TimeStatusCog(self),
+            WelcomeCog(self),
         ]:
-            await load_extension_safe(extension)
+            await add_cog_safe(cog)
 
         existing_clan_panel = self.tree.get_command(
             "clan_panel", type=discord.AppCommandType.chat_input
@@ -113,6 +119,24 @@ class MyBot(commands.Bot):
 
         # sync slash commandů
         await self.tree.sync()
+
+    async def _check_allowed_guild(self, interaction: discord.Interaction) -> bool:
+        guild = interaction.guild
+        if guild is not None and guild.id != ALLOWED_GUILD_ID:
+            raise app_commands.CheckFailure("guild_not_allowed")
+        return True
+
+    async def on_app_command_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> None:
+        if isinstance(error, app_commands.CheckFailure) and str(error) == "guild_not_allowed":
+            message = "Bot je dostupný pouze na povoleném serveru."
+            if interaction.response.is_done():
+                await interaction.followup.send(message, ephemeral=True)
+            else:
+                await interaction.response.send_message(message, ephemeral=True)
+            return
+        logger.exception("App command error: %s", error)
 
     async def on_ready(self):
         logger.info("Přihlášen jako %s (ID: %s)", self.user, self.user.id)

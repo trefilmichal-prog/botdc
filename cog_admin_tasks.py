@@ -185,16 +185,20 @@ class AdminTasks(commands.Cog):
             except json.JSONDecodeError:
                 params_str = params or "(žádné parametry)"
 
-            embed = discord.Embed(
-                title=f"Nový admin úkol #{task_id}",
-                description=f"**Akce:** {action}\n**Vytvořeno:** {created_at}",
-                color=discord.Color.blurple(),
-                timestamp=datetime.utcnow(),
-            )
-            embed.add_field(name="Parametry", value=f"```json\n{params_str}\n```", inline=False)
-
             try:
-                await channel.send(embed=embed)
+                view = discord.ui.LayoutView(timeout=None)
+                view.add_item(
+                    discord.ui.Container(
+                        discord.ui.TextDisplay(content=f"## Nový admin úkol #{task_id}"),
+                        discord.ui.TextDisplay(
+                            content=f"**Akce:** {action}\n**Vytvořeno:** {created_at}"
+                        ),
+                        discord.ui.TextDisplay(
+                            content=f"```json\n{params_str}\n```"
+                        ),
+                    )
+                )
+                await channel.send(content="", view=view)
                 self.logger.info("Zpracován úkol %s (%s)", task_id, action)
                 self._mark_task_processed(task_id)
             except Exception:
@@ -203,7 +207,3 @@ class AdminTasks(commands.Cog):
     @poll_admin_tasks.before_loop
     async def before_poll_admin_tasks(self):
         await self.bot.wait_until_ready()
-
-
-async def setup(bot: commands.Bot):
-    await bot.add_cog(AdminTasks(bot))

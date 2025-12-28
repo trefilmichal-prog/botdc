@@ -61,42 +61,51 @@ class ShopCog(commands.Cog, name="ShopCog"):
     def _format_number(value: int) -> str:
         return f"{value:,}".replace(",", " ")
 
-    def _build_shop_item_embed(
+    def _build_shop_item_view(
         self,
         title: str,
         price_coins: int,
         stock: int,
         image_url: Optional[str],
         seller_id: int,
-    ) -> discord.Embed:
+        item_id: int,
+    ) -> discord.ui.LayoutView:
+        return ShopItemView(
+            self,
+            item_id=item_id,
+            title=title,
+            price_coins=price_coins,
+            stock=stock,
+            image_url=image_url,
+            seller_id=seller_id,
+        )
+
+    @staticmethod
+    def _build_shop_item_lines(
+        title: str,
+        price_coins: int,
+        stock: int,
+        image_url: Optional[str],
+        seller_id: int,
+    ) -> list[str]:
         available = stock > 0
-        embed = discord.Embed(
-            title=f"🛍️ {title}",
-            description=(
-                "Klikni na **Koupit** a vyplň počet kusů.\n"
-                "• Platba proběhne okamžitě po potvrzení.\n"
-                "• Po vyprodání bude nabídka skryta."
-            )
+        description = (
+            "Klikni na **Koupit** a vyplň počet kusů.\n"
+            "• Platba proběhne okamžitě po potvrzení.\n"
+            "• Po vyprodání bude nabídka skryta."
             if available
-            else "❌ Vyprodáno – položka je dočasně nedostupná.",
-            color=0x00CCFF if available else 0x6E7985,
+            else "❌ Vyprodáno – položka je dočasně nedostupná."
         )
-        embed.add_field(
-            name="Cena",
-            value=f"**{self._format_number(price_coins)}** coinů",
-            inline=True,
-        )
-        embed.add_field(
-            name="Skladem",
-            value=f"**{self._format_number(stock)} ks**",
-            inline=True,
-        )
-        embed.add_field(name="Prodejce", value=f"<@{seller_id}>", inline=False)
-
+        lines = [
+            f"## 🛍️ {title}",
+            description,
+            f"**Cena:** {ShopCog._format_number(price_coins)} coinů",
+            f"**Skladem:** {ShopCog._format_number(stock)} ks",
+            f"**Prodejce:** <@{seller_id}>",
+        ]
         if image_url:
-            embed.set_image(url=image_url)
-
-        return embed
+            lines.append(f"**Obrázek:** {image_url}")
+        return lines
 
     def _find_user_guild(self, user: discord.abc.User) -> Optional[discord.Guild]:
         """Najde guildu, kde je uživatel členem (preferenčně s právy pro shop)."""
@@ -120,7 +129,20 @@ class ShopCog(commands.Cog, name="ShopCog"):
     def _register_persistent_views(self):
         item_ids = get_active_shop_item_ids()
         for item_id in item_ids:
-            self.bot.add_view(ShopItemView(self, item_id))
+            item = get_shop_item(item_id)
+            if item is None:
+                continue
+            self.bot.add_view(
+                ShopItemView(
+                    self,
+                    item_id=item_id,
+                    title=item["title"],
+                    price_coins=item["price_coins"],
+                    stock=item["stock"],
+                    image_url=item.get("image_url"),
+                    seller_id=item["seller_id"],
+                )
+            )
 
     # ---------- SLASH COMMANDS ----------
 
@@ -198,16 +220,15 @@ class ShopCog(commands.Cog, name="ShopCog"):
             seller_id=interaction.user.id,
         )
 
-        embed = self._build_shop_item_embed(
+        view = self._build_shop_item_view(
             title=title,
             price_coins=int(price_coins),
             stock=int(stock),
             image_url=image_url,
             seller_id=interaction.user.id,
+            item_id=item_id,
         )
-
-        view = ShopItemView(self, item_id)
-        msg = await channel.send(embed=embed, view=view)
+        msg = await channel.send(content="", view=view)
 
         set_shop_item_message(item_id, channel.id, msg.id)
 
@@ -224,10 +245,9 @@ class ShopCog(commands.Cog, name="ShopCog"):
     async def shoporders_cmd(self, interaction: discord.Interaction):
         target_guild = interaction.guild or self._find_user_guild(interaction.user)
         view = ShopOrdersView(self, target_guild)
-        embed = view.build_embed()
 
         try:
-            dm_message = await interaction.user.send(embed=embed, view=view)
+            dm_message = await interaction.user.send(content="", view=view)
             view.message = dm_message
         except discord.Forbidden:
             await interaction.response.send_message(
@@ -263,11 +283,6 @@ class ShopCog(commands.Cog, name="ShopCog"):
                     return f"{member.mention} ({member.display_name})"
             return f"<@{buyer_id}>"
 
-        embed = discord.Embed(
-            title="Nevyřízené objednávky tvých položek",
-            color=0x00CCFF,
-        )
-
         lines = []
         for sale in sales:
             buyer_text = format_buyer(sale["buyer_id"])
@@ -275,11 +290,20 @@ class ShopCog(commands.Cog, name="ShopCog"):
                 f"**{sale['title']}** – {sale['price_coins']} coinů ({sale['quantity']} ks)\n"
                 f"Kupující: {buyer_text}"
             )
+        view = discord.ui.LayoutView(timeout=None)
+        view.add_item(
+            discord.ui.Container(
+                discord.ui.TextDisplay(
+                    content="## Nevyřízené objednávky tvých položek"
+                ),
+                discord.ui.TextDisplay(content="\n\n".join(lines)),
+                discord.ui.TextDisplay(
+                    content=f"Celkem čeká: {len(sales)} objednávek"
+                ),
+            )
+        )
 
-        embed.description = "\n\n".join(lines)
-        embed.set_footer(text=f"Celkem čeká: {len(sales)} objednávek")
-
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message(content="", view=view, ephemeral=True)
 
 
 class PurchaseQuantityModal(discord.ui.Modal):
@@ -289,7 +313,7 @@ class PurchaseQuantityModal(discord.ui.Modal):
         item_id: int,
         item_title: str,
         price_coins: int,
-        parent_view: Optional[discord.ui.View] = None,
+        parent_view: Optional[discord.ui.LayoutView] = None,
         parent_message: Optional[discord.Message] = None,
     ):
         super().__init__(title=f"Koupit: {item_title}")
@@ -435,25 +459,25 @@ class PurchaseQuantityModal(discord.ui.Modal):
                 try:
                     await message.delete()
                 except discord.Forbidden:
-                    for child in view.children:
-                        child.disabled = True
-                    embed = self.cog._build_shop_item_embed(
+                    view = self.cog._build_shop_item_view(
                         title,
                         price_per_piece,
                         remaining_stock,
                         image_url,
                         seller_id,
+                        item_id=self.item_id,
                     )
-                    await message.edit(embed=embed, view=view)
+                    await message.edit(content="", embeds=[], view=view)
             else:
-                embed = self.cog._build_shop_item_embed(
+                view = self.cog._build_shop_item_view(
                     title,
                     price_per_piece,
                     remaining_stock,
                     image_url,
                     seller_id,
+                    item_id=self.item_id,
                 )
-                await message.edit(embed=embed, view=view)
+                await message.edit(content="", embeds=[], view=view)
 
         await interaction.response.send_message(
             f"Koupil jsi **{quantity}× {title}** za **{total_price}** coinů.",
@@ -500,11 +524,32 @@ class BuyButton(discord.ui.Button):
         await interaction.response.send_modal(modal)
 
 
-class ShopItemView(discord.ui.View):
-    def __init__(self, cog: ShopCog, item_id: int):
+class ShopItemView(discord.ui.LayoutView):
+    def __init__(
+        self,
+        cog: ShopCog,
+        *,
+        item_id: int,
+        title: str,
+        price_coins: int,
+        stock: int,
+        image_url: Optional[str],
+        seller_id: int,
+    ):
         super().__init__(timeout=None)
         self.cog = cog
-        self.add_item(BuyButton(cog, item_id))
+        lines = cog._build_shop_item_lines(
+            title, price_coins, stock, image_url, seller_id
+        )
+        self.add_item(
+            discord.ui.Container(
+                *(discord.ui.TextDisplay(content=line) for line in lines)
+            )
+        )
+        button = BuyButton(cog, item_id)
+        if stock <= 0:
+            button.disabled = True
+        self.add_item(discord.ui.ActionRow(button))
 
 
 class PurchaseCompleteButton(discord.ui.Button):
@@ -541,10 +586,12 @@ class PurchaseCompleteButton(discord.ui.Button):
         await interaction.response.send_message("Objednávka označena jako vyřízená.", ephemeral=True)
 
 
-class PurchaseCompleteView(discord.ui.View):
+class PurchaseCompleteView(discord.ui.LayoutView):
     def __init__(self, cog: ShopCog, purchase_id: int, seller_id: int):
         super().__init__(timeout=None)
-        self.add_item(PurchaseCompleteButton(cog, purchase_id, seller_id))
+        self.add_item(
+            discord.ui.ActionRow(PurchaseCompleteButton(cog, purchase_id, seller_id))
+        )
 
 
 class CompleteBuyerOrdersButton(discord.ui.Button):
@@ -573,7 +620,7 @@ class CompleteBuyerOrdersButton(discord.ui.Button):
         await self.parent_view.refresh(interaction)
 
 
-class ShopOrdersView(discord.ui.View):
+class ShopOrdersView(discord.ui.LayoutView):
     def __init__(self, cog: ShopCog, guild: Optional[discord.Guild]):
         super().__init__(timeout=300)
         self.cog = cog
@@ -595,38 +642,39 @@ class ShopOrdersView(discord.ui.View):
     def _refresh_buttons(self):
         self._load_pending()
         self.clear_items()
+        view_lines = ["## Nevyřízené objednávky shopu"]
+        if not self.pending:
+            view_lines.append("Žádné nevyřízené objednávky.")
+        else:
+            total = 0
+            for entry in self.pending:
+                buyer_text = self._format_member(entry["buyer_id"])
+                count = entry["count"]
+                total += count
+                view_lines.append(f"{buyer_text}: **{count}** ks")
+            view_lines.append(f"Celkem čeká: {total} položek")
+
+        self.add_item(
+            discord.ui.Container(
+                *(discord.ui.TextDisplay(content=line) for line in view_lines)
+            )
+        )
+
+        buttons: list[discord.ui.Button] = []
         for entry in self.pending[:25]:
-            base_label = f"{entry['count']}× {self._format_member(entry['buyer_id'])}"
+            base_label = (
+                f"{entry['count']}× {self._format_member(entry['buyer_id'])}"
+            )
             label = base_label if len(base_label) <= 80 else base_label[:77] + "..."
             button = CompleteBuyerOrdersButton(self, buyer_id=entry["buyer_id"], label=label)
             button.emoji = "✅"
-            self.add_item(button)
+            buttons.append(button)
 
-    def build_embed(self) -> discord.Embed:
-        embed = discord.Embed(
-            title="Nevyřízené objednávky shopu",
-            description="",
-            color=0x00CCFF,
-        )
-        if not self.pending:
-            embed.description = "Žádné nevyřízené objednávky."
-            return embed
-
-        lines = []
-        total = 0
-        for entry in self.pending:
-            buyer_text = self._format_member(entry["buyer_id"])
-            count = entry["count"]
-            total += count
-            lines.append(f"{buyer_text}: **{count}** ks")
-
-        embed.description = "\n".join(lines)
-        embed.set_footer(text=f"Celkem čeká: {total} položek")
-        return embed
+        for idx in range(0, len(buttons), 5):
+            self.add_item(discord.ui.ActionRow(*buttons[idx : idx + 5]))
 
     async def refresh(self, interaction: discord.Interaction):
         self._refresh_buttons()
-        embed = self.build_embed()
         target_message = interaction.message or self.message
         if target_message is None:
             try:
@@ -634,8 +682,4 @@ class ShopOrdersView(discord.ui.View):
             except discord.NotFound:
                 return
         self.message = target_message
-        await target_message.edit(embed=embed, view=self)
-
-
-async def setup(bot: commands.Bot):
-    await bot.add_cog(ShopCog(bot))
+        await target_message.edit(content="", embeds=[], view=self)

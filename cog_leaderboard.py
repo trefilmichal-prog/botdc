@@ -25,11 +25,6 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
     def cog_unload(self):
         self.panel_refresh_loop.cancel()
 
-    @staticmethod
-    def _embed_has_changed(message: discord.Message, new_embed: discord.Embed) -> bool:
-        current = message.embeds[0] if message.embeds else None
-        return current is None or current.to_dict() != new_embed.to_dict()
-
     @app_commands.command(
         name="leaderboard", description="Ukáže žebříček podle coinů nebo počtu zpráv."
     )
@@ -54,18 +49,24 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
             if metric.value == "coins"
             else t("leaderboard_title_messages", locale)
         )
-        embed = discord.Embed(title=title, color=0x3498DB)
-
         lines = []
         for idx, (user_id, value) in enumerate(top_users, start=1):
             mention = f"<@{user_id}>"
             lines.append(f"**{idx}.** {mention} – {value}")
+        view = discord.ui.LayoutView(timeout=None)
+        view.add_item(
+            discord.ui.Container(
+                discord.ui.TextDisplay(content=f"## {title}"),
+                discord.ui.TextDisplay(content="\n".join(lines)),
+            )
+        )
+        await interaction.response.send_message(content="", view=view)
 
-        embed.description = "\n".join(lines)
-        await interaction.response.send_message(embed=embed)
-
-    def build_leaderboard_embed(self, locale: discord.Locale = DEFAULT_LOCALE) -> discord.Embed:
-        embed = discord.Embed(title=t("panel_title", locale), color=0x3498DB)
+    def build_leaderboard_view(
+        self, locale: discord.Locale = DEFAULT_LOCALE
+    ) -> discord.ui.LayoutView:
+        view = discord.ui.LayoutView(timeout=None)
+        lines = [f"## {t('panel_title', locale)}"]
         for label, stat in (
             (t("panel_section_coins", locale), "coins"),
             (t("panel_section_messages", locale), "message_count"),
@@ -80,10 +81,14 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
             else:
                 value = t("panel_no_data", locale)
 
-            embed.add_field(name=label, value=value, inline=False)
+            lines.append(f"### {label}")
+            lines.append(value)
 
-        embed.set_footer(text=t("panel_footer", locale))
-        return embed
+        lines.append(t("panel_footer", locale))
+        view.add_item(
+            discord.ui.Container(*(discord.ui.TextDisplay(content=line) for line in lines))
+        )
+        return view
 
     @app_commands.command(
         name="setup_clan_room",
@@ -104,9 +109,8 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
             )
             return
 
-        embed = self.build_clan_panel_embed(role, locale)
-
-        message = await channel.send(embed=embed)
+        view = self.build_clan_panel_view(role, locale)
+        message = await channel.send(content="", view=view)
         add_clan_panel(channel.guild.id, channel.id, message.id)
 
         await interaction.response.send_message(
@@ -125,8 +129,8 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
         self, interaction: discord.Interaction, channel: discord.TextChannel
     ):
         locale = get_interaction_locale(interaction)
-        embed = self.build_leaderboard_embed(locale)
-        message = await channel.send(embed=embed)
+        view = self.build_leaderboard_view(locale)
+        message = await channel.send(content="", view=view)
         if interaction.guild:
             add_leaderboard_panel(interaction.guild.id, channel.id, message.id)
 
@@ -134,31 +138,29 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
             t("leaderboard_setup_sent", locale, channel=channel.mention), ephemeral=True
         )
 
-    def build_clan_panel_embed(
+    def build_clan_panel_view(
         self, role: discord.Role, locale: discord.Locale = DEFAULT_LOCALE
-    ) -> discord.Embed:
+    ) -> discord.ui.LayoutView:
         members = sorted(role.members, key=lambda m: m.display_name.lower())
         if members:
             member_lines = [member.mention for member in members]
             description = "\n".join(member_lines)
         else:
             description = t("clan_panel_empty", locale)
-
-        color = role.color if role.color.value else 0x2ECC71
-        embed = discord.Embed(
-            title=t("clan_panel_title", locale),
-            description=description,
-            color=color,
+        view = discord.ui.LayoutView(timeout=None)
+        view.add_item(
+            discord.ui.Container(
+                discord.ui.TextDisplay(content=f"## {t('clan_panel_title', locale)}"),
+                discord.ui.TextDisplay(content=description),
+                discord.ui.TextDisplay(content=t("panel_footer", locale)),
+            )
         )
-        embed.set_footer(text=t("panel_footer", locale))
-        return embed
+        return view
 
     async def refresh_clan_panels(self):
         panels = get_all_clan_panels()
         if not panels:
             return
-
-        embed_cache: dict[int, discord.Embed] = {}
 
         for guild_id, channel_id, message_id in panels:
             guild = self.bot.get_guild(guild_id)
@@ -167,15 +169,19 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
 
             role = guild.get_role(CLAN_MEMBER_ROLE_ID) if CLAN_MEMBER_ROLE_ID else None
             if role is None:
-                embed = discord.Embed(
-                    title=t("clan_panel_title", DEFAULT_LOCALE),
-                    description=t("clan_panel_role_missing", DEFAULT_LOCALE),
-                    color=0xE74C3C,
+                view = discord.ui.LayoutView(timeout=None)
+                view.add_item(
+                    discord.ui.Container(
+                        discord.ui.TextDisplay(
+                            content=f"## {t('clan_panel_title', DEFAULT_LOCALE)}"
+                        ),
+                        discord.ui.TextDisplay(
+                            content=t("clan_panel_role_missing", DEFAULT_LOCALE)
+                        ),
+                    )
                 )
             else:
-                if guild_id not in embed_cache:
-                    embed_cache[guild_id] = self.build_clan_panel_embed(role)
-                embed = embed_cache[guild_id]
+                view = self.build_clan_panel_view(role)
 
             channel = guild.get_channel(channel_id)
             if not isinstance(channel, discord.TextChannel):
@@ -191,9 +197,7 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
                 continue
 
             try:
-                if not self._embed_has_changed(msg, embed):
-                    continue
-                await msg.edit(embed=embed)
+                await msg.edit(content="", embeds=[], view=view)
                 await asyncio.sleep(0.25)
             except discord.HTTPException:
                 continue
@@ -203,7 +207,7 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
         if not panels:
             return
 
-        embed = self.build_leaderboard_embed()
+        view = self.build_leaderboard_view()
 
         for guild_id, channel_id, message_id in panels:
             guild = self.bot.get_guild(guild_id)
@@ -225,9 +229,7 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
                 continue
 
             try:
-                if not self._embed_has_changed(msg, embed):
-                    continue
-                await msg.edit(embed=embed)
+                await msg.edit(content="", embeds=[], view=view)
                 await asyncio.sleep(0.25)
             except discord.HTTPException:
                 continue
@@ -249,6 +251,3 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
         except Exception as exc:  # pragma: no cover - defensive logging
             print(f"[panel_refresh_loop] Chyba při počáteční obnově panelů: {exc}")
 
-
-async def setup(bot: commands.Bot):
-    await bot.add_cog(LeaderboardCog(bot))
