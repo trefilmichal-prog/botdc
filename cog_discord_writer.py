@@ -1449,11 +1449,11 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
 
     def _build_send_payload(self, target: discord.abc.Messageable, kwargs: dict[str, Any]):
         payload_kwargs = kwargs.copy()
+        if "embed" in payload_kwargs and payload_kwargs["embed"] is not None:
+            payload_kwargs["embeds"] = [payload_kwargs.pop("embed")]
         self._sanitize_view_kwargs(payload_kwargs)
         self._sanitize_components_v2_kwargs(payload_kwargs)
         persist = True
-        if "embed" in payload_kwargs and payload_kwargs["embed"] is not None:
-            payload_kwargs["embeds"] = [payload_kwargs.pop("embed")]
         if payload_kwargs.get("view") is not None:
             persist = False
         if payload_kwargs.get("file") is not None or payload_kwargs.get("files") is not None:
@@ -1478,11 +1478,11 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
 
     def _build_message_payload(self, message: discord.Message, kwargs: dict[str, Any]):
         payload_kwargs = kwargs.copy()
+        if "embed" in payload_kwargs and payload_kwargs["embed"] is not None:
+            payload_kwargs["embeds"] = [payload_kwargs.pop("embed")]
         self._sanitize_view_kwargs(payload_kwargs)
         self._sanitize_components_v2_kwargs(payload_kwargs)
         persist = True
-        if "embed" in payload_kwargs and payload_kwargs["embed"] is not None:
-            payload_kwargs["embeds"] = [payload_kwargs.pop("embed")]
         if payload_kwargs.get("view") is not None:
             persist = False
         has_verified_clan_prefix = False
