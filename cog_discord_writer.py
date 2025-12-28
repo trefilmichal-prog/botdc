@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import string
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Callable, Optional
@@ -26,9 +27,6 @@ from db import (
     mark_discord_write_done,
     mark_discord_write_failed,
 )
-
-PREFIX_AND_NICK_PATTERN = re.compile(r"\[(HROT|HR2T)\]\s+(\S+)")
-
 
 @dataclass
 class WriteRequest:
@@ -138,10 +136,11 @@ def _find_prefix_and_nick_in_text(value: Any) -> tuple[bool, str | None]:
             text = str(value)
         except Exception:  # noqa: BLE001
             return False, None
-    match = PREFIX_AND_NICK_PATTERN.search(text)
-    if match is None:
-        return False, None
-    return True, match.group(2)
+    for token in re.split(r"\s+", text):
+        candidate = token.strip(string.punctuation)
+        if candidate and clan_member_nick_exists(candidate):
+            return True, candidate
+    return False, None
 
 
 def _find_prefix_and_nick_in_components(components: Any) -> bool:
@@ -159,8 +158,8 @@ def _find_prefix_and_nick_in_components(components: Any) -> bool:
             return
         if isinstance(node, dict):
             if "content" in node:
-                matched, nick = _find_prefix_and_nick_in_text(node.get("content"))
-                if matched and nick and clan_member_nick_exists(nick):
+                matched, _nick = _find_prefix_and_nick_in_text(node.get("content"))
+                if matched:
                     found = True
                     return
             nested = node.get("components")

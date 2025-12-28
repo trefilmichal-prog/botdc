@@ -64,6 +64,13 @@ class SecretNotificationsForwarder(commands.Cog):
         self.dropstats_group.command(
             name="reset", description="Resetuje dropstats leaderboard."
         )(self.dropstats_reset)
+        self.secret_group = app_commands.Group(
+            name="secret", description="Secret notifikace"
+        )
+        self.secret_group.command(
+            name="cache",
+            description="Zobrazí uložená jména hráčů pro notifikace.",
+        )(self.secret_cache)
         existing_group = self.bot.tree.get_command(
             "dropstats", type=discord.AppCommandType.chat_input
         )
@@ -71,7 +78,15 @@ class SecretNotificationsForwarder(commands.Cog):
             self.bot.tree.remove_command(
                 "dropstats", type=discord.AppCommandType.chat_input
             )
+        existing_secret = self.bot.tree.get_command(
+            "secret", type=discord.AppCommandType.chat_input
+        )
+        if existing_secret:
+            self.bot.tree.remove_command(
+                "secret", type=discord.AppCommandType.chat_input
+            )
         self.bot.tree.add_command(self.dropstats_group)
+        self.bot.tree.add_command(self.secret_group)
         self.poll_notifications.start()
         self.refresh_clan_member_cache.start()
 
@@ -79,6 +94,7 @@ class SecretNotificationsForwarder(commands.Cog):
         self.poll_notifications.cancel()
         self.refresh_clan_member_cache.cancel()
         self.bot.tree.remove_command("dropstats", type=discord.AppCommandType.chat_input)
+        self.bot.tree.remove_command("secret", type=discord.AppCommandType.chat_input)
 
     @tasks.loop(seconds=2.5)
     async def poll_notifications(self):
@@ -519,6 +535,12 @@ class SecretNotificationsForwarder(commands.Cog):
             )
         await interaction.response.send_message(view=view, ephemeral=True)
 
+    async def secret_cache(self, interaction: discord.Interaction):
+        view = self._build_cached_names_view()
+        await interaction.response.send_message(
+            view=view, ephemeral=True, allowed_mentions=discord.AllowedMentions.none()
+        )
+
     def _build_notice_view(self, message: str) -> discord.ui.LayoutView:
         view = discord.ui.LayoutView()
         container = discord.ui.Container()
@@ -584,6 +606,44 @@ class SecretNotificationsForwarder(commands.Cog):
         container.add_item(
             discord.ui.TextDisplay(content=f"🕒 Aktualizováno: <t:{updated_at}:R>")
         )
+        view.add_item(container)
+        return view
+
+    def _build_cached_names_view(self) -> discord.ui.LayoutView:
+        view = discord.ui.LayoutView()
+        container = discord.ui.Container()
+        container.add_item(
+            discord.ui.TextDisplay(content="🗂️ **Cache hráčů pro notifikace**")
+        )
+        updated_at = self._clan_member_cache_updated_at
+        if updated_at:
+            updated_ts = int(updated_at.timestamp())
+            updated_line = f"🕒 Aktualizováno: <t:{updated_ts}:R>"
+        else:
+            updated_line = "🕒 Aktualizováno: neznámé"
+        entries = [
+            entry.get("name") or str(entry.get("id"))
+            for entry in self._clan_member_cache.values()
+            if entry.get("id") is not None
+        ]
+        unique_names = sorted({str(name) for name in entries if name})
+        container.add_item(
+            discord.ui.TextDisplay(
+                content=f"👥 **Počet uložených jmen:** `{len(unique_names)}`"
+            )
+        )
+        container.add_item(discord.ui.TextDisplay(content=updated_line))
+        container.add_item(discord.ui.Separator())
+        if not unique_names:
+            container.add_item(
+                discord.ui.TextDisplay(
+                    content="⚠️ Cache neobsahuje žádná jména."
+                )
+            )
+            view.add_item(container)
+            return view
+        for chunk in self._chunk_lines(unique_names):
+            container.add_item(discord.ui.TextDisplay(content=chunk))
         view.add_item(container)
         return view
 
