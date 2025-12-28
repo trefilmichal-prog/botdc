@@ -20,13 +20,14 @@ from config import DISCORD_WRITE_MIN_INTERVAL_SECONDS
 # a "DiscordWriteCoordinator cog není načten" se neobjeví, běžné send
 # požadavky musí projít přes queue (grep: "Discord write selhal").
 from db import (
+    clan_member_nick_exists,
     enqueue_discord_write,
     fetch_pending_discord_writes,
     mark_discord_write_done,
     mark_discord_write_failed,
 )
 
-PREFIX_AND_NICK_PATTERN = re.compile(r"\[(HROT|HR2T)\]\s+\S+")
+PREFIX_AND_NICK_PATTERN = re.compile(r"\[(HROT|HR2T)\]\s+(\S+)")
 
 
 @dataclass
@@ -127,17 +128,20 @@ def _sanitize_components_v2(components: Any, max_total: int = 4000, max_per: int
     return components
 
 
-def _find_prefix_and_nick_in_text(value: Any) -> bool:
+def _find_prefix_and_nick_in_text(value: Any) -> tuple[bool, str | None]:
     if value is None:
-        return False
+        return False, None
     if isinstance(value, str):
         text = value
     else:
         try:
             text = str(value)
         except Exception:  # noqa: BLE001
-            return False
-    return PREFIX_AND_NICK_PATTERN.search(text) is not None
+            return False, None
+    match = PREFIX_AND_NICK_PATTERN.search(text)
+    if match is None:
+        return False, None
+    return True, match.group(2)
 
 
 def _find_prefix_and_nick_in_components(components: Any) -> bool:
@@ -154,9 +158,11 @@ def _find_prefix_and_nick_in_components(components: Any) -> bool:
                     return
             return
         if isinstance(node, dict):
-            if "content" in node and _find_prefix_and_nick_in_text(node.get("content")):
-                found = True
-                return
+            if "content" in node:
+                matched, nick = _find_prefix_and_nick_in_text(node.get("content"))
+                if matched and nick and clan_member_nick_exists(nick):
+                    found = True
+                    return
             nested = node.get("components")
             if nested is not None:
                 search_node(nested)
@@ -1437,11 +1443,17 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             persist = False
         if payload_kwargs.get("allowed_mentions") is not None:
             persist = False
+        has_verified_clan_prefix = False
+        if payload_kwargs.get("components") is not None:
+            has_verified_clan_prefix = _find_prefix_and_nick_in_components(
+                payload_kwargs["components"]
+            )
         target_type = "user" if isinstance(target, (discord.User, discord.Member)) else "channel"
         payload = {
             "target_type": target_type,
             "target_id": target.id,
             "kwargs": payload_kwargs,
+            "has_verified_clan_prefix": has_verified_clan_prefix,
         }
         if persist:
             persist = self._is_serializable(payload)
@@ -1455,10 +1467,16 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             payload_kwargs["embeds"] = [payload_kwargs.pop("embed")]
         if payload_kwargs.get("view") is not None:
             persist = False
+        has_verified_clan_prefix = False
+        if payload_kwargs.get("components") is not None:
+            has_verified_clan_prefix = _find_prefix_and_nick_in_components(
+                payload_kwargs["components"]
+            )
         payload = {
             "channel_id": message.channel.id,
             "message_id": message.id,
             "kwargs": payload_kwargs,
+            "has_verified_clan_prefix": has_verified_clan_prefix,
         }
         if persist:
             persist = self._is_serializable(payload)

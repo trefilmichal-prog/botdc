@@ -506,6 +506,24 @@ def get_setting(key: str) -> Optional[str]:
     return row[0] if row else None
 
 
+def clan_member_nick_exists(nick: str) -> bool:
+    if not nick:
+        return False
+    normalized = nick.strip().lower()
+    if not normalized:
+        return False
+    payload = get_setting("secret_notifications_clan_member_cache")
+    if not payload:
+        return False
+    try:
+        cache = json.loads(payload)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(cache, dict):
+        return False
+    return normalized in cache
+
+
 def set_clan_stats_channel(channel_id: int):
     set_setting("clan_stats_channel_id", str(channel_id))
 
