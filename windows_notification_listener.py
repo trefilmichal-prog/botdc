@@ -24,17 +24,31 @@ class WindowsNotificationListener:
         if sys.platform != "win32":
             logger.info("WinRT listener je dostupný pouze na Windows.")
             return False
-        if importlib.util.find_spec("winsdk") is None:
+        winsdk_spec = importlib.util.find_spec("winsdk")
+        winrt_spec = importlib.util.find_spec("winrt")
+        if winsdk_spec is None and winrt_spec is None:
             logger.warning("WinRT balíčky nejsou dostupné, listener nelze spustit.")
             return False
 
-        from winsdk.windows.ui.notifications import NotificationKinds
-        from winsdk.windows.ui.notifications.management import (
-            UserNotificationListener,
-            UserNotificationListenerAccessStatus,
-        )
+        if winsdk_spec is not None:
+            from winsdk.windows.ui.notifications import NotificationKinds
+            from winsdk.windows.ui.notifications.management import (
+                UserNotificationListener,
+                UserNotificationListenerAccessStatus,
+            )
+        else:
+            from winrt.windows.ui.notifications import NotificationKinds
+            from winrt.windows.ui.notifications.management import (
+                UserNotificationListener,
+                UserNotificationListenerAccessStatus,
+            )
 
-        listener = UserNotificationListener.get_current()
+        listener = self._get_listener(UserNotificationListener)
+        if listener is None:
+            logger.error(
+                "WinRT listener nelze inicializovat (chybí get_current/current)."
+            )
+            return False
         access = await listener.request_access_async()
         if access != UserNotificationListenerAccessStatus.ALLOWED:
             logger.warning(
@@ -106,6 +120,17 @@ class WindowsNotificationListener:
             },
         }
         return payload
+
+    def _get_listener(self, listener_cls: Any) -> Optional[Any]:
+        get_current = getattr(listener_cls, "get_current", None)
+        if callable(get_current):
+            return get_current()
+        current = getattr(listener_cls, "current", None)
+        if callable(current):
+            return current()
+        if current is not None:
+            return current
+        return None
 
     def _extract_app_name(self, notification: Any) -> str:
         try:
