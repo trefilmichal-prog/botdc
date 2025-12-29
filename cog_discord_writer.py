@@ -1133,7 +1133,17 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         interaction = payload["interaction"]
         if self._original_interaction_modal is None:
             raise RuntimeError("InteractionResponse.send_modal není dostupné.")
-        return await self._original_interaction_modal(interaction.response, payload["modal"])
+        try:
+            return await self._original_interaction_modal(
+                interaction.response, payload["modal"]
+            )
+        except discord.NotFound as exc:
+            if getattr(exc, "code", None) == 10062:
+                self.logger.info(
+                    "Interaction vypršela (Unknown interaction) při send_modal."
+                )
+                return None
+            raise
 
     async def _op_webhook_send(self, payload: dict[str, Any]):
         webhook = payload["webhook"]
