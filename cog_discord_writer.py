@@ -1123,11 +1123,19 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         interaction = payload["interaction"]
         if self._original_interaction_defer is None:
             raise RuntimeError("InteractionResponse.defer není dostupné.")
-        return await self._original_interaction_defer(
-            interaction.response,
-            *payload.get("args", ()),
-            **payload["kwargs"],
-        )
+        try:
+            return await self._original_interaction_defer(
+                interaction.response,
+                *payload.get("args", ()),
+                **payload["kwargs"],
+            )
+        except discord.NotFound as exc:
+            if getattr(exc, "code", None) == 10062:
+                self.logger.info(
+                    "Interaction vypršela (Unknown interaction) při defer."
+                )
+                return None
+            raise
 
     async def _op_interaction_modal(self, payload: dict[str, Any]):
         interaction = payload["interaction"]
