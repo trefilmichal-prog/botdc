@@ -36,6 +36,14 @@ TIME_STATUS_STATE_TIMEZONE = os.getenv(
 CLAN_BOOSTS_IMAGE_URL = "https://ezrz.eu/dcbot/stats.jpg"
 CLAN_BANNER_IMAGE_URL = "https://ezrz.eu/dcbot/baner2.jpg"
 
+# WinRT notifikace (Windows pouze)
+WINDOWS_NOTIFICATION_WINRT_ENABLED = (
+    os.getenv("WINDOWS_NOTIFICATION_WINRT_ENABLED", "").lower() == "true"
+)
+WINDOWS_NOTIFICATION_WINRT_POLL_INTERVAL = float(
+    os.getenv("WINDOWS_NOTIFICATION_WINRT_POLL_INTERVAL", "5")
+)
+
 # Cesta k SQLite databázi
 DB_PATH = os.path.join(BASE_DIR, "wood_needs.db")
 

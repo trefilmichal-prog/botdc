@@ -28,8 +28,14 @@ from cog_updater import AutoUpdater
 from cog_welcome import WelcomeCog
 from cog_wood import WoodCog
 from cog_xp import XpCog
-from config import ALLOWED_GUILD_ID, TOKEN
+from config import (
+    ALLOWED_GUILD_ID,
+    TOKEN,
+    WINDOWS_NOTIFICATION_WINRT_ENABLED,
+    WINDOWS_NOTIFICATION_WINRT_POLL_INTERVAL,
+)
 from db import init_db
+from windows_notification_listener import WindowsNotificationListener
 
 
 
@@ -61,6 +67,7 @@ class MyBot(commands.Bot):
         intents.message_content = True
 
         super().__init__(command_prefix="!", intents=intents)
+        self.winrt_listener: WindowsNotificationListener | None = None
 
     async def setup_hook(self):
         async def add_cog_safe(cog: commands.Cog):
@@ -111,6 +118,17 @@ class MyBot(commands.Bot):
             SecretNotificationsForwarder(self),
         ]:
             await add_cog_safe(cog)
+
+        if WINDOWS_NOTIFICATION_WINRT_ENABLED:
+            self.winrt_listener = WindowsNotificationListener(
+                poll_interval=WINDOWS_NOTIFICATION_WINRT_POLL_INTERVAL
+            )
+            try:
+                await self.winrt_listener.start()
+            except Exception:
+                logger.exception("Spuštění WinRT listeneru selhalo.")
+        else:
+            logger.info("WinRT ingest notifikací je vypnutý v konfiguraci.")
 
         # sync slash commandů (preferuj povolený server kvůli rychlé dostupnosti)
         if ALLOWED_GUILD_ID:
@@ -182,6 +200,14 @@ class MyBot(commands.Bot):
             return
 
         await self.process_commands(message)
+
+    async def close(self) -> None:
+        if self.winrt_listener:
+            try:
+                await self.winrt_listener.stop()
+            except Exception:
+                logger.exception("Zastavení WinRT listeneru selhalo.")
+        await super().close()
 
 
 if __name__ == "__main__":

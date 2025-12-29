@@ -1,0 +1,137 @@
+import asyncio
+import importlib.util
+import logging
+import sys
+from typing import Any, Dict, List, Optional
+
+from db import add_windows_notification
+
+logger = logging.getLogger("botdc.windows_notifications")
+
+
+class WindowsNotificationListener:
+    def __init__(self, poll_interval: float = 5.0) -> None:
+        self._poll_interval = poll_interval
+        self._listener: Optional[Any] = None
+        self._task: Optional[asyncio.Task[None]] = None
+        self._stop_event = asyncio.Event()
+        self._seen_notification_ids: set[int] = set()
+
+    async def start(self) -> bool:
+        if self._task:
+            logger.info("WinRT listener je již spuštěn.")
+            return True
+        if sys.platform != "win32":
+            logger.info("WinRT listener je dostupný pouze na Windows.")
+            return False
+        if importlib.util.find_spec("winsdk") is None:
+            logger.warning("WinRT balíčky nejsou dostupné, listener nelze spustit.")
+            return False
+
+        from winsdk.windows.ui.notifications import NotificationKinds
+        from winsdk.windows.ui.notifications.management import (
+            UserNotificationListener,
+            UserNotificationListenerAccessStatus,
+        )
+
+        listener = UserNotificationListener.get_current()
+        access = await listener.request_access_async()
+        if access != UserNotificationListenerAccessStatus.ALLOWED:
+            logger.warning(
+                "WinRT listener nemá přístup k notifikacím (%s).", access
+            )
+            return False
+
+        self._listener = listener
+        self._notification_kinds = NotificationKinds.TOAST
+        self._stop_event.clear()
+        self._task = asyncio.create_task(self._run(), name="winrt-notification-loop")
+        logger.info("WinRT listener spuštěn.")
+        return True
+
+    async def stop(self) -> None:
+        if not self._task:
+            return
+        self._stop_event.set()
+        await self._task
+        self._task = None
+        logger.info("WinRT listener zastaven.")
+
+    async def _run(self) -> None:
+        while not self._stop_event.is_set():
+            await self._poll_notifications()
+            try:
+                await asyncio.wait_for(
+                    self._stop_event.wait(), timeout=self._poll_interval
+                )
+            except asyncio.TimeoutError:
+                continue
+
+    async def _poll_notifications(self) -> None:
+        if not self._listener:
+            return
+        try:
+            notifications = await self._listener.get_notifications_async(
+                self._notification_kinds
+            )
+        except Exception:
+            logger.exception("Načtení WinRT notifikací selhalo.")
+            return
+
+        for notification in notifications:
+            try:
+                notification_id = int(notification.id)
+            except Exception:
+                logger.exception("Notifikace nemá validní ID, přeskakuji.")
+                continue
+            if notification_id in self._seen_notification_ids:
+                continue
+
+            payload = self._build_payload(notification)
+            add_windows_notification(payload)
+            self._seen_notification_ids.add(notification_id)
+
+    def _build_payload(self, notification: Any) -> Dict[str, Any]:
+        app_name = self._extract_app_name(notification)
+        texts = self._extract_texts(notification)
+        payload: Dict[str, Any] = {
+            "app_name": app_name,
+            "text": "\n".join(texts).strip(),
+            "raw": {
+                "id": int(getattr(notification, "id", 0)),
+                "app_id": getattr(getattr(notification, "app_info", None), "app_user_model_id", None),
+                "app_name": app_name,
+                "texts": texts,
+                "creation_time": self._format_creation_time(notification),
+            },
+        }
+        return payload
+
+    def _extract_app_name(self, notification: Any) -> str:
+        try:
+            app_info = notification.app_info
+            display_info = app_info.display_info
+            return display_info.display_name or ""
+        except Exception:
+            return ""
+
+    def _extract_texts(self, notification: Any) -> List[str]:
+        texts: List[str] = []
+        try:
+            visual = notification.notification.visual
+            binding = visual.get_binding(0)
+            if binding is None:
+                return texts
+            for element in binding.get_text_elements():
+                if element and element.text:
+                    texts.append(str(element.text))
+        except Exception:
+            logger.exception("Nepodařilo se extrahovat text notifikace.")
+        return texts
+
+    def _format_creation_time(self, notification: Any) -> Optional[str]:
+        try:
+            creation_time = notification.creation_time
+            return creation_time.isoformat()
+        except Exception:
+            return None
