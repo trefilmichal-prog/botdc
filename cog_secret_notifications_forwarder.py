@@ -214,10 +214,19 @@ class SecretNotificationsForwarder(commands.Cog):
                 return panel_lines
             app_display_name = notification.get("app_display_name")
             app_user_model_id = notification.get("app_user_model_id")
-            app_name = app_display_name or app_user_model_id or "unknown"
+            app_name = (
+                app_display_name
+                or app_user_model_id
+                or notification.get("app_name")
+                or "unknown"
+            )
 
             text_joined = notification.get("text_joined")
-            text_line = text_joined or self._extract_text_from_raw(notification)
+            text_line = (
+                text_joined
+                or notification.get("text")
+                or self._extract_text_from_raw(notification)
+            )
 
             line1 = f"[APP] {app_name}"
             text_lines = (text_line or "").splitlines() or [""]
@@ -261,15 +270,18 @@ class SecretNotificationsForwarder(commands.Cog):
 
     def _extract_text_from_raw(self, notification: Dict[str, Any]) -> str:
         raw_json = notification.get("raw_json")
-        if not raw_json:
-            return ""
-        try:
-            raw_payload = json.loads(raw_json)
-        except Exception:
-            logger.exception("JSON parse selhal u raw_json notifikace.")
-            return ""
-
-        text_value = raw_payload.get("notification", {}).get("text")
+        if raw_json:
+            try:
+                raw_payload = json.loads(raw_json)
+            except Exception:
+                logger.exception("JSON parse selhal u raw_json notifikace.")
+                return ""
+            text_value = raw_payload.get("notification", {}).get("text")
+        else:
+            raw_payload = notification.get("raw", {})
+            text_value = None
+            if isinstance(raw_payload, dict):
+                text_value = raw_payload.get("texts") or raw_payload.get("text")
         if isinstance(text_value, list):
             return "\n".join(str(item) for item in text_value)
         if isinstance(text_value, str):
