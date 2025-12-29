@@ -54,6 +54,14 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
 
         view = self._build_view()
 
+        if message and self._message_has_embeds(message):
+            self.log.warning(
+                "Time status zpráva %s obsahuje embed, nahrazuji novou Components V2 zprávou.",
+                message.id,
+            )
+            await message.delete()
+            message = None
+
         if message:
             await message.edit(view=view)
             set_setting("time_status_message_id", str(message.id))
@@ -113,6 +121,10 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
             if isinstance(content, str) and "Časový přehled" in content:
                 return True
         return False
+
+    @staticmethod
+    def _message_has_embeds(message: discord.Message) -> bool:
+        return bool(getattr(message, "embeds", None))
 
     def _iter_components(
         self, components: list[discord.Component]
