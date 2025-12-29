@@ -220,10 +220,19 @@ I18N = {
         "btn_vacation_restore": "Vrátit zpět",
         "btn_move_clan1": "Přesun do HROT",
         "btn_move_clan2": "Přesun do HR2T",
+        "btn_kick": "Kicknout člena",
         "btn_delete": "Smazat ticket",
         "delete_no_perms": "Nemám práva smazat ticket (Manage Channels).",
         "delete_api_err": "Discord API chyba při smazání ticketu:",
         "deleted_ephemeral": "🗑️ Ticket smazán.",
+        "kick_done": "👢 Člen byl vyhozen z clanu.",
+        "kick_role_none": "Nenalezena žádná clan role k odebrání.",
+        "kick_role_removed": "Odebrané clan role: {roles}",
+        "kick_role_forbidden": "Nemám práva odebrat clan roli (Manage Roles / hierarchie).",
+        "kick_role_failed": "Discord API chyba při odebrání clan role.",
+        "kick_ticket_deleted": "Ticket smazán.",
+        "kick_ticket_delete_forbidden": "Nemám práva smazat ticket (Manage Channels).",
+        "kick_ticket_delete_failed": "Discord API chyba při smazání ticketu.",
         "move_done": "🔁 Ticket přesunut do clanu: {clan}.",
         "move_same": "Ticket už patří do clanu: {clan}.",
         "move_no_perms": "Nemám práva přesunout ticket (Manage Channels).",
@@ -321,10 +330,19 @@ I18N = {
         "btn_vacation_restore": "Restore",
         "btn_move_clan1": "Move to HROT",
         "btn_move_clan2": "Move to HR2T",
+        "btn_kick": "Kick member",
         "btn_delete": "Delete ticket",
         "delete_no_perms": "I don't have permission to delete the ticket (Manage Channels).",
         "delete_api_err": "Discord API error while deleting the ticket:",
         "deleted_ephemeral": "🗑️ Ticket deleted.",
+        "kick_done": "👢 Member was kicked from the clan.",
+        "kick_role_none": "No clan roles found to remove.",
+        "kick_role_removed": "Removed clan roles: {roles}",
+        "kick_role_forbidden": "I don't have permission to remove the clan role (Manage Roles / hierarchy).",
+        "kick_role_failed": "Discord API error while removing the clan role.",
+        "kick_ticket_deleted": "Ticket deleted.",
+        "kick_ticket_delete_forbidden": "I don't have permission to delete the ticket (Manage Channels).",
+        "kick_ticket_delete_failed": "Discord API error while deleting the ticket.",
         "move_done": "🔁 Ticket moved to clan: {clan}.",
         "move_same": "Ticket already belongs to clan: {clan}.",
         "move_no_perms": "I don't have permission to move the ticket (Manage Channels).",
@@ -817,6 +835,11 @@ class AdminDecisionView(discord.ui.LayoutView):
                 discord.ui.Button(
                     custom_id=_review_custom_id("delete", ticket_channel_id, clan_value, lang),
                     label=_t(lang, "btn_delete"),
+                    style=discord.ButtonStyle.danger,
+                ),
+                discord.ui.Button(
+                    custom_id=_review_custom_id("kick", ticket_channel_id, clan_value, lang),
+                    label=_t(lang, "btn_kick"),
                     style=discord.ButtonStyle.danger,
                 )
             ),
@@ -1642,6 +1665,70 @@ class ClanPanelCog(commands.Cog):
             ticket_channel = guild.get_channel(channel_id)
             if ticket_channel is None or not isinstance(ticket_channel, discord.TextChannel):
                 await interaction.response.send_message(_t(lang, "ticket_missing"), ephemeral=True)
+                return
+
+            if action == "kick":
+                await interaction.response.defer(ephemeral=True)
+
+                applicant_id, topic_clan = _parse_ticket_topic(ticket_channel.topic or "")
+                if topic_clan:
+                    clan_value = topic_clan
+
+                if not applicant_id:
+                    await interaction.edit_original_response(content=_t(lang, "cant_get_applicant"))
+                    return
+
+                try:
+                    applicant = guild.get_member(applicant_id) or await guild.fetch_member(applicant_id)
+                except discord.NotFound:
+                    await interaction.edit_original_response(content=_t(lang, "applicant_left"))
+                    return
+
+                candidate_role_ids = _candidate_member_role_ids_for_clan(clan_value, guild.id)
+                roles_to_remove = [
+                    role for role in applicant.roles if role.id in set(candidate_role_ids)
+                ]
+
+                if roles_to_remove:
+                    try:
+                        await applicant.remove_roles(
+                            *roles_to_remove,
+                            reason=f"Clan kick: remove roles for {clan_value} ({clicker})",
+                        )
+                        role_info = _t(
+                            lang,
+                            "kick_role_removed",
+                            roles=", ".join(role.mention for role in roles_to_remove),
+                        )
+                    except discord.Forbidden:
+                        role_info = _t(lang, "kick_role_forbidden")
+                    except discord.HTTPException:
+                        role_info = _t(lang, "kick_role_failed")
+                else:
+                    role_info = _t(lang, "kick_role_none")
+
+                app_record = None
+                try:
+                    app_record = get_clan_application_by_channel(guild.id, channel_id)
+                except Exception:
+                    app_record = None
+
+                ticket_info = _t(lang, "kick_ticket_deleted")
+                try:
+                    await ticket_channel.delete(reason=f"Clan kick by {clicker} ({applicant})")
+                except discord.Forbidden:
+                    ticket_info = _t(lang, "kick_ticket_delete_forbidden")
+                except discord.HTTPException:
+                    ticket_info = _t(lang, "kick_ticket_delete_failed")
+
+                if app_record:
+                    try:
+                        mark_clan_application_deleted(app_record["id"])
+                    except Exception:
+                        pass
+
+                response_lines = [_t(lang, "kick_done"), role_info, ticket_info]
+                await interaction.edit_original_response(content="\n".join(response_lines))
                 return
 
             if action == "delete":
