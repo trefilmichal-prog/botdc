@@ -24,27 +24,33 @@ class WindowsNotificationListener:
         if sys.platform != "win32":
             logger.info("WinRT listener je dostupný pouze na Windows.")
             return False
-        if importlib.util.find_spec("winrt") is None:
+        winsdk_spec = importlib.util.find_spec("winsdk")
+        winrt_spec = importlib.util.find_spec("winrt")
+        if winsdk_spec is None and winrt_spec is None:
             logger.warning("WinRT balíčky nejsou dostupné, listener nelze spustit.")
             return False
 
-        try:
+        if winsdk_spec is not None:
+            from winsdk.windows.ui.notifications import NotificationKinds
+            from winsdk.windows.ui.notifications.management import (
+                UserNotificationListener,
+                UserNotificationListenerAccessStatus,
+            )
+        else:
             from winrt.windows.ui.notifications import NotificationKinds
             from winrt.windows.ui.notifications.management import (
                 UserNotificationListener,
                 UserNotificationListenerAccessStatus,
             )
-        except Exception:
-            logger.exception("Nepodařilo se načíst WinRT třídy z balíčku winrt.")
-            return False
 
-        listener = UserNotificationListener.get_current()
-        request_access = getattr(listener, "request_access_async", None)
-        if not callable(request_access):
-            logger.warning("WinRT listener nepodporuje request_access_async().")
+        listener = self._get_listener(UserNotificationListener)
+        if listener is None:
+            logger.error(
+                "WinRT listener nelze inicializovat (chybí get_current/current)."
+            )
             return False
-        access = await request_access()
-        if not self._is_access_allowed(access, UserNotificationListenerAccessStatus):
+        access = await listener.request_access_async()
+        if access != UserNotificationListenerAccessStatus.ALLOWED:
             logger.warning(
                 "WinRT listener nemá přístup k notifikacím (%s).", access
             )
@@ -115,6 +121,17 @@ class WindowsNotificationListener:
             },
         }
         return payload
+
+    def _get_listener(self, listener_cls: Any) -> Optional[Any]:
+        get_current = getattr(listener_cls, "get_current", None)
+        if callable(get_current):
+            return get_current()
+        current = getattr(listener_cls, "current", None)
+        if callable(current):
+            return current()
+        if current is not None:
+            return current
+        return None
 
     def _extract_app_name(self, notification: Any) -> str:
         try:
