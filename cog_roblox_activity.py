@@ -227,15 +227,21 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
     def _ensure_presence_table_columns(self, cursor) -> None:
         cursor.execute("PRAGMA table_info(roblox_presence_state)")
         columns = {row[1] for row in cursor.fetchall()}
-        if "count_offline" in columns:
-            return
+        if "count_offline" not in columns:
+            try:
+                cursor.execute(
+                    "ALTER TABLE roblox_presence_state ADD COLUMN count_offline INTEGER"
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._logger.warning("Could not add count_offline column: %s", exc)
 
-        try:
-            cursor.execute(
-                "ALTER TABLE roblox_presence_state ADD COLUMN count_offline INTEGER"
-            )
-        except Exception as exc:  # noqa: BLE001
-            self._logger.warning("Could not add count_offline column: %s", exc)
+        if "offline_notified" not in columns:
+            try:
+                cursor.execute(
+                    "ALTER TABLE roblox_presence_state ADD COLUMN offline_notified INTEGER"
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._logger.warning("Could not add offline_notified column: %s", exc)
 
     def _load_cookie_from_db(self) -> None:
         value = get_setting(self._COOKIE_SETTING_KEY)
@@ -365,14 +371,16 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 self._user_labels[int(user_id)] = label
 
         cursor.execute(
-            "SELECT user_id, status, last_change, last_update, count_offline FROM roblox_presence_state"
+            "SELECT user_id, status, last_change, last_update, count_offline, offline_notified "
+            "FROM roblox_presence_state"
         )
-        for user_id, status, last_change, last_update, count_offline in cursor.fetchall():
+        for user_id, status, last_change, last_update, count_offline, offline_notified in cursor.fetchall():
             self._presence_state[int(user_id)] = {
                 "status": self._int_to_status(status),
                 "last_change": self._parse_datetime(last_change),
                 "last_update": self._parse_datetime(last_update),
                 "count_offline": bool(int(count_offline)) if count_offline is not None else True,
+                "offline_notified": bool(int(offline_notified)) if offline_notified is not None else False,
             }
 
         if self._tracking_enabled and self._presence_state:
@@ -439,13 +447,14 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         conn.execute(
             """
-            INSERT INTO roblox_presence_state (user_id, status, last_change, last_update, count_offline)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO roblox_presence_state (user_id, status, last_change, last_update, count_offline, offline_notified)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 status = excluded.status,
                 last_change = excluded.last_change,
                 last_update = excluded.last_update,
-                count_offline = excluded.count_offline
+                count_offline = excluded.count_offline,
+                offline_notified = excluded.offline_notified
             """,
             (
                 user_id,
@@ -453,6 +462,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 self._serialize_datetime(state.get("last_change")),
                 self._serialize_datetime(state.get("last_update")),
                 1 if state.get("count_offline", True) else 0,
+                1 if state.get("offline_notified", False) else 0,
             ),
         )
 
@@ -946,18 +956,22 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         state = self._presence_state.get(user_id)
         if state is None:
+            notify_offline = status is False and count_offline
             self._presence_state[user_id] = {
                 "status": status,
                 "last_change": now,
                 "last_update": now,
                 "count_offline": count_offline,
+                "offline_notified": notify_offline,
             }
-            return 0.0, False, None
+            self._persist_user_state(user_id)
+            return 0.0, notify_offline, None
 
         previous_status = state.get("status")
         last_change = state.get("last_change", now) or now
         last_update = state.get("last_update", now) or now
         previous_count_offline = state.get("count_offline", True)
+        offline_notified = state.get("offline_notified", False)
         offline_transition = False
         ended_online_duration: Optional[float] = None
 
@@ -977,16 +991,25 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 ended_online_duration = (now - last_change).total_seconds()
             last_change = now
 
+        notify_offline = False
+        if status is False and count_offline:
+            if previous_status is not False or not offline_notified:
+                notify_offline = True
+                offline_notified = True
+        elif status is True or status is None:
+            offline_notified = False
+
         self._presence_state[user_id] = {
             "status": status,
             "last_change": last_change,
             "last_update": now,
             "count_offline": count_offline,
+            "offline_notified": offline_notified,
         }
 
         self._persist_user_state(user_id)
 
-        return (now - last_change).total_seconds(), offline_transition, ended_online_duration
+        return (now - last_change).total_seconds(), notify_offline or offline_transition, ended_online_duration
 
     def _finalize_totals(self, now: datetime) -> None:
         if not self._tracking_enabled:
@@ -1705,8 +1728,9 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             try:
                 duration_text = self._format_timedelta(session_seconds)
                 await member.send(
-                    f"Your Roblox status for **{username}** changed to offline. "
-                    f"The last online session lasted {duration_text}."
+                    f"Your Roblox account for **{username}** appears to have gone down "
+                    f"after being online for {duration_text}. "
+                    "Please start it back up to resume tracking."
                 )
             except discord.HTTPException as exc:
                 self._logger.warning(
