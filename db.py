@@ -333,14 +333,32 @@ def init_db():
             amount INTEGER,
             pet_name TEXT,
             click_value TEXT,
+            auction_item TEXT,
+            starting_bid INTEGER,
             image_url TEXT,
             winners_count INTEGER,
             duration_minutes INTEGER NOT NULL,
             end_at TEXT NOT NULL,
-            participants_json TEXT NOT NULL
+            participants_json TEXT NOT NULL,
+            bids_json TEXT
         )
         """
     )
+
+    try:
+        c.execute("ALTER TABLE active_giveaways ADD COLUMN auction_item TEXT")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        c.execute("ALTER TABLE active_giveaways ADD COLUMN starting_bid INTEGER")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        c.execute("ALTER TABLE active_giveaways ADD COLUMN bids_json TEXT")
+    except sqlite3.OperationalError:
+        pass
 
     c.execute(
         """
@@ -577,6 +595,11 @@ def save_giveaway_state(message_id: int, state: Dict[str, Any]):
         participants = set()
     participants_json = json.dumps(list(participants))
 
+    bids = state.get("bids", {})
+    if bids is None:
+        bids = {}
+    bids_json = json.dumps({str(k): v for k, v in bids.items()})
+
     end_at = state.get("end_at")
     end_at_str = end_at.isoformat() if isinstance(end_at, datetime) else ""
 
@@ -587,9 +610,10 @@ def save_giveaway_state(message_id: int, state: Dict[str, Any]):
         """
         INSERT INTO active_giveaways (
             message_id, channel_id, type, host_id, amount, pet_name, click_value,
-            image_url, winners_count, duration_minutes, end_at, participants_json
+            auction_item, starting_bid, image_url, winners_count, duration_minutes,
+            end_at, participants_json, bids_json
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(message_id) DO UPDATE SET
             channel_id = excluded.channel_id,
             type = excluded.type,
@@ -597,11 +621,14 @@ def save_giveaway_state(message_id: int, state: Dict[str, Any]):
             amount = excluded.amount,
             pet_name = excluded.pet_name,
             click_value = excluded.click_value,
+            auction_item = excluded.auction_item,
+            starting_bid = excluded.starting_bid,
             image_url = excluded.image_url,
             winners_count = excluded.winners_count,
             duration_minutes = excluded.duration_minutes,
             end_at = excluded.end_at,
-            participants_json = excluded.participants_json
+            participants_json = excluded.participants_json,
+            bids_json = excluded.bids_json
         """,
         (
             message_id,
@@ -611,11 +638,14 @@ def save_giveaway_state(message_id: int, state: Dict[str, Any]):
             state.get("amount"),
             state.get("pet_name"),
             state.get("click_value"),
+            state.get("auction_item"),
+            state.get("starting_bid"),
             state.get("image_url"),
             state.get("winners_count"),
             state.get("duration", 0),
             end_at_str,
             participants_json,
+            bids_json,
         ),
     )
     conn.commit()
@@ -628,7 +658,8 @@ def load_active_giveaways() -> List[Tuple[int, Dict[str, Any]]]:
     c.execute(
         """
         SELECT message_id, channel_id, type, host_id, amount, pet_name, click_value,
-               image_url, winners_count, duration_minutes, end_at, participants_json
+               auction_item, starting_bid, image_url, winners_count, duration_minutes,
+               end_at, participants_json, bids_json
         FROM active_giveaways
         """
     )
@@ -645,14 +676,19 @@ def load_active_giveaways() -> List[Tuple[int, Dict[str, Any]]]:
             amount,
             pet_name,
             click_value,
+            auction_item,
+            starting_bid,
             image_url,
             winners_count,
             duration_minutes,
             end_at_str,
             participants_json,
+            bids_json,
         ) = row
 
         participants = set(json.loads(participants_json)) if participants_json else set()
+        bids_payload = json.loads(bids_json) if bids_json else {}
+        bids = {int(key): int(value) for key, value in bids_payload.items()}
         end_at = datetime.fromisoformat(end_at_str) if end_at_str else None
 
         giveaways.append(
@@ -665,11 +701,14 @@ def load_active_giveaways() -> List[Tuple[int, Dict[str, Any]]]:
                     "amount": amount,
                     "pet_name": pet_name,
                     "click_value": click_value,
+                    "auction_item": auction_item,
+                    "starting_bid": starting_bid,
                     "image_url": image_url,
                     "winners_count": winners_count,
                     "duration": duration_minutes,
                     "end_at": end_at,
                     "participants": participants,
+                    "bids": bids,
                     "ended": False,
                 },
             )
@@ -684,7 +723,8 @@ def get_active_giveaway(message_id: int) -> Optional[Dict[str, Any]]:
     c.execute(
         """
         SELECT message_id, channel_id, type, host_id, amount, pet_name, click_value,
-               image_url, winners_count, duration_minutes, end_at, participants_json
+               auction_item, starting_bid, image_url, winners_count, duration_minutes,
+               end_at, participants_json, bids_json
         FROM active_giveaways
         WHERE message_id = ?
         """,
@@ -704,14 +744,19 @@ def get_active_giveaway(message_id: int) -> Optional[Dict[str, Any]]:
         amount,
         pet_name,
         click_value,
+        auction_item,
+        starting_bid,
         image_url,
         winners_count,
         duration_minutes,
         end_at_str,
         participants_json,
+        bids_json,
     ) = row
 
     participants = set(json.loads(participants_json)) if participants_json else set()
+    bids_payload = json.loads(bids_json) if bids_json else {}
+    bids = {int(key): int(value) for key, value in bids_payload.items()}
     end_at = datetime.fromisoformat(end_at_str) if end_at_str else None
 
     return {
@@ -721,11 +766,14 @@ def get_active_giveaway(message_id: int) -> Optional[Dict[str, Any]]:
         "amount": amount,
         "pet_name": pet_name,
         "click_value": click_value,
+        "auction_item": auction_item,
+        "starting_bid": starting_bid,
         "image_url": image_url,
         "winners_count": winners_count,
         "duration": duration_minutes,
         "end_at": end_at,
         "participants": participants,
+        "bids": bids,
         "ended": False,
     }
 
