@@ -560,10 +560,10 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.choices(
         typ=[
-            app_commands.Choice(name="coin", value=GiveawayType.COIN),
-            app_commands.Choice(name="pet", value=GiveawayType.PET),
-            app_commands.Choice(name="screen", value=GiveawayType.SCREEN),
-            app_commands.Choice(name="auction", value=GiveawayType.AUCTION),
+            app_commands.Choice(name="coin", value=GiveawayType.COIN.value),
+            app_commands.Choice(name="pet", value=GiveawayType.PET.value),
+            app_commands.Choice(name="screen", value=GiveawayType.SCREEN.value),
+            app_commands.Choice(name="auction", value=GiveawayType.AUCTION.value),
         ]
     )
     @app_commands.describe(
@@ -582,7 +582,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
     async def start_giveaway_cmd(
         self,
         interaction: discord.Interaction,
-        typ: GiveawayType,
+        typ: str,
         amount: Optional[app_commands.Range[int, 1, 10_000_000]] = None,
         pet_name: Optional[str] = None,
         click_value: Optional[str] = None,
@@ -625,7 +625,16 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
 
         state: Dict[str, Any]
 
-        if typ == GiveawayType.COIN:
+        try:
+            giveaway_type = GiveawayType(typ)
+        except ValueError:
+            await interaction.response.send_message(
+                "Neplatný typ giveaway.",
+                ephemeral=True,
+            )
+            return
+
+        if giveaway_type == GiveawayType.COIN:
             if amount is None:
                 await interaction.response.send_message(
                     "Pro typ `coin` je povinný parametr `amount`.",
@@ -646,7 +655,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 "block_admins": block_admins,
             }
 
-        elif typ == GiveawayType.PET:
+        elif giveaway_type == GiveawayType.PET:
             if pet_name is None or click_value is None:
                 await interaction.response.send_message(
                     "Pro typ `pet` jsou povinné parametry `pet_name` a `click_value`.",
@@ -668,7 +677,7 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 "block_admins": block_admins,
             }
 
-        elif typ == GiveawayType.AUCTION:
+        elif giveaway_type == GiveawayType.AUCTION:
             if not auction_item:
                 await interaction.response.send_message(
                     "Pro typ `auction` je povinný parametr `auction_item`.",
