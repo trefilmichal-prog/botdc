@@ -337,9 +337,39 @@ class SecretNotificationsForwarder(commands.Cog):
         view = discord.ui.LayoutView()
         container = discord.ui.Container()
         for line in self._normalize_lines(lines):
-            container.add_item(discord.ui.TextDisplay(content=line))
+            highlighted = self._highlight_keywords(line)
+            container.add_item(discord.ui.TextDisplay(content=highlighted))
         view.add_item(container)
         return view
+
+    def _highlight_keywords(self, text: str) -> str:
+        if not text or text.strip() == "":
+            return text
+        keyword_styles = [
+            ("secret", "31"),
+            ("divine", "36"),
+            ("supreme", "34"),
+            ("golden", "33"),
+            ("toxic", "32"),
+            ("galaxy", "35"),
+        ]
+        highlighted = text
+        matched = False
+        for keyword, color_code in keyword_styles:
+            pattern = rf"\b{re.escape(keyword)}\b"
+
+            def replace(match: re.Match[str], code: str = color_code) -> str:
+                return f"\x1b[1;{code}m{match.group(0)}\x1b[0m"
+
+            new_text, count = re.subn(
+                pattern, replace, highlighted, flags=re.IGNORECASE
+            )
+            if count:
+                matched = True
+            highlighted = new_text
+        if not matched:
+            return text
+        return f"```ansi\n{highlighted}\n```"
 
     def _normalize_lines(self, lines: List[str]) -> List[str]:
         normalized: List[str] = []
