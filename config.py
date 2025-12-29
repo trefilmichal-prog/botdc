@@ -38,7 +38,7 @@ CLAN_BANNER_IMAGE_URL = "https://ezrz.eu/dcbot/baner2.jpg"
 
 # WinRT notifikace (Windows pouze)
 WINDOWS_NOTIFICATION_WINRT_ENABLED = (
-    os.getenv("WINDOWS_NOTIFICATION_WINRT_ENABLED", "").lower() == "true"
+    os.getenv("WINDOWS_NOTIFICATION_WINRT_ENABLED", "true").lower() == "true"
 )
 WINDOWS_NOTIFICATION_WINRT_POLL_INTERVAL = float(
     os.getenv("WINDOWS_NOTIFICATION_WINRT_POLL_INTERVAL", "5")
