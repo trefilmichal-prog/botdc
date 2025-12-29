@@ -558,6 +558,14 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
         description="Spustí giveaway typu coin, pet, screen nebo auction v nastavené roomce.",
     )
     @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.choices(
+        typ=[
+            app_commands.Choice(name="coin", value=GiveawayType.COIN),
+            app_commands.Choice(name="pet", value=GiveawayType.PET),
+            app_commands.Choice(name="screen", value=GiveawayType.SCREEN),
+            app_commands.Choice(name="auction", value=GiveawayType.AUCTION),
+        ]
+    )
     @app_commands.describe(
         typ="Typ giveaway (coin, pet, screen nebo auction)",
         amount="Počet coinů (pouze pro typ coin)",
