@@ -24,26 +24,34 @@ class WindowsNotificationListener:
         if sys.platform != "win32":
             logger.info("WinRT listener je dostupný pouze na Windows.")
             return False
-        if importlib.util.find_spec("winsdk") is None:
+        if importlib.util.find_spec("winrt") is None:
             logger.warning("WinRT balíčky nejsou dostupné, listener nelze spustit.")
             return False
 
-        from winsdk.windows.ui.notifications import NotificationKinds
-        from winsdk.windows.ui.notifications.management import (
-            UserNotificationListener,
-            UserNotificationListenerAccessStatus,
-        )
+        try:
+            from winrt.windows.ui.notifications import NotificationKinds
+            from winrt.windows.ui.notifications.management import (
+                UserNotificationListener,
+                UserNotificationListenerAccessStatus,
+            )
+        except Exception:
+            logger.exception("Nepodařilo se načíst WinRT třídy z balíčku winrt.")
+            return False
 
         listener = UserNotificationListener.get_current()
-        access = await listener.request_access_async()
-        if access != UserNotificationListenerAccessStatus.ALLOWED:
+        request_access = getattr(listener, "request_access_async", None)
+        if not callable(request_access):
+            logger.warning("WinRT listener nepodporuje request_access_async().")
+            return False
+        access = await request_access()
+        if not self._is_access_allowed(access, UserNotificationListenerAccessStatus):
             logger.warning(
                 "WinRT listener nemá přístup k notifikacím (%s).", access
             )
             return False
 
         self._listener = listener
-        self._notification_kinds = NotificationKinds.TOAST
+        self._notification_kinds = self._resolve_notification_kind(NotificationKinds)
         self._stop_event.clear()
         self._task = asyncio.create_task(self._run(), name="winrt-notification-loop")
         logger.info("WinRT listener spuštěn.")
@@ -71,9 +79,10 @@ class WindowsNotificationListener:
         if not self._listener:
             return
         try:
-            notifications = await self._listener.get_notifications_async(
-                self._notification_kinds
-            )
+            get_notifications = getattr(self._listener, "get_notifications_async", None)
+            if not callable(get_notifications):
+                raise AttributeError("get_notifications_async není k dispozici")
+            notifications = await get_notifications(self._notification_kinds)
         except Exception:
             logger.exception("Načtení WinRT notifikací selhalo.")
             return
@@ -135,3 +144,17 @@ class WindowsNotificationListener:
             return creation_time.isoformat()
         except Exception:
             return None
+
+    def _is_access_allowed(self, access: Any, status_enum: Any) -> bool:
+        allowed_value = getattr(status_enum, "ALLOWED", None)
+        if allowed_value is not None and access == allowed_value:
+            return True
+        name = getattr(access, "name", None)
+        if isinstance(name, str) and name.lower() == "allowed":
+            return True
+        return str(access).lower().endswith("allowed")
+
+    def _resolve_notification_kind(self, kinds_enum: Any) -> Any:
+        if hasattr(kinds_enum, "TOAST"):
+            return kinds_enum.TOAST
+        return getattr(kinds_enum, "toast", kinds_enum)
