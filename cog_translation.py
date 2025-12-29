@@ -87,16 +87,20 @@ class AutoTranslateCog(commands.Cog):
             if existing:
                 continue
 
-            async def _invoke_translation(
-                interaction: discord.Interaction,
-                message: discord.Message,
-                *,
-                _language: str = language,
-            ) -> None:
-                await self._respond_with_translation(interaction, _language, message)
+            def _build_context_callback(target_language: str):
+                async def _invoke_translation(
+                    interaction: discord.Interaction, message: discord.Message
+                ) -> None:
+                    await self._respond_with_translation(
+                        interaction, target_language, message
+                    )
+
+                return _invoke_translation
 
             self.bot.tree.add_command(
-                app_commands.ContextMenu(name=menu_name, callback=_invoke_translation)
+                app_commands.ContextMenu(
+                    name=menu_name, callback=_build_context_callback(language)
+                )
             )
 
     def _post_deepl(self, payload: dict[str, object]) -> str:
