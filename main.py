@@ -140,6 +140,27 @@ class MyBot(commands.Bot):
         logger.info("Přihlášen jako %s (ID: %s)", self.user, self.user.id)
         await self._leave_unapproved_guilds()
 
+    async def _leave_unapproved_guilds(self) -> None:
+        if not ALLOWED_GUILD_ID:
+            return
+
+        for guild in list(self.guilds):
+            if guild.id == ALLOWED_GUILD_ID:
+                continue
+            logger.warning(
+                "Bot je připojen na nepovolený server %s (ID: %s), odcházím.",
+                guild.name,
+                guild.id,
+            )
+            try:
+                await guild.leave()
+            except Exception:
+                logger.exception(
+                    "Odchod z nepovoleného serveru %s (ID: %s) selhal.",
+                    guild.name,
+                    guild.id,
+                )
+
     async def on_guild_join(self, guild: discord.Guild):
         if guild.id != ALLOWED_GUILD_ID:
             logger.warning(
