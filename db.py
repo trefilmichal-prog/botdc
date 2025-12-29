@@ -365,6 +365,16 @@ def init_db():
         """
     )
 
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS windows_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            payload TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+
     # Statistiky uživatelů (XP/coins/level/messages)
     c.execute(
         """
@@ -2249,3 +2259,60 @@ def clear_pending_discord_writes() -> int:
     conn.commit()
     conn.close()
     return int(count)
+
+
+def add_windows_notification(payload: Dict[str, Any]) -> None:
+    conn = get_connection()
+    c = conn.cursor()
+    created_at = datetime.utcnow().isoformat()
+    payload_json = json.dumps(payload, ensure_ascii=False)
+    c.execute(
+        """
+        INSERT INTO windows_notifications (payload, created_at)
+        VALUES (?, ?)
+        """,
+        (payload_json, created_at),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_windows_notifications(limit: int = 50) -> List[Dict[str, Any]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT id, payload, created_at
+        FROM windows_notifications
+        ORDER BY id ASC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+    rows = c.fetchall()
+    conn.close()
+    notifications: List[Dict[str, Any]] = []
+    for row in rows:
+        payload_raw = row[1]
+        try:
+            payload = json.loads(payload_raw) if payload_raw else {}
+        except json.JSONDecodeError:
+            payload = {"raw_payload": payload_raw}
+        notifications.append(
+            {"id": int(row[0]), "payload": payload, "created_at": row[2]}
+        )
+    return notifications
+
+
+def delete_windows_notifications(notification_ids: List[int]) -> None:
+    if not notification_ids:
+        return
+    conn = get_connection()
+    c = conn.cursor()
+    placeholders = ",".join("?" for _ in notification_ids)
+    c.execute(
+        f"DELETE FROM windows_notifications WHERE id IN ({placeholders})",
+        tuple(notification_ids),
+    )
+    conn.commit()
+    conn.close()

@@ -18,19 +18,18 @@ from config import (
 )
 from db import (
     add_dropstats_panel,
+    delete_windows_notifications,
     get_all_dropstats_panels,
     get_connection,
     get_secret_drop_totals,
+    get_windows_notifications,
     increment_secret_drop_stat,
     remove_dropstats_panel,
     reset_secret_drop_stats,
 )
 
 
-API_TOKEN = "4613641698541651646845196419864189654"
-API_URL = "https://ezrz.eu/secret/api/fetch.php?limit=50&ack=1"
 CHANNEL_ID = 1454386651831734324
-SETTINGS_KEY_LAST_SUCCESS = "secret_notifications_last_success_at"
 SETTINGS_KEY_CLAN_MEMBER_CACHE = "secret_notifications_clan_member_cache"
 SETTINGS_KEY_CLAN_MEMBER_CACHE_UPDATED = (
     "secret_notifications_clan_member_cache_updated_at"
@@ -43,7 +42,6 @@ CLAN_MEMBER_ROLE_IDS = [
 ]
 
 logger = logging.getLogger("botdc.secret_notifications")
-logger.disabled = True
 
 
 class SecretNotificationsForwarder(commands.Cog):
@@ -51,6 +49,7 @@ class SecretNotificationsForwarder(commands.Cog):
         self.bot = bot
         self._clan_member_cache: dict[str, dict[str, Any]] = {}
         self._clan_member_cache_updated_at: Optional[datetime] = None
+        self._received_notifications_count = 0
         self._load_cached_players_from_db()
         self.dropstats_group = app_commands.Group(
             name="dropstats", description="Statistiky dropu"
@@ -88,16 +87,19 @@ class SecretNotificationsForwarder(commands.Cog):
         self.bot.tree.add_command(self.dropstats_group)
         self.bot.tree.add_command(self.secret_group)
         self.poll_notifications.start()
+        self.log_notification_stats.start()
         self.refresh_clan_member_cache.start()
 
     def cog_unload(self):
         self.poll_notifications.cancel()
+        self.log_notification_stats.cancel()
         self.refresh_clan_member_cache.cancel()
         self.bot.tree.remove_command("dropstats", type=discord.AppCommandType.chat_input)
         self.bot.tree.remove_command("secret", type=discord.AppCommandType.chat_input)
 
     @tasks.loop(seconds=2.5)
     async def poll_notifications(self):
+        processed_ids: List[int] = []
         try:
             channel = await self._get_channel()
             if channel is None:
@@ -108,14 +110,16 @@ class SecretNotificationsForwarder(commands.Cog):
             if notifications is None:
                 return
 
-            if notifications:
-                logger.info("Přijaté notifikace: %s", len(notifications))
-            else:
+            if not notifications:
                 return
 
             updated_stats = False
             for notification in notifications:
-                lines = self._format_message_lines(notification)
+                notification_id = notification.get("id")
+                payload = notification.get("payload", {})
+                if isinstance(notification_id, int):
+                    processed_ids.append(notification_id)
+                lines = self._format_message_lines(payload)
                 if not lines:
                     continue
                 text_body = "\n".join(lines[1:]) if len(lines) > 1 else ""
@@ -145,12 +149,25 @@ class SecretNotificationsForwarder(commands.Cog):
                 await self.refresh_dropstats_panels()
         except Exception:
             logger.exception("Neočekávaná chyba v notifikační smyčce.")
+        finally:
+            if processed_ids:
+                await asyncio.to_thread(delete_windows_notifications, processed_ids)
 
     @poll_notifications.before_loop
     async def before_poll_notifications(self):
         await self.bot.wait_until_ready()
         logger.info("Startuji smyčku pro přeposílání secret notifikací.")
         await self.refresh_dropstats_panels()
+
+    @tasks.loop(minutes=5)
+    async def log_notification_stats(self) -> None:
+        count = self._received_notifications_count
+        self._received_notifications_count = 0
+        logger.info("Za posledních 5 minut přijato notifikací: %s", count)
+
+    @log_notification_stats.before_loop
+    async def before_log_notification_stats(self) -> None:
+        await self.bot.wait_until_ready()
 
     @tasks.loop(minutes=10)
     async def refresh_clan_member_cache(self):
@@ -177,52 +194,15 @@ class SecretNotificationsForwarder(commands.Cog):
 
     async def _fetch_notifications(self) -> Optional[List[Dict[str, Any]]]:
         try:
-            payload = await asyncio.to_thread(self._fetch_notifications_sync)
+            notifications = await asyncio.to_thread(get_windows_notifications)
         except Exception:
-            logger.exception("HTTP požadavek na notifikace selhal.")
+            logger.exception("Načtení Windows notifikací z DB selhalo.")
             return None
-
-        if not isinstance(payload, dict):
-            logger.error("Neočekávaný formát JSON odpovědi.")
-            return None
-
-        if not payload.get("ok", False):
-            logger.error("API vrátilo ok=false, ignoruji odpověď.")
-            return None
-
-        notifications = payload.get("notifications") or []
         if not isinstance(notifications, list):
-            logger.error("Pole notifications má neočekávaný formát.")
+            logger.error("Windows notifikace mají neočekávaný formát.")
             return None
-
-        count = payload.get("count")
-        if isinstance(count, int) and count == 0:
-            self._update_last_success()
-            return []
-
-        self._update_last_success()
+        self._received_notifications_count += len(notifications)
         return notifications
-
-    def _fetch_notifications_sync(self) -> Any:
-        import urllib.request
-
-        headers = {"X-Secret-Token": API_TOKEN}
-        request = urllib.request.Request(API_URL, headers=headers)
-        try:
-            with urllib.request.urlopen(request, timeout=10) as response:
-                if response.status != 200:
-                    logger.error("HTTP chyba při fetchi notifikací: %s", response.status)
-                    return None
-                data = response.read()
-        except Exception:
-            logger.exception("HTTP požadavek na notifikace selhal.")
-            return None
-
-        try:
-            return json.loads(data)
-        except Exception:
-            logger.exception("JSON parse selhal u odpovědi notifikací.")
-            return None
 
     def _format_message_lines(self, notification: Dict[str, Any]) -> Optional[List[str]]:
         try:
@@ -363,25 +343,6 @@ class SecretNotificationsForwarder(commands.Cog):
                 normalized.append(chunk)
                 text = text[4000:]
         return normalized
-
-    def _update_last_success(self) -> None:
-        timestamp = datetime.now(timezone.utc).isoformat()
-        conn = None
-        try:
-            conn = get_connection()
-            with conn:
-                conn.execute(
-                    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                    (SETTINGS_KEY_LAST_SUCCESS, timestamp),
-                )
-        except Exception:
-            logger.exception("Uložení timestampu do DB selhalo.")
-        finally:
-            if conn is not None:
-                try:
-                    conn.close()
-                except Exception:
-                    logger.exception("Uzavření DB spojení selhalo.")
 
     def _load_cached_players_from_db(self) -> None:
         conn = None
