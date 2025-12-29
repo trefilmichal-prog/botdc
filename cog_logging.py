@@ -114,6 +114,7 @@ class LoggingCog(commands.Cog):
             message.author,
             getattr(message.channel, "name", message.channel),
             (message.content or "*(Žádný text)*").replace("\n", " "),
+            extra={"skip_channel": True},
         )
 
         channel = await self._get_log_channel()
@@ -121,8 +122,8 @@ class LoggingCog(commands.Cog):
             return
 
         description_lines = [
-            f"Autor: {message.author.mention} ({message.author.id})",
-            f"Kanál: {message.channel.mention}",
+            f"Autor: {message.author} ({message.author.id})",
+            f"Kanál: #{message.channel} ({message.channel.id})",
         ]
 
         content = message.content or "*(Žádný text)*"
@@ -140,7 +141,11 @@ class LoggingCog(commands.Cog):
         view.add_item(
             discord.ui.Container(*(discord.ui.TextDisplay(content=line) for line in lines))
         )
-        await channel.send(content="", view=view)
+        await channel.send(
+            content="",
+            view=view,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
 
     @commands.Cog.listener()
     async def on_message_edit(self, before: discord.Message, after: discord.Message):
@@ -160,11 +165,12 @@ class LoggingCog(commands.Cog):
             getattr(before.channel, "name", before.channel),
             (before.content or "*(Žádný text)*").replace("\n", " "),
             (after.content or "*(Žádný text)*").replace("\n", " "),
+            extra={"skip_channel": True},
         )
 
         description_lines = [
-            f"Autor: {before.author.mention} ({before.author.id})",
-            f"Kanál: {before.channel.mention}",
+            f"Autor: {before.author} ({before.author.id})",
+            f"Kanál: #{before.channel} ({before.channel.id})",
             f"Zpráva: [Odkaz]({after.jump_url})",
         ]
 
@@ -178,7 +184,11 @@ class LoggingCog(commands.Cog):
         view.add_item(
             discord.ui.Container(*(discord.ui.TextDisplay(content=line) for line in lines))
         )
-        await channel.send(content="", view=view)
+        await channel.send(
+            content="",
+            view=view,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
 
     async def _process_log_queue(self):
         try:
@@ -204,7 +214,11 @@ class LoggingCog(commands.Cog):
                 discord.ui.TextDisplay(content=message[:4096]),
             )
         )
-        await channel.send(content="", view=view)
+        await channel.send(
+            content="",
+            view=view,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
 
     def _build_view(self, lines: list[str]) -> discord.ui.LayoutView:
         view = discord.ui.LayoutView(timeout=None)
@@ -282,6 +296,8 @@ class _ChannelLogHandler(logging.Handler):
         self.cog = cog
 
     def emit(self, record: logging.LogRecord):
+        if getattr(record, "skip_channel", False):
+            return
         try:
             message = self.format(record)
         except Exception:
