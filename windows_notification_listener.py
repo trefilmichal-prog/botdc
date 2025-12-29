@@ -145,12 +145,35 @@ class WindowsNotificationListener:
         texts: List[str] = []
         try:
             visual = notification.notification.visual
-            binding = visual.get_binding(0)
-            if binding is None:
-                return texts
-            for element in binding.get_text_elements():
-                if element and element.text:
-                    texts.append(str(element.text))
+            bindings: List[Any] = []
+            get_binding = getattr(visual, "get_binding", None)
+            if callable(get_binding):
+                try:
+                    binding = get_binding(0)
+                except TypeError:
+                    binding = None
+                if binding is not None:
+                    bindings.append(binding)
+            if not bindings:
+                get_bindings = getattr(visual, "get_bindings", None)
+                if callable(get_bindings):
+                    bindings = list(get_bindings())
+                else:
+                    raw_bindings = getattr(visual, "bindings", None)
+                    if raw_bindings:
+                        bindings = list(raw_bindings)
+            for binding in bindings:
+                if binding is None:
+                    continue
+                get_text_elements = getattr(binding, "get_text_elements", None)
+                if callable(get_text_elements):
+                    elements = get_text_elements()
+                else:
+                    elements = getattr(binding, "text_elements", [])
+                for element in elements or []:
+                    text_value = getattr(element, "text", None)
+                    if text_value:
+                        texts.append(str(text_value))
         except Exception:
             logger.exception("Nepodařilo se extrahovat text notifikace.")
         return texts
