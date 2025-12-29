@@ -31,6 +31,9 @@ class LoggingCog(commands.Cog):
         self._handler.setLevel(logging.INFO)
 
         root_logger = logging.getLogger()
+        for existing_handler in list(root_logger.handlers):
+            if isinstance(existing_handler, _ChannelLogHandler):
+                root_logger.removeHandler(existing_handler)
         if self._handler not in root_logger.handlers:
             root_logger.addHandler(self._handler)
 
