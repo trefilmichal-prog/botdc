@@ -157,7 +157,10 @@ class SecretNotificationsForwarder(commands.Cog):
     async def before_poll_notifications(self):
         await self.bot.wait_until_ready()
         logger.info("Startuji smyčku pro přeposílání secret notifikací.")
-        await self.refresh_dropstats_panels()
+        try:
+            await self.refresh_dropstats_panels()
+        except Exception:
+            logger.exception("Nepodařilo se načíst dropstats panely při startu.")
 
     @tasks.loop(minutes=5)
     async def log_notification_stats(self) -> None:
@@ -642,7 +645,11 @@ class SecretNotificationsForwarder(commands.Cog):
         return chunks
 
     async def refresh_dropstats_panels(self) -> None:
-        panels = get_all_dropstats_panels()
+        try:
+            panels = get_all_dropstats_panels()
+        except Exception:
+            logger.exception("Načtení dropstats panelů selhalo.")
+            return
         if not panels:
             return
 
