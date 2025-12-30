@@ -210,8 +210,8 @@ I18N = {
             "* prestiž\n\n"
             "Screeny posílej jako přílohy sem do ticketu (může být více zpráv).\n\n"
         ),
-        "screenshot_done_ping": "Až budeš mít hotovo, napiš sem zprávu a označ:",
-        "screenshot_done_msg": "Až budeš mít hotovo, napiš sem zprávu pro vedení clanu.",
+        "screenshot_done_ping": "Vedení clanu už bylo automaticky upozorněno:",
+        "screenshot_done_msg": "Vedení clanu už bylo automaticky upozorněno.",
         "manage_title": "## ⚙️ Správa přihlášky",
         "manage_choose": "Vyber akci:",
         "btn_accept": "Přijmout",
@@ -320,8 +320,8 @@ I18N = {
             "* prestige\n\n"
             "Send screenshots as attachments here in the ticket (you can send multiple messages).\n\n"
         ),
-        "screenshot_done_ping": "When you're done, write a message here and mention:",
-        "screenshot_done_msg": "When you're done, write a message here for clan leadership.",
+        "screenshot_done_ping": "Clan leadership has already been notified automatically:",
+        "screenshot_done_msg": "Clan leadership has already been notified automatically.",
         "manage_title": "## ⚙️ Application management",
         "manage_choose": "Choose an action:",
         "btn_accept": "Accept",
@@ -1088,6 +1088,13 @@ class ClanApplicationModal(discord.ui.Modal):
             warn_container = discord.ui.Container(*warn_items)
             warn_view.add_item(warn_container)
             await ticket_channel.send(content="", view=warn_view)
+
+        role_mention = _role_mention_for_clan(self.clan_value, guild.id)
+        if role_mention:
+            await ticket_channel.send(
+                content=role_mention,
+                allowed_mentions=discord.AllowedMentions(roles=True, users=False, everyone=False),
+            )
 
         # Screenshot instructions (no button). Role mention is shown but NOT pinged by bot.
         await ticket_channel.send(
