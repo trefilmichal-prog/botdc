@@ -182,30 +182,30 @@ class AutoUpdater(commands.Cog):
         branch = branch or self.default_branch
 
         if interaction.user.id != self.allowed_user_id:
-            await interaction.followup.send(
-                "❌ Tento příkaz může použít pouze určený uživatel.",
-                ephemeral=True,
+            await interaction.edit_original_response(
+                content="❌ Tento příkaz může použít pouze určený uživatel."
             )
             return
 
         if via_archive:
             success, message = await self._update_from_archive(repo_url, branch)
             if not success:
-                await interaction.followup.send(f"❌ {message}", ephemeral=True)
+                await interaction.edit_original_response(content=f"❌ {message}")
                 return
 
-            await interaction.followup.send(
-                "✅ Bot byl úspěšně aktualizován ze staženého archivu.\n"
-                "🔄 Restart bota probíhá, může trvat několik sekund...",
-                ephemeral=True,
+            await interaction.edit_original_response(
+                content=(
+                    "✅ Bot byl úspěšně aktualizován ze staženého archivu.\n"
+                    "🔄 Restart bota probíhá, může trvat několik sekund..."
+                )
             )
             await self._restart_bot()
             return
 
         clean, error_msg = await self._ensure_clean_worktree()
         if not clean:
-            await interaction.followup.send(
-                f"❌ Aktualizaci nelze provést: {error_msg}", ephemeral=True
+            await interaction.edit_original_response(
+                content=f"❌ Aktualizaci nelze provést: {error_msg}"
             )
             return
 
@@ -217,7 +217,7 @@ class AutoUpdater(commands.Cog):
                 "❌ Stažení změn selhalo. Zkontrolujte URL/branch a dostupnost repozitáře.\n"
                 f"Výstup: ```\n{fetch_err or fetch_out}\n```"
             )
-            await interaction.followup.send(message, ephemeral=True)
+            await interaction.edit_original_response(content=message)
             self.logger.error(
                 "Git fetch selhal s kódem %s: %s", fetch_code, fetch_err or fetch_out
             )
@@ -234,7 +234,7 @@ class AutoUpdater(commands.Cog):
                 "❌ Přepnutí na požadovanou větev selhalo.\n"
                 f"Výstup: ```\n{reset_err or reset_out}\n```"
             )
-            await interaction.followup.send(message, ephemeral=True)
+            await interaction.edit_original_response(content=message)
             self.logger.error(
                 "Git checkout selhal s kódem %s: %s", reset_code, reset_err or reset_out
             )
@@ -243,10 +243,11 @@ class AutoUpdater(commands.Cog):
         self.logger.info(
             "Bot aktualizován z %s (%s): %s", repo_url, branch, fetch_out or reset_out
         )
-        await interaction.followup.send(
-            "✅ Bot byl úspěšně aktualizován.\n"
-            f"Výstup: ```\n{fetch_out or reset_out}\n```\n"
-            "🔄 Restart bota probíhá, může trvat několik sekund...",
-            ephemeral=True,
+        await interaction.edit_original_response(
+            content=(
+                "✅ Bot byl úspěšně aktualizován.\n"
+                f"Výstup: ```\n{fetch_out or reset_out}\n```\n"
+                "🔄 Restart bota probíhá, může trvat několik sekund..."
+            )
         )
         await self._restart_bot()
