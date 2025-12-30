@@ -122,7 +122,7 @@ class SecretNotificationsForwarder(commands.Cog):
                 lines = self._format_message_lines(payload)
                 if not lines:
                     continue
-                text_body = "\n".join(lines[1:]) if len(lines) > 1 else ""
+                text_body = "\n".join(lines)
                 matched_players = self._find_player_mentions(text_body)
                 if not matched_players:
                     continue
