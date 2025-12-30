@@ -35,6 +35,7 @@ class WelcomeCog(commands.Cog):
         view = discord.ui.LayoutView(timeout=None)
         view.add_item(
             discord.ui.Container(
+                discord.ui.TextDisplay(content=member.mention),
                 discord.ui.TextDisplay(content="## 🎉 Welcome!"),
                 discord.ui.TextDisplay(content=description),
                 discord.ui.TextDisplay(
@@ -64,6 +65,4 @@ class WelcomeCog(commands.Cog):
         if channel is None:
             return
 
-        await channel.send(
-            content=after.mention, view=self._build_view(after, WELCOME_TEXT)
-        )
+        await channel.send(view=self._build_view(after, WELCOME_TEXT))
