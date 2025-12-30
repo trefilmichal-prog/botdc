@@ -177,8 +177,7 @@ class MyBot(commands.Bot):
                 )
                 return
             self._recent_interactions[interaction.id] = now
-
-        await super().on_interaction(interaction)
+        return
 
     async def _leave_unapproved_guilds(self) -> None:
         if not ALLOWED_GUILD_ID:
