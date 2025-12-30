@@ -1017,7 +1017,6 @@ class GiveawayView(discord.ui.LayoutView):
 
         await interaction.response.defer()
         await self.cog.finalize_giveaway(message, state)
-        await interaction.followup.send(
+        await interaction.edit_original_response(
             "Giveaway byla ukončena, výherci jsou zobrazeni v příspěvku.",
-            ephemeral=False,
         )

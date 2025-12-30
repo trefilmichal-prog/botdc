@@ -161,7 +161,7 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
     @app_commands.describe(dotaz="Na co se chceš zeptat? (česky nebo anglicky)")
     async def rebirth_future(self, interaction: discord.Interaction, dotaz: str | None = None):
         locale = get_interaction_locale(interaction)
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
 
         prompt = t("prophecy_prompt_slash", locale)
         if dotaz:
@@ -171,9 +171,8 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
 
         response_text = await self._ask_ollama(prompt)
         if not response_text:
-            await interaction.followup.send(
+            await interaction.edit_original_response(
                 t("prophecy_unavailable", locale),
-                ephemeral=True,
             )
             return
 
@@ -188,12 +187,14 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
             f"Model: {OLLAMA_MODEL}"
         )
 
-        sent_message = await interaction.followup.send(
+        await interaction.edit_original_response(
             response_body,
             view=response_view,
-            wait=True,
         )
-        if isinstance(sent_message, discord.Message):
-            self._log_prophecy(
-                sent_message, dotaz or "-", response_text, author_id=interaction.user.id
-            )
+        try:
+            sent_message = await interaction.original_response()
+        except discord.HTTPException:
+            return
+        self._log_prophecy(
+            sent_message, dotaz or "-", response_text, author_id=interaction.user.id
+        )

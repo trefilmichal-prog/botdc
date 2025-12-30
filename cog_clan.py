@@ -891,7 +891,7 @@ class ClanApplicationModal(discord.ui.Modal):
 
         intake_category = guild.get_channel(TICKET_CATEGORY_ID)
         if intake_category is None or not isinstance(intake_category, discord.CategoryChannel):
-            await interaction.followup.send(_t(lang, "intake_missing"), ephemeral=True)
+            await interaction.edit_original_response(content=_t(lang, "intake_missing"))
             return
 
         roblox_display = (self.display_name.value or "").strip()
@@ -943,10 +943,10 @@ class ClanApplicationModal(discord.ui.Modal):
                 reason=f"Clan ticket: {self.clan_value}",
             )
         except discord.Forbidden:
-            await interaction.followup.send(_t(lang, "create_no_perms"), ephemeral=True)
+            await interaction.edit_original_response(content=_t(lang, "create_no_perms"))
             return
         except discord.HTTPException as e:
-            await interaction.followup.send(f"{_t(lang, 'create_api_err')} {e}", ephemeral=True)
+            await interaction.edit_original_response(content=f"{_t(lang, 'create_api_err')} {e}")
             return
 
         app_id = None
@@ -1101,7 +1101,9 @@ class ClanApplicationModal(discord.ui.Modal):
             allowed_mentions=discord.AllowedMentions(roles=False, users=True, everyone=False),
         )
 
-        await interaction.followup.send(f"{_t(lang, 'ticket_created')} {ticket_channel.mention}", ephemeral=True)
+        await interaction.edit_original_response(
+            content=f"{_t(lang, 'ticket_created')} {ticket_channel.mention}"
+        )
 
 
 class ClanPanelCog(commands.Cog):
@@ -1350,7 +1352,7 @@ class ClanPanelCog(commands.Cog):
         view = discord.ui.LayoutView(timeout=None)
         message_key = "ticket_reminder_manual_done" if sent else "ticket_reminder_manual_none"
         view.add_item(discord.ui.TextDisplay(content=_t(lang, message_key).format(count=sent)))
-        await interaction.followup.send(content="", view=view, ephemeral=True)
+        await interaction.edit_original_response(content="", view=view)
 
     @app_commands.checks.has_permissions(administrator=True)
     async def clan_panel_edit(self, interaction: discord.Interaction):

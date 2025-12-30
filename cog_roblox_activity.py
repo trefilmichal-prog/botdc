@@ -1376,31 +1376,32 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         await interaction.response.defer(ephemeral=True)
 
-        player_embeds, summary_view, offline_notifications = await self._build_presence_report(
+        report_data = await self._collect_presence_report_data(
             interaction.guild,
             mention_mode=str(self._config.get("mention_mode", MentionMode.OFFLINE_ONLY)),
         )
-        if summary_view is None:
-            await interaction.followup.send(
+        if report_data is None:
+            await interaction.edit_original_response(
                 "No members with the required roles and a Roblox nickname in their display name were found.",
-                ephemeral=True,
             )
             return
 
-        await self._send_offline_notifications(offline_notifications)
+        await self._send_offline_notifications(report_data["offline_notifications"])
 
-        for message in player_embeds:
-            await interaction.followup.send(
-                content=message.get("content"),
-                view=message.get("view"),
-                allowed_mentions=message.get("allowed_mentions"),
-                ephemeral=True,
-            )
-
-        await interaction.followup.send(
-            view=summary_view,
-            ephemeral=True,
+        report_view = self._build_presence_report_view(
+            report_data["status_message"],
+            report_data["online_lines"],
+            report_data["offline_lines"],
+            report_data["unresolved_lines"],
+            report_data["details"],
         )
+        if report_view is None:
+            await interaction.edit_original_response(
+                "No members with the required roles and a Roblox nickname in their display name were found."
+            )
+            return
+
+        await interaction.edit_original_response(content="", view=report_view)
 
     @app_commands.checks.has_permissions(administrator=True)
     async def roblox_activity_report(self, interaction: discord.Interaction):
@@ -1412,31 +1413,32 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         await interaction.response.defer(ephemeral=True)
 
-        player_embeds, summary_view, offline_notifications = await self._build_presence_report(
+        report_data = await self._collect_presence_report_data(
             interaction.guild,
             mention_mode=str(self._config.get("mention_mode", MentionMode.OFFLINE_ONLY)),
         )
-        if summary_view is None:
-            await interaction.followup.send(
+        if report_data is None:
+            await interaction.edit_original_response(
                 "No members with the required roles and a Roblox nickname in their display name were found.",
-                ephemeral=True,
             )
             return
 
-        await self._send_offline_notifications(offline_notifications)
+        await self._send_offline_notifications(report_data["offline_notifications"])
 
-        for message in player_embeds:
-            await interaction.followup.send(
-                content=message.get("content"),
-                view=message.get("view"),
-                allowed_mentions=message.get("allowed_mentions"),
-                ephemeral=True,
-            )
-
-        await interaction.followup.send(
-            view=summary_view,
-            ephemeral=True,
+        report_view = self._build_presence_report_view(
+            report_data["status_message"],
+            report_data["online_lines"],
+            report_data["offline_lines"],
+            report_data["unresolved_lines"],
+            report_data["details"],
         )
+        if report_view is None:
+            await interaction.edit_original_response(
+                "No members with the required roles and a Roblox nickname in their display name were found."
+            )
+            return
+
+        await interaction.edit_original_response(content="", view=report_view)
 
     async def _build_presence_report(
         self, guild: discord.Guild, *, mention_mode: str
@@ -1445,49 +1447,18 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         Optional[discord.ui.LayoutView],
         list[tuple[discord.Member, str, float]],
     ]:
-        if not MentionMode.is_valid(mention_mode):
-            mention_mode = MentionMode.OFFLINE_ONLY
-        tracked = await self._collect_tracked_members(guild)
-        if not tracked:
+        report_data = await self._collect_presence_report_data(
+            guild, mention_mode=mention_mode
+        )
+        if report_data is None:
             return [], None, []
 
-        usernames = list(tracked.keys())
-        resolved_ids, missing_usernames = await self._fetch_user_ids(usernames)
-        presence = await self._fetch_presence(resolved_ids.values()) if resolved_ids else {}
-        connections = (
-            await self._fetch_connection_statuses(resolved_ids.values())
-            if resolved_ids
-            else {}
-        )
-        now = datetime.now(timezone.utc)
-
-        (
-            online_lines,
-            offline_lines,
-            unresolved_lines,
-            details,
-            offline_notifications,
-        ) = self._build_presence_details(
-            tracked,
-            resolved_ids,
-            presence,
-            missing_usernames,
-            now,
-            mention_mode=mention_mode,
-            connections=connections,
-        )
-
-        status_message = (
-            (
-                "Monitoring is active. "
-                f"Poll interval: {self._current_poll_interval_minutes()} minutes. "
-                f"Report interval: {self._current_report_interval_minutes()} minutes. "
-                f"Mention mode: {_describe_mention_mode(str(self._config.get('mention_mode', MentionMode.OFFLINE_ONLY)))}. "
-                f"Offline DM notifications: {'on' if self._config.get('notify_on_offline', True) else 'off'}."
-            )
-            if self._tracking_enabled
-            else "Monitoring is disabled. Enable it with /roblox_tracking."
-        )
+        online_lines = report_data["online_lines"]
+        offline_lines = report_data["offline_lines"]
+        unresolved_lines = report_data["unresolved_lines"]
+        details = report_data["details"]
+        offline_notifications = report_data["offline_notifications"]
+        status_message = report_data["status_message"]
 
         player_embeds: list[dict] = []
         for detail in details:
@@ -1656,15 +1627,160 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         summary_view.add_item(discord.ui.Container(*sections))
         return summary_view
 
+    def _append_chunked_section(
+        self,
+        sections: list[discord.ui.LayoutViewItem],
+        title: str,
+        lines: list[str],
+    ) -> None:
+        if not lines:
+            return
+        chunks = self._chunk_lines(lines)
+        for idx, chunk in enumerate(chunks):
+            heading = title if idx == 0 else f"{title} (continued {idx})"
+            sections.extend(
+                [
+                    discord.ui.Separator(visible=True),
+                    discord.ui.TextDisplay(content=f"{heading}\n{chunk}"),
+                ]
+            )
+
+    def _format_presence_detail_lines(self, details: list[dict]) -> list[str]:
+        lines: list[str] = []
+        for detail in details:
+            username = detail["username"]
+            status = detail["status"]
+            members_text = detail.get("members_display") or detail.get("members_mentions")
+            duration = detail.get("duration") or "N/A"
+            uptime_text = detail.get("uptime_text") or "N/A"
+            note = detail.get("note")
+
+            if status is True:
+                icon = "🟢"
+                status_label = "Online"
+            elif status is False:
+                icon = "🔴"
+                status_label = "Offline"
+            else:
+                icon = "⚪"
+                status_label = "Unknown"
+
+            lines.append(f"{icon} **{username}** — {status_label}")
+            lines.append(f"Tracked accounts: {members_text}")
+            if duration:
+                lines.append(f"Status duration: {duration}")
+            if uptime_text:
+                lines.append(f"Uptime: {uptime_text}")
+            if note:
+                lines.append(f"Note: {note}")
+            lines.append("")
+
+        if lines and lines[-1] == "":
+            lines.pop()
+        return lines
+
+    def _build_presence_report_view(
+        self,
+        status_message: str,
+        online_lines: list[str],
+        offline_lines: list[str],
+        unresolved_lines: list[str],
+        details: list[dict],
+    ) -> Optional[discord.ui.LayoutView]:
+        sections: list[discord.ui.LayoutViewItem] = [
+            discord.ui.TextDisplay(content="Roblox clan activity report"),
+            discord.ui.Separator(visible=True),
+            discord.ui.TextDisplay(content=status_message),
+        ]
+
+        self._append_chunked_section(sections, "Online", online_lines)
+        self._append_chunked_section(sections, "Offline", offline_lines)
+        self._append_chunked_section(sections, "Could not verify", unresolved_lines)
+
+        detail_lines = self._format_presence_detail_lines(details)
+        if detail_lines:
+            self._append_chunked_section(sections, "Details", detail_lines)
+
+        if len(sections) <= 3 and not any(
+            [online_lines, offline_lines, unresolved_lines, detail_lines]
+        ):
+            return None
+
+        sections.append(discord.ui.Separator(visible=True))
+        sections.append(
+            discord.ui.TextDisplay(
+                content="Timers reset when the status changes between online and offline."
+            )
+        )
+
+        report_view = discord.ui.LayoutView(timeout=None)
+        report_view.add_item(discord.ui.Container(*sections))
+        return report_view
+
+    async def _collect_presence_report_data(
+        self, guild: discord.Guild, *, mention_mode: str
+    ) -> Optional[dict[str, object]]:
+        if not MentionMode.is_valid(mention_mode):
+            mention_mode = MentionMode.OFFLINE_ONLY
+        tracked = await self._collect_tracked_members(guild)
+        if not tracked:
+            return None
+
+        usernames = list(tracked.keys())
+        resolved_ids, missing_usernames = await self._fetch_user_ids(usernames)
+        presence = await self._fetch_presence(resolved_ids.values()) if resolved_ids else {}
+        connections = (
+            await self._fetch_connection_statuses(resolved_ids.values())
+            if resolved_ids
+            else {}
+        )
+        now = datetime.now(timezone.utc)
+
+        (
+            online_lines,
+            offline_lines,
+            unresolved_lines,
+            details,
+            offline_notifications,
+        ) = self._build_presence_details(
+            tracked,
+            resolved_ids,
+            presence,
+            missing_usernames,
+            now,
+            mention_mode=mention_mode,
+            connections=connections,
+        )
+
+        status_message = (
+            (
+                "Monitoring is active. "
+                f"Poll interval: {self._current_poll_interval_minutes()} minutes. "
+                f"Report interval: {self._current_report_interval_minutes()} minutes. "
+                f"Mention mode: {_describe_mention_mode(str(self._config.get('mention_mode', MentionMode.OFFLINE_ONLY)))}. "
+                f"Offline DM notifications: {'on' if self._config.get('notify_on_offline', True) else 'off'}."
+            )
+            if self._tracking_enabled
+            else "Monitoring is disabled. Enable it with /roblox_tracking."
+        )
+
+        return {
+            "online_lines": online_lines,
+            "offline_lines": offline_lines,
+            "unresolved_lines": unresolved_lines,
+            "details": details,
+            "offline_notifications": offline_notifications,
+            "status_message": status_message,
+        }
+
     async def _send_leaderboard(self, interaction: discord.Interaction) -> None:
         if self._tracking_enabled:
             self._finalize_totals(datetime.now(timezone.utc))
 
         tracked_members = await self._collect_tracked_members(interaction.guild)  # type: ignore[arg-type]
         if not tracked_members:
-            await interaction.followup.send(
-                "No members are currently being monitored for activity.",
-                ephemeral=True,
+            await interaction.edit_original_response(
+                content="No members are currently being monitored for activity."
             )
             return
 
@@ -1679,10 +1795,11 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
         }
 
         if not filtered_totals:
-            await interaction.followup.send(
-                "No leaderboard data is available for the currently monitored members. "
-                "Enable tracking and wait for the next activity check.",
-                ephemeral=True,
+            await interaction.edit_original_response(
+                content=(
+                    "No leaderboard data is available for the currently monitored members. "
+                    "Enable tracking and wait for the next activity check."
+                )
             )
             return
 
@@ -1714,10 +1831,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         leaderboard_view = self._build_leaderboard_view(table_rows)
 
-        await interaction.followup.send(
-            view=leaderboard_view,
-            ephemeral=True,
-        )
+        await interaction.edit_original_response(content="", view=leaderboard_view)
 
     async def _send_offline_notifications(
         self, notifications: list[tuple[discord.Member, str, float]]
