@@ -1,5 +1,7 @@
+import collections
 import importlib.util
 import logging
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -54,7 +56,7 @@ handler.setFormatter(
         "%Y-%m-%d %H:%M:%S",
     )
 )
-logging.basicConfig(level=logging.INFO, handlers=[handler])
+logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
 logger = logging.getLogger("botdc")
 
 
@@ -68,6 +70,8 @@ class MyBot(commands.Bot):
 
         super().__init__(command_prefix="!", intents=intents)
         self.winrt_listener: WindowsNotificationListener | None = None
+        self._recent_interactions: "collections.OrderedDict[int, float]" = collections.OrderedDict()
+        self._interaction_dedupe_window_seconds = 120.0
 
     async def setup_hook(self):
         async def add_cog_safe(cog: commands.Cog):
@@ -157,6 +161,24 @@ class MyBot(commands.Bot):
     async def on_ready(self):
         logger.info("Přihlášen jako %s (ID: %s)", self.user, self.user.id)
         await self._leave_unapproved_guilds()
+
+    async def on_interaction(self, interaction: discord.Interaction):
+        if interaction.type == discord.InteractionType.application_command:
+            now = time.monotonic()
+            cutoff = now - self._interaction_dedupe_window_seconds
+            while self._recent_interactions:
+                _, timestamp = next(iter(self._recent_interactions.items()))
+                if timestamp >= cutoff:
+                    break
+                self._recent_interactions.popitem(last=False)
+            if interaction.id in self._recent_interactions:
+                logger.warning(
+                    "Duplicitní interaction %s byla ignorována.", interaction.id
+                )
+                return
+            self._recent_interactions[interaction.id] = now
+
+        await super().on_interaction(interaction)
 
     async def _leave_unapproved_guilds(self) -> None:
         if not ALLOWED_GUILD_ID:
