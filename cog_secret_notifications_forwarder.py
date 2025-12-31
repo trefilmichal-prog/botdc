@@ -3,6 +3,7 @@ import json
 import logging
 import re
 from datetime import datetime, timedelta, timezone
+from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional
 
 import discord
@@ -15,6 +16,7 @@ from config import (
     CLAN_MEMBER_ROLE_EN_ID,
     CLAN_MEMBER_ROLE_ID,
     SETUP_MANAGER_ROLE_ID,
+    WINRT_LOG_PATH,
 )
 from db import (
     add_dropstats_panel,
@@ -43,6 +45,24 @@ CLAN_MEMBER_ROLE_IDS = [
 ]
 
 logger = logging.getLogger("botdc.secret_notifications")
+winrt_logger = logging.getLogger("botdc.winrt_notifications")
+if not any(
+    isinstance(handler, RotatingFileHandler)
+    and getattr(handler, "baseFilename", None) == WINRT_LOG_PATH
+    for handler in winrt_logger.handlers
+):
+    winrt_handler = RotatingFileHandler(
+        WINRT_LOG_PATH,
+        maxBytes=10 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8",
+    )
+    winrt_handler.setFormatter(
+        logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+    )
+    winrt_logger.addHandler(winrt_handler)
+    winrt_logger.setLevel(logging.INFO)
+    winrt_logger.propagate = False
 
 
 class SecretNotificationsForwarder(commands.Cog):
@@ -118,6 +138,13 @@ class SecretNotificationsForwarder(commands.Cog):
             for notification in notifications:
                 notification_id = notification.get("id")
                 payload = notification.get("payload", {})
+                timestamp = datetime.now(timezone.utc).isoformat()
+                winrt_logger.info(
+                    "WinRT notification received | timestamp=%s | notification_id=%s | payload=%s",
+                    timestamp,
+                    notification_id,
+                    json.dumps(payload, ensure_ascii=False, default=str),
+                )
                 if isinstance(notification_id, int):
                     processed_ids.append(notification_id)
                 lines = self._format_message_lines(payload)

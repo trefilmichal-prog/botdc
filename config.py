@@ -43,6 +43,9 @@ WINDOWS_NOTIFICATION_WINRT_ENABLED = (
 WINDOWS_NOTIFICATION_WINRT_POLL_INTERVAL = float(
     os.getenv("WINDOWS_NOTIFICATION_WINRT_POLL_INTERVAL", "1")
 )
+WINRT_LOG_PATH = os.getenv(
+    "WINRT_LOG_PATH", os.path.join(BASE_DIR, "winrt_notifications.log")
+)
 
 # Cesta k SQLite databázi
 DB_PATH = os.path.join(BASE_DIR, "wood_needs.db")
