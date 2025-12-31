@@ -348,6 +348,14 @@ class SecretNotificationsForwarder(commands.Cog):
             return without_prefix
         return text
 
+    def _normalize_name(self, text: str) -> str:
+        if not text:
+            return ""
+        normalized = str(text).casefold().strip()
+        normalized = re.sub(r"[\u00a0\u200b\u200c\u200d\ufeff]", " ", normalized)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        return normalized
+
     def _extract_text_from_raw(self, notification: Dict[str, Any]) -> str:
         raw_json = notification.get("raw_json")
         if raw_json:
@@ -380,11 +388,13 @@ class SecretNotificationsForwarder(commands.Cog):
         try:
             if not text_line:
                 return []
-            lower_text = text_line.lower()
+            normalized_text = self._normalize_name(text_line)
+            if not normalized_text:
+                return []
             matched_ids = []
             seen_ids = set()
             for name, entry in self._clan_member_cache.items():
-                if name and self._has_exact_name_match(lower_text, name):
+                if name and self._has_exact_name_match(normalized_text, name):
                     member_id = entry.get("id")
                     if member_id not in seen_ids:
                         matched_ids.append(int(member_id))
@@ -410,7 +420,7 @@ class SecretNotificationsForwarder(commands.Cog):
         if not text or not name:
             return False
         escaped = re.escape(name)
-        pattern = rf"(?<!\w){escaped}(?!\w)"
+        pattern = rf"(?:(?<=^)|(?<=[\s\W])){escaped}(?:(?=$)|(?=[\s\W]))"
         return re.search(pattern, text) is not None
 
     def _build_view(self, lines: List[str]) -> discord.ui.LayoutView:
@@ -525,7 +535,9 @@ class SecretNotificationsForwarder(commands.Cog):
                     for name, entry in cache_data.items():
                         if not name:
                             continue
-                        normalized = str(name).lower()
+                        normalized = self._normalize_name(str(name))
+                        if not normalized:
+                            continue
                         if isinstance(entry, dict):
                             member_id = entry.get("id")
                             display_name = entry.get("name") or name
@@ -572,7 +584,9 @@ class SecretNotificationsForwarder(commands.Cog):
                 for name in names:
                     if not name:
                         continue
-                    normalized = str(name).lower()
+                    normalized = self._normalize_name(str(name))
+                    if not normalized:
+                        continue
                     if normalized not in new_cache:
                         new_cache[normalized] = {
                             "id": member.id,
