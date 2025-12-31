@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import re
-import unicodedata
 from datetime import datetime, timedelta, timezone
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional
@@ -28,6 +27,7 @@ from db import (
     get_secret_drop_breakdown_since,
     get_windows_notifications,
     increment_secret_drop_stat,
+    normalize_clan_member_name,
     remove_dropstats_panel,
     reset_secret_drop_stats,
 )
@@ -416,16 +416,7 @@ class SecretNotificationsForwarder(commands.Cog):
         return text
 
     def _normalize_name(self, text: str) -> str:
-        if not text:
-            return ""
-        raw_text = str(text)
-        without_format_chars = "".join(
-            char for char in raw_text if unicodedata.category(char) != "Cf"
-        )
-        normalized = without_format_chars.casefold().strip()
-        normalized = re.sub(r"[\u00a0\u200b\u200c\u200d\ufeff]", " ", normalized)
-        normalized = re.sub(r"\s+", " ", normalized).strip()
-        return normalized
+        return normalize_clan_member_name(text)
 
     def _extract_text_from_raw(self, notification: Dict[str, Any]) -> str:
         raw_json = notification.get("raw_json")

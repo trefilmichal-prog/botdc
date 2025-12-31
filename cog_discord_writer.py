@@ -28,6 +28,7 @@ from db import (
     fetch_pending_discord_writes,
     mark_discord_write_done,
     mark_discord_write_failed,
+    normalize_clan_member_name,
 )
 
 @dataclass
@@ -140,8 +141,9 @@ def _find_prefix_and_nick_in_text(value: Any) -> tuple[bool, str | None]:
             return False, None
     for token in re.split(r"\s+", text):
         candidate = token.strip(string.punctuation)
-        if candidate and clan_member_nick_exists(candidate):
-            return True, candidate
+        normalized = normalize_clan_member_name(candidate)
+        if normalized and clan_member_nick_exists(normalized):
+            return True, normalized
     return False, None
 
 
