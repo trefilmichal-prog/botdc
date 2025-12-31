@@ -380,10 +380,13 @@ def _lang_for_member(member: discord.Member) -> str:
     return "cs"
 
 
-def _t(lang: str, key: str) -> str:
+def _t(lang: str, key: str, **kwargs: str) -> str:
     if lang not in I18N:
         lang = "cs"
-    return I18N[lang].get(key, I18N["cs"].get(key, key))
+    text = I18N[lang].get(key, I18N["cs"].get(key, key))
+    if kwargs:
+        return text.format(**kwargs)
+    return text
 
 
 def _sanitize_nickname(value: str) -> str:
