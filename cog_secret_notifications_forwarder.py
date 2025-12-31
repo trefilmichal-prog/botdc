@@ -689,14 +689,14 @@ class SecretNotificationsForwarder(commands.Cog):
             discord.ui.TextDisplay(
                 content=(
                     "🧮 **24h souhrn:** "
-                    f"Supreme `{total_supreme}`  •  "
+                    f"Su `{total_supreme}`  •  "
                     f"Divine `{total_divine}`  •  "
                     f"Secret `{total_secret}`"
                 )
             )
         )
         container.add_item(discord.ui.Separator())
-        container.add_item(discord.ui.TextDisplay(content="### 🥇 Top hráči"))
+        container.add_item(discord.ui.TextDisplay(content="### 🥇 Žebříček hráčů"))
 
         medal_emojis = ["🥇", "🥈", "🥉"]
         lines = []
@@ -708,11 +708,11 @@ class SecretNotificationsForwarder(commands.Cog):
             secret = counts.get("secret", 0)
             lines.append(
                 (
-                    f"{prefix} **{members[user_id]}** — **{totals.get(user_id, 0)}**\n"
-                    f"`S` {supreme} • `D` {divine} • `Se` {secret}"
+                    f"{prefix} **{members[user_id]}** — **{totals.get(user_id, 0)}**"
+                    f"  •  `Su` {supreme}  •  `D` {divine}  •  `Se` {secret}"
                 )
             )
-        for chunk in self._chunk_lines(lines):
+        for chunk in self._chunk_lines(lines, max_len=1800):
             container.add_item(discord.ui.TextDisplay(content=chunk))
 
         updated_at = int(datetime.now(timezone.utc).timestamp())
