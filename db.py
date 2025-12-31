@@ -33,6 +33,45 @@ def increment_secret_drop_stat(date_value: str, user_id: int, amount: int = 1) -
             conn.close()
 
 
+def add_secret_drop_event(occurred_at: datetime, user_id: int, rarity: str) -> None:
+    conn = None
+    try:
+        conn = get_connection()
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO secret_drop_events (occurred_at, user_id, rarity)
+                VALUES (?, ?, ?)
+                """,
+                (occurred_at.isoformat(), user_id, rarity),
+            )
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def get_secret_drop_breakdown_since(since: datetime) -> Dict[int, Dict[str, int]]:
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.execute(
+            """
+            SELECT user_id, rarity, COUNT(*) AS total_count
+            FROM secret_drop_events
+            WHERE occurred_at >= ?
+            GROUP BY user_id, rarity
+            """,
+            (since.isoformat(),),
+        )
+        results: Dict[int, Dict[str, int]] = {}
+        for user_id, rarity, total_count in cursor.fetchall():
+            results.setdefault(int(user_id), {})[str(rarity)] = int(total_count)
+        return results
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def get_secret_drop_leaderboard(limit: int = 10) -> List[Tuple[int, int]]:
     conn = None
     try:
@@ -76,6 +115,7 @@ def reset_secret_drop_stats() -> None:
         conn = get_connection()
         with conn:
             conn.execute("DELETE FROM secret_drop_stats")
+            conn.execute("DELETE FROM secret_drop_events")
     finally:
         if conn is not None:
             conn.close()
@@ -134,6 +174,24 @@ def init_db():
             count INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (date, user_id)
         )
+        """
+    )
+
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS secret_drop_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            occurred_at TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            rarity TEXT NOT NULL
+        )
+        """
+    )
+
+    c.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_secret_drop_events_occurred_at
+        ON secret_drop_events (occurred_at)
         """
     )
 
