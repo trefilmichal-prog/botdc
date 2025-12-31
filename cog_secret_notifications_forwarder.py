@@ -469,6 +469,7 @@ class SecretNotificationsForwarder(commands.Cog):
             ("golden", "33"),
             ("toxic", "32"),
             ("galaxy", "35"),
+            ("shiny", "37"),
         ]
         highlighted = text
         matched = False
