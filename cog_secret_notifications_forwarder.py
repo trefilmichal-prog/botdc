@@ -121,6 +121,7 @@ class SecretNotificationsForwarder(commands.Cog):
     @tasks.loop(seconds=2.5)
     async def poll_notifications(self):
         sent_ids: List[int] = []
+        discarded_ids: List[int] = []
         try:
             channel = await self._get_channel()
             if channel is None:
@@ -147,10 +148,14 @@ class SecretNotificationsForwarder(commands.Cog):
                 )
                 lines = self._format_message_lines(payload)
                 if not lines:
+                    if isinstance(notification_id, int):
+                        discarded_ids.append(notification_id)
                     continue
                 text_body = "\n".join(lines)
                 matched_players = self._find_player_mentions(text_body)
                 if not matched_players:
+                    if isinstance(notification_id, int):
+                        discarded_ids.append(notification_id)
                     continue
                 mention_line = self._format_player_mentions(matched_players)
                 if mention_line:
@@ -179,8 +184,9 @@ class SecretNotificationsForwarder(commands.Cog):
         except Exception:
             logger.exception("Neočekávaná chyba v notifikační smyčce.")
         finally:
-            if sent_ids:
-                await asyncio.to_thread(delete_windows_notifications, sent_ids)
+            to_delete_ids = list({*sent_ids, *discarded_ids})
+            if to_delete_ids:
+                await asyncio.to_thread(delete_windows_notifications, to_delete_ids)
 
     @poll_notifications.before_loop
     async def before_poll_notifications(self):
