@@ -1,10 +1,25 @@
 import json
+import re
 import sqlite3
+import unicodedata
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional, List, Tuple, Any, Dict
 
 from config import DB_PATH, INACTIVE_THRESHOLD_HOURS, CLAN_TICKET_CLEANUP_MINUTES
+
+
+def normalize_clan_member_name(text: str) -> str:
+    if not text:
+        return ""
+    raw_text = str(text)
+    without_format_chars = "".join(
+        char for char in raw_text if unicodedata.category(char) != "Cf"
+    )
+    normalized = without_format_chars.casefold().strip()
+    normalized = re.sub(r"[\u00a0\u200b\u200c\u200d\ufeff]", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
 
 
 def get_connection():
@@ -598,7 +613,7 @@ def get_setting(key: str) -> Optional[str]:
 def clan_member_nick_exists(nick: str) -> bool:
     if not nick:
         return False
-    normalized = nick.strip().lower()
+    normalized = normalize_clan_member_name(nick)
     if not normalized:
         return False
     payload = get_setting("secret_notifications_clan_member_cache")
