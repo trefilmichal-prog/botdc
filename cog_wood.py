@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Dict, Any, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import discord
 from discord.ext import commands, tasks
@@ -279,6 +280,13 @@ class WoodCog(commands.Cog, name="WoodCog"):
             print(f"Chyba update_panel po ticketu: {e}")
 
         try:
+            logging.getLogger("botdc").info(
+                "Mazání wood ticketu vyvolal %s (%s) v kanálu %s (%s).",
+                message.author,
+                message.author.id,
+                message.channel.name if isinstance(message.channel, discord.TextChannel) else "unknown",
+                message.channel.id,
+            )
             await message.channel.delete(reason="Ticket uzavřen po zadání množství.")
         except discord.Forbidden:
             print("Bot nemá právo mazat kanály.")
