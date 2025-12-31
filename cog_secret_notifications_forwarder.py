@@ -419,10 +419,10 @@ class SecretNotificationsForwarder(commands.Cog):
         if not text:
             return ""
         raw_text = str(text)
-        normalized = "".join(
+        without_format_chars = "".join(
             char for char in raw_text if unicodedata.category(char) != "Cf"
         )
-        normalized = normalized.casefold().strip()
+        normalized = without_format_chars.casefold().strip()
         normalized = re.sub(r"[\u00a0\u200b\u200c\u200d\ufeff]", " ", normalized)
         normalized = re.sub(r"\s+", " ", normalized).strip()
         return normalized
