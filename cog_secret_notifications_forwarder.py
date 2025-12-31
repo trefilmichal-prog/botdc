@@ -245,19 +245,93 @@ class SecretNotificationsForwarder(commands.Cog):
         notification = payload.get("notification")
         if not isinstance(notification, dict):
             return None
-        text_value = notification.get("text")
-        title_text = ""
-        body_text = ""
-        if isinstance(text_value, list):
-            if text_value:
-                title_text = text_value[0]
-                body_text = text_value[1] if len(text_value) > 1 else text_value[0]
-        elif isinstance(text_value, str):
-            body_text = text_value
-        return [
-            self._normalize_panel_text(title_text),
-            self._normalize_panel_text(body_text),
+        lines: List[str] = []
+        lines.extend(self._extract_notification_header_lines(notification))
+        lines.extend(
+            self._extract_notification_text_lines(
+                notification.get("text") or notification.get("texts")
+            )
+        )
+        raw_payload = self._extract_notification_raw_payload(notification)
+        if raw_payload:
+            raw_notification = raw_payload.get("notification")
+            for source in [raw_payload, raw_notification]:
+                if not isinstance(source, dict):
+                    continue
+                lines.extend(self._extract_notification_header_lines(source))
+                lines.extend(
+                    self._extract_notification_text_lines(
+                        source.get("text") or source.get("texts")
+                    )
+                )
+        normalized_lines: List[str] = []
+        seen: set[str] = set()
+        for line in lines:
+            normalized = self._normalize_panel_text(line)
+            if normalized in seen:
+                continue
+            normalized_lines.append(normalized)
+            seen.add(normalized)
+        return normalized_lines or None
+
+    def _extract_notification_header_lines(
+        self, notification: Dict[str, Any]
+    ) -> List[str]:
+        header_keys = [
+            "title",
+            "attribution",
+            "app_display_name",
+            "display_name",
+            "app_name",
+            "app_user_model_id",
+            "app_id",
         ]
+        headers: List[str] = []
+        for key in header_keys:
+            value = notification.get(key)
+            if value is None:
+                continue
+            if isinstance(value, list):
+                for entry in value:
+                    if entry is None:
+                        continue
+                    headers.append(str(entry))
+            else:
+                headers.append(str(value))
+        return headers
+
+    def _extract_notification_text_lines(self, text_value: Any) -> List[str]:
+        if text_value is None:
+            return []
+        lines: List[str] = []
+        if isinstance(text_value, list):
+            for entry in text_value:
+                if entry is None:
+                    continue
+                entry_text = str(entry)
+                entry_lines = entry_text.splitlines() or [entry_text]
+                lines.extend(entry_lines)
+            return lines
+        if isinstance(text_value, str):
+            return text_value.splitlines() or [text_value]
+        return [str(text_value)]
+
+    def _extract_notification_raw_payload(
+        self, notification: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        raw_json = notification.get("raw_json")
+        if raw_json:
+            try:
+                raw_payload = json.loads(raw_json)
+            except Exception:
+                logger.exception("JSON parse selhal u raw_json notifikace.")
+                return None
+            if isinstance(raw_payload, dict):
+                return raw_payload
+        raw_payload = notification.get("raw")
+        if isinstance(raw_payload, dict):
+            return raw_payload
+        return None
 
     def _normalize_panel_text(self, value: Any) -> str:
         if value is None:
