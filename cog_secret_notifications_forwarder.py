@@ -37,6 +37,7 @@ SETTINGS_KEY_CLAN_MEMBER_CACHE = "secret_notifications_clan_member_cache"
 SETTINGS_KEY_CLAN_MEMBER_CACHE_UPDATED = (
     "secret_notifications_clan_member_cache_updated_at"
 )
+SETTINGS_KEY_LAST_NOTIFICATION_ID = "secret_notifications_last_notification_id"
 CLAN_MEMBER_ROLE_IDS = [
     CLAN_MEMBER_ROLE_ID,
     CLAN_MEMBER_ROLE_EN_ID,
@@ -71,7 +72,9 @@ class SecretNotificationsForwarder(commands.Cog):
         self._clan_member_cache: dict[str, dict[str, Any]] = {}
         self._clan_member_cache_updated_at: Optional[datetime] = None
         self._received_notifications_count = 0
+        self._last_processed_notification_id: Optional[int] = None
         self._load_cached_players_from_db()
+        self._load_last_processed_notification_id()
         self.dropstats_group = app_commands.Group(
             name="dropstats", description="Statistiky dropu"
         )
@@ -121,7 +124,8 @@ class SecretNotificationsForwarder(commands.Cog):
     @tasks.loop(seconds=2.5)
     async def poll_notifications(self):
         sent_ids: List[int] = []
-        discarded_ids: List[int] = []
+        max_processed_id: Optional[int] = None
+        success = False
         try:
             channel = await self._get_channel()
             if channel is None:
@@ -138,6 +142,12 @@ class SecretNotificationsForwarder(commands.Cog):
             updated_stats = False
             for notification in notifications:
                 notification_id = notification.get("id")
+                if isinstance(notification_id, int):
+                    max_processed_id = (
+                        notification_id
+                        if max_processed_id is None
+                        else max(max_processed_id, notification_id)
+                    )
                 payload = notification.get("payload", {})
                 timestamp = datetime.now(timezone.utc).isoformat()
                 winrt_logger.info(
@@ -181,12 +191,16 @@ class SecretNotificationsForwarder(commands.Cog):
                 await asyncio.sleep(0.3)
             if updated_stats:
                 await self.refresh_dropstats_panels()
+            success = True
         except Exception:
             logger.exception("Neočekávaná chyba v notifikační smyčce.")
         finally:
-            to_delete_ids = list({*sent_ids, *discarded_ids})
-            if to_delete_ids:
-                await asyncio.to_thread(delete_windows_notifications, to_delete_ids)
+            if success and max_processed_id is not None:
+                await asyncio.to_thread(
+                    self._save_last_processed_notification_id, max_processed_id
+                )
+            if sent_ids:
+                await asyncio.to_thread(delete_windows_notifications, sent_ids)
 
     @poll_notifications.before_loop
     async def before_poll_notifications(self):
@@ -239,8 +253,25 @@ class SecretNotificationsForwarder(commands.Cog):
         if not isinstance(notifications, list):
             logger.error("Windows notifikace mají neočekávaný formát.")
             return None
-        self._received_notifications_count += len(notifications)
-        return notifications
+        filtered = self._filter_notifications_since_last(notifications)
+        self._received_notifications_count += len(filtered)
+        return filtered
+
+    def _filter_notifications_since_last(
+        self, notifications: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        last_id = self._last_processed_notification_id
+        if last_id is None:
+            return notifications
+        filtered: List[Dict[str, Any]] = []
+        for notification in notifications:
+            notification_id = notification.get("id")
+            if isinstance(notification_id, int):
+                if notification_id > last_id:
+                    filtered.append(notification)
+            else:
+                filtered.append(notification)
+        return filtered
 
     def _format_message_lines(self, notification: Dict[str, Any]) -> Optional[List[str]]:
         try:
@@ -595,6 +626,26 @@ class SecretNotificationsForwarder(commands.Cog):
                 except Exception:
                     logger.exception("Uzavření DB spojení selhalo.")
 
+    def _load_last_processed_notification_id(self) -> None:
+        conn = None
+        try:
+            conn = get_connection()
+            cursor = conn.execute(
+                "SELECT value FROM settings WHERE key = ?",
+                (SETTINGS_KEY_LAST_NOTIFICATION_ID,),
+            )
+            row = cursor.fetchone()
+            if row and row[0] is not None:
+                self._last_processed_notification_id = int(row[0])
+        except Exception:
+            logger.exception("Načtení posledního ID notifikace z DB selhalo.")
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    logger.exception("Uzavření DB spojení selhalo.")
+
     async def _refresh_clan_member_cache(self) -> None:
         channel = await self._get_channel()
         if channel is None:
@@ -652,6 +703,32 @@ class SecretNotificationsForwarder(commands.Cog):
                 )
         except Exception:
             logger.exception("Uložení cache hráčů do DB selhalo.")
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    logger.exception("Uzavření DB spojení selhalo.")
+
+    def _save_last_processed_notification_id(self, notification_id: int) -> None:
+        if notification_id is None:
+            return
+        if (
+            self._last_processed_notification_id is not None
+            and notification_id <= self._last_processed_notification_id
+        ):
+            return
+        conn = None
+        try:
+            conn = get_connection()
+            with conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                    (SETTINGS_KEY_LAST_NOTIFICATION_ID, str(notification_id)),
+                )
+            self._last_processed_notification_id = notification_id
+        except Exception:
+            logger.exception("Uložení posledního ID notifikace do DB selhalo.")
         finally:
             if conn is not None:
                 try:
