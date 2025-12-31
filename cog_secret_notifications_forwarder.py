@@ -636,7 +636,7 @@ class SecretNotificationsForwarder(commands.Cog):
         view = discord.ui.LayoutView()
         container = discord.ui.Container()
         container.add_item(
-            discord.ui.TextDisplay(content="🏆 **Dropstats leaderboard**")
+            discord.ui.TextDisplay(content="## 🏆 Dropstats leaderboard")
         )
         container.add_item(
             discord.ui.TextDisplay(
@@ -676,6 +676,7 @@ class SecretNotificationsForwarder(commands.Cog):
         total_secret = sum(
             breakdown.get(user_id, {}).get("secret", 0) for user_id in members
         )
+        container.add_item(discord.ui.TextDisplay(content="### 📊 Souhrn"))
         container.add_item(
             discord.ui.TextDisplay(
                 content=(
@@ -695,7 +696,7 @@ class SecretNotificationsForwarder(commands.Cog):
             )
         )
         container.add_item(discord.ui.Separator())
-        container.add_item(discord.ui.TextDisplay(content="**TOP ŽEBŘÍČEK**"))
+        container.add_item(discord.ui.TextDisplay(content="### 🥇 Top hráči"))
 
         medal_emojis = ["🥇", "🥈", "🥉"]
         lines = []
@@ -707,8 +708,8 @@ class SecretNotificationsForwarder(commands.Cog):
             secret = counts.get("secret", 0)
             lines.append(
                 (
-                    f"{prefix} **{members[user_id]}** — `{totals.get(user_id, 0)}` "
-                    f"(S `{supreme}` • D `{divine}` • Se `{secret}`)"
+                    f"{prefix} **{members[user_id]}** — **{totals.get(user_id, 0)}**\n"
+                    f"`S` {supreme} • `D` {divine} • `Se` {secret}"
                 )
             )
         for chunk in self._chunk_lines(lines):
