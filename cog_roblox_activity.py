@@ -1124,6 +1124,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 )
             elif is_online is False:
                 note_parts: list[str] = []
+                no_friend = False
                 if connection_status:
                     if connection_status.get("is_friend") is False:
                         if connection_status.get("is_pending"):
@@ -1147,7 +1148,8 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                             else:
                                 note_parts.append("Friend request pending")
                         else:
-                            note_parts.append("Player is not friends with senpaicat22")
+                            no_friend = True
+                            note_parts.append("no friend with senpaicat22")
                     elif (
                         connection_status.get("is_friend") is None
                         and connection_status.get("is_pending")
@@ -1155,10 +1157,17 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                         note_parts.append("Friend request pending")
 
                 note = "; ".join(note_parts) if note_parts else None
+                if no_friend:
+                    note = None
                 detail["note"] = note
-                status_text = (
-                    f"🔴 **{username}** – offline {duration} • uptime {detail['uptime_text']}"
-                )
+                if no_friend:
+                    status_text = (
+                        f"🔴 **{username}** – offline no friend with senpaicat22"
+                    )
+                else:
+                    status_text = (
+                        f"🔴 **{username}** – offline {duration} • uptime {detail['uptime_text']}"
+                    )
                 if note:
                     status_text = f"{status_text} ({note})"
                 offline_lines.append(status_text)
