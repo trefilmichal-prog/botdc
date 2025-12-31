@@ -120,7 +120,7 @@ class SecretNotificationsForwarder(commands.Cog):
 
     @tasks.loop(seconds=2.5)
     async def poll_notifications(self):
-        processed_ids: List[int] = []
+        sent_ids: List[int] = []
         try:
             channel = await self._get_channel()
             if channel is None:
@@ -145,8 +145,6 @@ class SecretNotificationsForwarder(commands.Cog):
                     notification_id,
                     json.dumps(payload, ensure_ascii=False, default=str),
                 )
-                if isinstance(notification_id, int):
-                    processed_ids.append(notification_id)
                 lines = self._format_message_lines(payload)
                 if not lines:
                     continue
@@ -171,6 +169,8 @@ class SecretNotificationsForwarder(commands.Cog):
                             users=True, roles=False, everyone=False
                         ),
                     )
+                    if isinstance(notification_id, int):
+                        sent_ids.append(notification_id)
                 except Exception:
                     logger.exception("Odeslání notifikace do Discordu selhalo.")
                 await asyncio.sleep(0.3)
@@ -179,8 +179,8 @@ class SecretNotificationsForwarder(commands.Cog):
         except Exception:
             logger.exception("Neočekávaná chyba v notifikační smyčce.")
         finally:
-            if processed_ids:
-                await asyncio.to_thread(delete_windows_notifications, processed_ids)
+            if sent_ids:
+                await asyncio.to_thread(delete_windows_notifications, sent_ids)
 
     @poll_notifications.before_loop
     async def before_poll_notifications(self):
