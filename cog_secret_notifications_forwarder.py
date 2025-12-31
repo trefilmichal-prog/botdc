@@ -158,10 +158,14 @@ class SecretNotificationsForwarder(commands.Cog):
                 )
                 lines = self._format_message_lines(payload)
                 if not lines:
+                    if isinstance(notification_id, int):
+                        discarded_ids.append(notification_id)
                     continue
                 text_body = "\n".join(lines)
                 matched_players = self._find_player_mentions(text_body)
                 if not matched_players:
+                    if isinstance(notification_id, int):
+                        discarded_ids.append(notification_id)
                     continue
                 mention_line = self._format_player_mentions(matched_players)
                 if mention_line:
