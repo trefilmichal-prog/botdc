@@ -124,6 +124,7 @@ class SecretNotificationsForwarder(commands.Cog):
     @tasks.loop(seconds=2.5)
     async def poll_notifications(self):
         sent_ids: List[int] = []
+        discarded_ids: List[int] = []
         max_processed_id: Optional[int] = None
         success = False
         try:
@@ -199,8 +200,9 @@ class SecretNotificationsForwarder(commands.Cog):
                 await asyncio.to_thread(
                     self._save_last_processed_notification_id, max_processed_id
                 )
-            if sent_ids:
-                await asyncio.to_thread(delete_windows_notifications, sent_ids)
+            processed_ids = sent_ids + discarded_ids
+            if processed_ids:
+                await asyncio.to_thread(delete_windows_notifications, processed_ids)
 
     @poll_notifications.before_loop
     async def before_poll_notifications(self):
