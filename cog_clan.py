@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import re
 from datetime import datetime, timedelta
 from typing import Awaitable, Callable, TypeVar
@@ -1723,6 +1724,15 @@ class ClanPanelCog(commands.Cog):
                     app_record = None
 
                 ticket_info = _t(lang, "kick_ticket_deleted")
+                logging.getLogger("botdc").info(
+                    "Mazání clan ticketu (kick) vyvolal %s (%s) pro %s (%s) v kanálu %s (%s).",
+                    clicker,
+                    clicker.id,
+                    applicant,
+                    applicant.id,
+                    ticket_channel.name,
+                    ticket_channel.id,
+                )
                 try:
                     await ticket_channel.delete(reason=f"Clan kick by {clicker} ({applicant})")
                 except discord.Forbidden:
@@ -1745,6 +1755,13 @@ class ClanPanelCog(commands.Cog):
                 app_record = None
                 try:
                     app_record = get_clan_application_by_channel(guild.id, channel_id)
+                    logging.getLogger("botdc").info(
+                        "Mazání clan ticketu vyvolal %s (%s) v kanálu %s (%s).",
+                        clicker,
+                        clicker.id,
+                        ticket_channel.name,
+                        ticket_channel.id,
+                    )
                     await ticket_channel.delete(reason=f"Clan ticket deleted by {clicker}")
                 except discord.Forbidden:
                     await interaction.edit_original_response(content=_t(lang, "delete_no_perms"))

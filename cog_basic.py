@@ -1,7 +1,9 @@
+import logging
+from datetime import timedelta, datetime
+
 import discord
 from discord import app_commands
 from discord.ext import commands
-from datetime import timedelta, datetime
 
 from config import (
     WARN_ROLE_1_ID,
@@ -99,7 +101,7 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
         reason_text = (reason or "").strip() or t("reason_unknown", locale)
         role_info = await self._remove_clan_roles_for_member(user, reason_text, locale)
         ticket_info = await self._remove_clan_ticket_for_member(
-            interaction.guild, user, reason_text, locale
+            interaction.guild, user, reason_text, locale, interaction.user
         )
 
         response = t("kick_success", locale, user=user.mention, reason=reason_text)
@@ -147,7 +149,12 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
         return t("clan_member_role_removed", locale, roles=role_mentions)
 
     async def _remove_clan_ticket_for_member(
-        self, guild: discord.Guild, member: discord.Member, reason: str, locale: discord.Locale
+        self,
+        guild: discord.Guild,
+        member: discord.Member,
+        reason: str,
+        locale: discord.Locale,
+        actor: discord.Member,
     ) -> str | None:
         latest_app = get_latest_clan_application_by_user(guild.id, member.id)
         if latest_app is None or latest_app.get("deleted"):
@@ -159,6 +166,16 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
         mark_clan_application_deleted(latest_app["id"])
 
         if isinstance(channel, discord.TextChannel):
+            logging.getLogger("botdc").info(
+                "Mazání clan ticketu vyvolal %s (%s) pro %s (%s) v kanálu %s (%s). Důvod: %s",
+                actor,
+                actor.id,
+                member,
+                member.id,
+                channel.name,
+                channel.id,
+                reason,
+            )
             try:
                 await channel.delete(
                     reason=(
