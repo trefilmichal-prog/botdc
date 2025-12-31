@@ -214,14 +214,6 @@ class SecretNotificationsForwarder(commands.Cog):
             panel_lines = self._extract_panel_text_from_notification(notification)
             if panel_lines is not None:
                 return panel_lines
-            app_display_name = notification.get("app_display_name")
-            app_user_model_id = notification.get("app_user_model_id")
-            app_name = (
-                app_display_name
-                or app_user_model_id
-                or notification.get("app_name")
-                or "unknown"
-            )
 
             text_joined = notification.get("text_joined")
             text_line = (
@@ -230,9 +222,8 @@ class SecretNotificationsForwarder(commands.Cog):
                 or self._extract_text_from_raw(notification)
             )
 
-            line1 = f"[APP] {app_name}"
             text_lines = (text_line or "").splitlines() or [""]
-            return [line1, *text_lines]
+            return [self._strip_app_prefix(line) for line in text_lines]
         except Exception:
             logger.exception("Chyba při formátování notifikace.")
             return None
@@ -295,9 +286,13 @@ class SecretNotificationsForwarder(commands.Cog):
                 for entry in value:
                     if entry is None:
                         continue
-                    headers.append(str(entry))
+                    normalized = self._strip_app_prefix(str(entry))
+                    if normalized:
+                        headers.append(normalized)
             else:
-                headers.append(str(value))
+                normalized = self._strip_app_prefix(str(value))
+                if normalized:
+                    headers.append(normalized)
         return headers
 
     def _extract_notification_text_lines(self, text_value: Any) -> List[str]:
@@ -337,11 +332,20 @@ class SecretNotificationsForwarder(commands.Cog):
         if value is None:
             return "\u200b"
         try:
-            text = str(value)
+            text = self._strip_app_prefix(str(value))
         except Exception:
             return "\u200b"
         if text.strip() == "":
             return "\u200b"
+        return text
+
+    def _strip_app_prefix(self, text: str) -> str:
+        if not text:
+            return text
+        stripped = text.lstrip()
+        if stripped.startswith("[APP]"):
+            without_prefix = stripped[len("[APP]") :].lstrip()
+            return without_prefix
         return text
 
     def _extract_text_from_raw(self, notification: Dict[str, Any]) -> str:
@@ -412,9 +416,46 @@ class SecretNotificationsForwarder(commands.Cog):
     def _build_view(self, lines: List[str]) -> discord.ui.LayoutView:
         view = discord.ui.LayoutView()
         container = discord.ui.Container()
-        for line in self._normalize_lines(lines):
+        container.add_item(
+            discord.ui.TextDisplay(content="## 🔔 Secret drop notifikace")
+        )
+        container.add_item(discord.ui.Separator())
+
+        body_lines: List[str] = []
+        player_line: Optional[str] = None
+        ping_line: Optional[str] = None
+        for line in lines:
+            if line is None:
+                body_lines.append(line)
+                continue
+            normalized = self._strip_app_prefix(str(line))
+            if normalized.startswith("Ping:"):
+                ping_line = normalized
+                continue
+            if normalized.startswith("Hráč:"):
+                player_line = normalized
+                continue
+            body_lines.append(normalized)
+
+        for line in self._normalize_lines(body_lines):
             highlighted = self._highlight_keywords(line)
             container.add_item(discord.ui.TextDisplay(content=highlighted))
+
+        player_info = None
+        if player_line:
+            player_info = player_line.split(":", 1)[1].strip()
+        ping_info = None
+        if ping_line:
+            ping_info = ping_line.split(":", 1)[1].strip()
+
+        if player_info:
+            container.add_item(
+                discord.ui.TextDisplay(content=f"👥 Hráči: {player_info}")
+            )
+        if ping_info:
+            container.add_item(
+                discord.ui.TextDisplay(content=f"📣 Pingy: {ping_info}")
+            )
         view.add_item(container)
         return view
 
