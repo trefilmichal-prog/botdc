@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import discord
@@ -18,10 +18,11 @@ from config import (
 )
 from db import (
     add_dropstats_panel,
+    add_secret_drop_event,
     delete_windows_notifications,
     get_all_dropstats_panels,
     get_connection,
-    get_secret_drop_totals,
+    get_secret_drop_breakdown_since,
     get_windows_notifications,
     increment_secret_drop_stat,
     remove_dropstats_panel,
@@ -132,7 +133,8 @@ class SecretNotificationsForwarder(commands.Cog):
                 lines.append(
                     f"Hráč: {', '.join(self._format_player_names(matched_players))}"
                 )
-                self._record_drop_stats(matched_players)
+                rarity = self._detect_drop_rarity(text_body)
+                self._record_drop_stats(matched_players, rarity)
                 updated_stats = True
                 view = self._build_view(lines)
                 try:
@@ -494,13 +496,15 @@ class SecretNotificationsForwarder(commands.Cog):
                 except Exception:
                     logger.exception("Uzavření DB spojení selhalo.")
 
-    def _record_drop_stats(self, player_ids: List[int]) -> None:
-        if not player_ids:
+    def _record_drop_stats(self, player_ids: List[int], rarity: Optional[str]) -> None:
+        if not player_ids or rarity is None:
             return
-        date_value = datetime.now(timezone.utc).date().isoformat()
+        now = datetime.now(timezone.utc)
+        date_value = now.date().isoformat()
         for player_id in player_ids:
             try:
                 increment_secret_drop_stat(date_value, int(player_id), 1)
+                add_secret_drop_event(now, int(player_id), rarity)
             except Exception:
                 logger.exception("Uložení denní statistiky dropu selhalo.")
 
@@ -563,7 +567,7 @@ class SecretNotificationsForwarder(commands.Cog):
         container.add_item(
             discord.ui.TextDisplay(
                 content=(
-                    "Přehled dropů pro všechny členy clanů. "
+                    "Přehled dropů za posledních 24 hodin pro všechny členy clanů. "
                     "Počty se aktualizují automaticky a ukládají se pro restart bota."
                 )
             )
@@ -580,17 +584,39 @@ class SecretNotificationsForwarder(commands.Cog):
             view.add_item(container)
             return view
 
-        totals = self._get_drop_totals_safe()
+        breakdown = self._get_drop_breakdown_safe()
+        totals = {
+            user_id: sum(counts.values()) for user_id, counts in breakdown.items()
+        }
         sorted_members = sorted(
             members.items(),
             key=lambda item: (-totals.get(item[0], 0), item[1].lower()),
         )
         total_drops = sum(totals.get(user_id, 0) for user_id in members)
+        total_supreme = sum(
+            breakdown.get(user_id, {}).get("supreme", 0) for user_id in members
+        )
+        total_divine = sum(
+            breakdown.get(user_id, {}).get("divine", 0) for user_id in members
+        )
+        total_secret = sum(
+            breakdown.get(user_id, {}).get("secret", 0) for user_id in members
+        )
         container.add_item(
             discord.ui.TextDisplay(
                 content=(
                     f"👥 **Počet členů:** `{len(members)}`  •  "
                     f"🎁 **Celkem dropů:** `{total_drops}`"
+                )
+            )
+        )
+        container.add_item(
+            discord.ui.TextDisplay(
+                content=(
+                    "🧮 **24h souhrn:** "
+                    f"Supreme `{total_supreme}`  •  "
+                    f"Divine `{total_divine}`  •  "
+                    f"Secret `{total_secret}`"
                 )
             )
         )
@@ -601,8 +627,15 @@ class SecretNotificationsForwarder(commands.Cog):
         lines = []
         for idx, (user_id, _) in enumerate(sorted_members, start=1):
             prefix = medal_emojis[idx - 1] if idx <= 3 else f"`#{idx}`"
+            counts = breakdown.get(user_id, {})
+            supreme = counts.get("supreme", 0)
+            divine = counts.get("divine", 0)
+            secret = counts.get("secret", 0)
             lines.append(
-                f"{prefix} **{members[user_id]}** — `{totals.get(user_id, 0)}`"
+                (
+                    f"{prefix} **{members[user_id]}** — `{totals.get(user_id, 0)}` "
+                    f"(S `{supreme}` • D `{divine}` • Se `{secret}`)"
+                )
             )
         for chunk in self._chunk_lines(lines):
             container.add_item(discord.ui.TextDisplay(content=chunk))
@@ -653,9 +686,10 @@ class SecretNotificationsForwarder(commands.Cog):
         view.add_item(container)
         return view
 
-    def _get_drop_totals_safe(self) -> dict[int, int]:
+    def _get_drop_breakdown_safe(self) -> dict[int, dict[str, int]]:
         try:
-            return get_secret_drop_totals()
+            since = datetime.now(timezone.utc) - timedelta(hours=24)
+            return get_secret_drop_breakdown_since(since)
         except Exception:
             logger.exception("Načtení statistiky dropu selhalo.")
             return {}
@@ -685,6 +719,15 @@ class SecretNotificationsForwarder(commands.Cog):
         if current:
             chunks.append("\n".join(current))
         return chunks
+
+    def _detect_drop_rarity(self, text_line: str) -> Optional[str]:
+        if not text_line:
+            return None
+        lowered = text_line.lower()
+        for rarity in ("secret", "divine", "supreme"):
+            if re.search(rf"\b{re.escape(rarity)}\b", lowered):
+                return rarity
+        return None
 
     async def refresh_dropstats_panels(self) -> None:
         try:
