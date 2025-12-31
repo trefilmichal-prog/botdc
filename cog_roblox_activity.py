@@ -1397,20 +1397,22 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         await self._send_offline_notifications(report_data["offline_notifications"])
 
-        report_view = self._build_presence_report_view(
+        report_views = self._build_presence_report_views(
             report_data["status_message"],
             report_data["online_lines"],
             report_data["offline_lines"],
             report_data["unresolved_lines"],
             report_data["details"],
         )
-        if report_view is None:
+        if not report_views:
             await interaction.edit_original_response(
                 "No members with the required roles and a Roblox nickname in their display name were found."
             )
             return
 
-        await interaction.edit_original_response(content="", view=report_view)
+        await interaction.edit_original_response(content="", view=report_views[0])
+        for view in report_views[1:]:
+            await interaction.followup.send(content="", view=view, ephemeral=True)
 
     @app_commands.checks.has_permissions(administrator=True)
     async def roblox_activity_report(self, interaction: discord.Interaction):
@@ -1434,20 +1436,22 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         await self._send_offline_notifications(report_data["offline_notifications"])
 
-        report_view = self._build_presence_report_view(
+        report_views = self._build_presence_report_views(
             report_data["status_message"],
             report_data["online_lines"],
             report_data["offline_lines"],
             report_data["unresolved_lines"],
             report_data["details"],
         )
-        if report_view is None:
+        if not report_views:
             await interaction.edit_original_response(
                 "No members with the required roles and a Roblox nickname in their display name were found."
             )
             return
 
-        await interaction.edit_original_response(content="", view=report_view)
+        await interaction.edit_original_response(content="", view=report_views[0])
+        for view in report_views[1:]:
+            await interaction.followup.send(content="", view=view, ephemeral=True)
 
     async def _build_presence_report(
         self, guild: discord.Guild, *, mention_mode: str
@@ -1688,43 +1692,90 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             lines.pop()
         return lines
 
-    def _build_presence_report_view(
+    def _build_presence_report_views(
         self,
         status_message: str,
         online_lines: list[str],
         offline_lines: list[str],
         unresolved_lines: list[str],
         details: list[dict],
-    ) -> Optional[discord.ui.LayoutView]:
-        sections: list[discord.ui.LayoutViewItem] = [
-            discord.ui.TextDisplay(content="Roblox clan activity report"),
-            discord.ui.Separator(visible=True),
-            discord.ui.TextDisplay(content=status_message),
-        ]
+    ) -> Optional[list[discord.ui.LayoutView]]:
+        blocks: list[tuple[list[discord.ui.LayoutViewItem], int]] = []
 
-        self._append_chunked_section(sections, "Online", online_lines)
-        self._append_chunked_section(sections, "Offline", offline_lines)
-        self._append_chunked_section(sections, "Could not verify", unresolved_lines)
+        def _add_block(items: list[discord.ui.LayoutViewItem]) -> None:
+            text_len = sum(
+                len(item.content)
+                for item in items
+                if isinstance(item, discord.ui.TextDisplay)
+            )
+            blocks.append((items, text_len))
+
+        _add_block([discord.ui.TextDisplay(content="Roblox clan activity report")])
+        _add_block(
+            [
+                discord.ui.Separator(visible=True),
+                discord.ui.TextDisplay(content=status_message),
+            ]
+        )
+
+        def _add_section_blocks(title: str, lines: list[str]) -> None:
+            if not lines:
+                return
+            chunks = self._chunk_lines(lines)
+            for idx, chunk in enumerate(chunks):
+                heading = title if idx == 0 else f"{title} (continued {idx})"
+                _add_block(
+                    [
+                        discord.ui.Separator(visible=True),
+                        discord.ui.TextDisplay(content=f"{heading}\n{chunk}"),
+                    ]
+                )
+
+        _add_section_blocks("Online", online_lines)
+        _add_section_blocks("Offline", offline_lines)
+        _add_section_blocks("Could not verify", unresolved_lines)
 
         detail_lines = self._format_presence_detail_lines(details)
         if detail_lines:
-            self._append_chunked_section(sections, "Details", detail_lines)
+            _add_section_blocks("Details", detail_lines)
 
-        if len(sections) <= 3 and not any(
-            [online_lines, offline_lines, unresolved_lines, detail_lines]
-        ):
+        if not any([online_lines, offline_lines, unresolved_lines, detail_lines]):
             return None
 
-        sections.append(discord.ui.Separator(visible=True))
-        sections.append(
-            discord.ui.TextDisplay(
-                content="Timers reset when the status changes between online and offline."
-            )
+        _add_block(
+            [
+                discord.ui.Separator(visible=True),
+                discord.ui.TextDisplay(
+                    content="Timers reset when the status changes between online and offline."
+                ),
+            ]
         )
 
-        report_view = discord.ui.LayoutView(timeout=None)
-        report_view.add_item(discord.ui.Container(*sections))
-        return report_view
+        views: list[discord.ui.LayoutView] = []
+        current_items: list[discord.ui.LayoutViewItem] = []
+        current_len = 0
+        max_text = 3800
+
+        for items, text_len in blocks:
+            if current_items and current_len + text_len > max_text:
+                view = discord.ui.LayoutView(timeout=None)
+                view.add_item(discord.ui.Container(*current_items))
+                views.append(view)
+                current_items = []
+                current_len = 0
+
+            if not current_items and items and isinstance(items[0], discord.ui.Separator):
+                items = items[1:]
+
+            current_items.extend(items)
+            current_len += text_len
+
+        if current_items:
+            view = discord.ui.LayoutView(timeout=None)
+            view.add_item(discord.ui.Container(*current_items))
+            views.append(view)
+
+        return views
 
     async def _collect_presence_report_data(
         self, guild: discord.Guild, *, mention_mode: str
