@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional
@@ -417,7 +418,11 @@ class SecretNotificationsForwarder(commands.Cog):
     def _normalize_name(self, text: str) -> str:
         if not text:
             return ""
-        normalized = str(text).casefold().strip()
+        raw_text = str(text)
+        normalized = "".join(
+            char for char in raw_text if unicodedata.category(char) != "Cf"
+        )
+        normalized = normalized.casefold().strip()
         normalized = re.sub(r"[\u00a0\u200b\u200c\u200d\ufeff]", " ", normalized)
         normalized = re.sub(r"\s+", " ", normalized).strip()
         return normalized
