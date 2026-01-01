@@ -583,7 +583,7 @@ class SecretNotificationsForwarder(commands.Cog):
             suffix = text[match.end() :].strip()
             if prefix:
                 updated.append(prefix)
-            updated.append(f"🥚Egg: {egg_number} - {opened_value} opened\\")
+            updated.append(f"🥚Egg: {egg_number} - {opened_value} opened")
             if suffix:
                 updated.append(suffix)
         return updated
