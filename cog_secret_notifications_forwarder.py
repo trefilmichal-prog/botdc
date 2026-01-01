@@ -197,7 +197,7 @@ class SecretNotificationsForwarder(commands.Cog):
                 if mention_line:
                     lines.append(f"Ping: {mention_line}")
                 lines.append(
-                    f"Hráč: {', '.join(self._format_player_names(matched_players))}"
+                    f"Players: {', '.join(self._format_player_names(matched_players))}"
                 )
                 rarity = self._detect_drop_rarity(text_body)
                 self._record_drop_stats(matched_players, rarity)
@@ -513,7 +513,7 @@ class SecretNotificationsForwarder(commands.Cog):
         view = discord.ui.LayoutView()
         container = discord.ui.Container()
         container.add_item(
-            discord.ui.TextDisplay(content="## 🔔 Secret drop notifikace")
+            discord.ui.TextDisplay(content="## 🔔 Secret drop notification")
         )
         container.add_item(discord.ui.Separator())
 
@@ -528,7 +528,7 @@ class SecretNotificationsForwarder(commands.Cog):
             if normalized.startswith("Ping:"):
                 ping_line = normalized
                 continue
-            if normalized.startswith("Hráč:"):
+            if normalized.startswith("Players:") or normalized.startswith("Player:"):
                 player_line = normalized
                 continue
             body_lines.append(normalized)
@@ -546,11 +546,11 @@ class SecretNotificationsForwarder(commands.Cog):
 
         if player_info:
             container.add_item(
-                discord.ui.TextDisplay(content=f"👥 Hráči: {player_info}")
+                discord.ui.TextDisplay(content=f"👥 Players: {player_info}")
             )
         if ping_info:
             container.add_item(
-                discord.ui.TextDisplay(content=f"📣 Pingy: {ping_info}")
+                discord.ui.TextDisplay(content=f"📣 Pings: {ping_info}")
             )
         view.add_item(container)
         return view
