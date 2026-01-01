@@ -117,8 +117,14 @@ class SecretNotificationsForwarder(commands.Cog):
         self.secret_roles_group = app_commands.Group(
             name="roles",
             description="Správa rolí pro secret notifikace",
-            parent=self.secret_group,
         )
+        self.secret_roles_group.command(
+            name="add", description="Přidá roli pro secret notifikace."
+        )(self.secret_roles_add)
+        self.secret_roles_group.command(
+            name="remove", description="Odebere roli pro secret notifikace."
+        )(self.secret_roles_remove)
+        self.secret_group.add_command(self.secret_roles_group)
         self.secret_group.command(
             name="cache",
             description="Zobrazí uložená jména hráčů pro notifikace.",
@@ -127,12 +133,6 @@ class SecretNotificationsForwarder(commands.Cog):
             name="refresh",
             description="Vynutí refresh Roblox přezdívky pro člena.",
         )(self.secret_cache_refresh)
-        self.secret_roles_group.command(
-            name="add", description="Přidá roli pro secret notifikace."
-        )(self.secret_roles_add)
-        self.secret_roles_group.command(
-            name="remove", description="Odebere roli pro secret notifikace."
-        )(self.secret_roles_remove)
         self.bot.tree.add_command(self.dropstats_group)
         self.bot.tree.add_command(self.secret_group)
         self.poll_notifications.start()
