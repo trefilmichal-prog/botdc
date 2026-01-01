@@ -150,7 +150,23 @@ class AutoTranslateCog(commands.Cog):
         try:
             raw_response = await asyncio.to_thread(self._post_deepl, payload)
             data = json.loads(raw_response)
+        except ssl.SSLCertVerificationError as error:
+            logger.warning(
+                "DeepL SSL certificate verification failed. "
+                "Check DEEPL_CA_BUNDLE or set DEEPL_SSL_VERIFY=false. Details: %s",
+                error,
+            )
+            return None
         except (urllib.error.URLError, TimeoutError) as error:
+            if isinstance(error, urllib.error.URLError) and isinstance(
+                error.reason, ssl.SSLCertVerificationError
+            ):
+                logger.warning(
+                    "DeepL SSL certificate verification failed. "
+                    "Check DEEPL_CA_BUNDLE or set DEEPL_SSL_VERIFY=false. Details: %s",
+                    error.reason,
+                )
+                return None
             logger.warning("DeepL request failed: %s", error)
             return None
         except json.JSONDecodeError:
