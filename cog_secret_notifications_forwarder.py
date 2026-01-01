@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional
 
+import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -45,6 +46,11 @@ CLAN_MEMBER_ROLE_IDS = [
     CLAN2_MEMBER_ROLE_ID,
     CLAN3_MEMBER_ROLE_ID,
 ]
+ROBLOX_USERNAMES_URL = "https://users.roblox.com/v1/usernames/users"
+ROBLOX_USERNAME_REGEX = re.compile(r"[A-Za-z0-9_]{3,26}")
+ROBLOX_USERNAME_BATCH_SIZE = 50
+ROBLOX_USERNAME_REQUEST_DELAY_SECONDS = 0.6
+ROBLOX_NICK_REFRESH_MINUTES = 360
 
 logger = logging.getLogger("botdc.secret_notifications")
 winrt_logger = logging.getLogger("botdc.winrt_notifications")
@@ -603,14 +609,41 @@ class SecretNotificationsForwarder(commands.Cog):
                         if isinstance(entry, dict):
                             member_id = entry.get("id")
                             display_name = entry.get("name") or name
+                            roblox_username = entry.get("roblox_username")
+                            roblox_nick = entry.get("roblox_nick")
+                            roblox_nick_updated_at = entry.get(
+                                "roblox_nick_updated_at"
+                            )
+                            roblox_nick_checked_at = entry.get(
+                                "roblox_nick_checked_at"
+                            )
                         else:
                             member_id = entry
                             display_name = name
+                            roblox_username = None
+                            roblox_nick = None
+                            roblox_nick_updated_at = None
+                            roblox_nick_checked_at = None
                         if isinstance(member_id, (int, str)):
-                            migrated_cache[normalized] = {
+                            migrated_cache_entry = {
                                 "id": int(member_id),
                                 "name": str(display_name),
                             }
+                            if roblox_username:
+                                migrated_cache_entry["roblox_username"] = str(
+                                    roblox_username
+                                )
+                            if roblox_nick:
+                                migrated_cache_entry["roblox_nick"] = str(roblox_nick)
+                            if roblox_nick_updated_at:
+                                migrated_cache_entry["roblox_nick_updated_at"] = str(
+                                    roblox_nick_updated_at
+                                )
+                            if roblox_nick_checked_at:
+                                migrated_cache_entry["roblox_nick_checked_at"] = str(
+                                    roblox_nick_checked_at
+                                )
+                            migrated_cache[normalized] = migrated_cache_entry
                     self._clan_member_cache = migrated_cache
             updated_raw = data.get(SETTINGS_KEY_CLAN_MEMBER_CACHE_UPDATED)
             if updated_raw:
@@ -652,7 +685,13 @@ class SecretNotificationsForwarder(commands.Cog):
         if guild is None:
             logger.warning("Nelze načíst guild z kanálu %s.", CHANNEL_ID)
             return
-        new_cache: dict[str, dict[str, Any]] = {}
+        existing_by_id: dict[int, dict[str, Any]] = {}
+        for entry in self._clan_member_cache.values():
+            member_id = entry.get("id")
+            if isinstance(member_id, int) and member_id not in existing_by_id:
+                existing_by_id[member_id] = entry
+        new_entries_by_id: dict[int, dict[str, Any]] = {}
+        name_keys_by_id: dict[int, set[str]] = {}
         for role_id in [rid for rid in CLAN_MEMBER_ROLE_IDS if rid]:
             role = guild.get_role(role_id)
             if role is None:
@@ -663,17 +702,51 @@ class SecretNotificationsForwarder(commands.Cog):
                 global_name = getattr(member, "global_name", None)
                 if global_name:
                     names.add(global_name)
-                for name in names:
-                    if not name:
-                        continue
-                    normalized = self._normalize_name(str(name))
-                    if not normalized:
-                        continue
-                    if normalized not in new_cache:
-                        new_cache[normalized] = {
-                            "id": member.id,
-                            "name": str(member.display_name),
-                        }
+                candidate_username = self._extract_roblox_username(names)
+                existing_entry = existing_by_id.get(member.id)
+                entry: dict[str, Any] = {
+                    "id": member.id,
+                    "name": str(member.display_name),
+                }
+                if existing_entry:
+                    if existing_entry.get("roblox_username"):
+                        entry["roblox_username"] = existing_entry.get(
+                            "roblox_username"
+                        )
+                    if existing_entry.get("roblox_nick"):
+                        entry["roblox_nick"] = existing_entry.get("roblox_nick")
+                    if existing_entry.get("roblox_nick_updated_at"):
+                        entry["roblox_nick_updated_at"] = existing_entry.get(
+                            "roblox_nick_updated_at"
+                        )
+                    if existing_entry.get("roblox_nick_checked_at"):
+                        entry["roblox_nick_checked_at"] = existing_entry.get(
+                            "roblox_nick_checked_at"
+                        )
+                if candidate_username:
+                    previous_username = entry.get("roblox_username")
+                    if (
+                        previous_username
+                        and str(previous_username) != candidate_username
+                    ):
+                        entry.pop("roblox_nick", None)
+                        entry.pop("roblox_nick_updated_at", None)
+                    entry["roblox_username"] = candidate_username
+                new_entries_by_id[member.id] = entry
+                name_keys_by_id.setdefault(member.id, set()).update(
+                    {str(name) for name in names if name}
+                )
+
+        await self._refresh_roblox_nicknames(new_entries_by_id)
+
+        new_cache: dict[str, dict[str, Any]] = {}
+        for member_id, entry in new_entries_by_id.items():
+            for name in name_keys_by_id.get(member_id, set()):
+                self._add_cache_key(new_cache, name, entry)
+            if entry.get("roblox_username"):
+                self._add_cache_key(new_cache, entry["roblox_username"], entry)
+            if entry.get("roblox_nick"):
+                self._add_cache_key(new_cache, entry["roblox_nick"], entry)
 
         if new_cache:
             self._clan_member_cache = new_cache
@@ -733,6 +806,107 @@ class SecretNotificationsForwarder(commands.Cog):
                     conn.close()
                 except Exception:
                     logger.exception("Uzavření DB spojení selhalo.")
+
+    def _add_cache_key(
+        self, cache: dict[str, dict[str, Any]], key: Any, entry: dict[str, Any]
+    ) -> None:
+        if key is None:
+            return
+        normalized = self._normalize_name(str(key))
+        if not normalized:
+            return
+        if normalized not in cache:
+            cache[normalized] = entry
+
+    def _parse_datetime_value(self, value: Any) -> Optional[datetime]:
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(str(value))
+        except ValueError:
+            return None
+
+    def _extract_roblox_username(self, names: set[str]) -> Optional[str]:
+        for name in names:
+            if not name:
+                continue
+            match = ROBLOX_USERNAME_REGEX.fullmatch(str(name).strip())
+            if match:
+                return match.group(0)
+        return None
+
+    async def _refresh_roblox_nicknames(
+        self, entries_by_id: dict[int, dict[str, Any]]
+    ) -> None:
+        usernames: list[str] = []
+        now = datetime.now(timezone.utc)
+        for entry in entries_by_id.values():
+            roblox_username = entry.get("roblox_username")
+            if not roblox_username:
+                continue
+            if entry.get("roblox_nick"):
+                continue
+            last_checked = self._parse_datetime_value(
+                entry.get("roblox_nick_checked_at")
+            )
+            if last_checked and now - last_checked < timedelta(
+                minutes=ROBLOX_NICK_REFRESH_MINUTES
+            ):
+                continue
+            usernames.append(str(roblox_username))
+        if not usernames:
+            return
+        username_map = await self._fetch_roblox_display_names(usernames)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        for entry in entries_by_id.values():
+            roblox_username = entry.get("roblox_username")
+            if not roblox_username:
+                continue
+            display_name = username_map.get(str(roblox_username))
+            if display_name:
+                entry["roblox_nick"] = display_name
+                entry["roblox_nick_updated_at"] = now_iso
+            entry["roblox_nick_checked_at"] = now_iso
+
+    async def _fetch_roblox_display_names(
+        self, usernames: List[str]
+    ) -> dict[str, str]:
+        results: dict[str, str] = {}
+        if not usernames:
+            return results
+        async with aiohttp.ClientSession() as session:
+            for start in range(0, len(usernames), ROBLOX_USERNAME_BATCH_SIZE):
+                chunk = usernames[start : start + ROBLOX_USERNAME_BATCH_SIZE]
+                payload = {
+                    "usernames": chunk,
+                    "excludeBannedUsers": True,
+                }
+                try:
+                    async with session.post(
+                        ROBLOX_USERNAMES_URL, json=payload, timeout=15
+                    ) as response:
+                        if response.status == 429:
+                            logger.warning(
+                                "Roblox API rate limit hit while fetching usernames."
+                            )
+                            break
+                        if response.status >= 400:
+                            logger.warning(
+                                "Roblox API returned status %s for usernames lookup.",
+                                response.status,
+                            )
+                            continue
+                        data = await response.json()
+                except Exception:
+                    logger.exception("Roblox API request failed.")
+                    continue
+                for item in data.get("data", []):
+                    requested = item.get("requestedUsername") or item.get("name")
+                    display = item.get("displayName") or item.get("name")
+                    if requested and display:
+                        results[str(requested)] = str(display)
+                await asyncio.sleep(ROBLOX_USERNAME_REQUEST_DELAY_SECONDS)
+        return results
 
     def _record_drop_stats(self, player_ids: List[int], rarity: Optional[str]) -> None:
         if not player_ids or rarity is None:
@@ -899,15 +1073,32 @@ class SecretNotificationsForwarder(commands.Cog):
             updated_line = f"🕒 Aktualizováno: <t:{updated_ts}:R>"
         else:
             updated_line = "🕒 Aktualizováno: neznámé"
-        entries = [
-            entry.get("name") or str(entry.get("id"))
-            for entry in self._clan_member_cache.values()
-            if entry.get("id") is not None
-        ]
-        unique_names = sorted({str(name) for name in entries if name})
+        entries_by_id: dict[int, dict[str, Any]] = {}
+        for entry in self._clan_member_cache.values():
+            member_id = entry.get("id")
+            if isinstance(member_id, int) and member_id not in entries_by_id:
+                entries_by_id[member_id] = entry
+        lines: List[str] = []
+        for entry in entries_by_id.values():
+            display_name = entry.get("name") or str(entry.get("id"))
+            roblox_username = entry.get("roblox_username")
+            roblox_nick = entry.get("roblox_nick")
+            if roblox_nick and roblox_username:
+                if str(roblox_nick).lower() == str(roblox_username).lower():
+                    line = f"{display_name} • Roblox: {roblox_username}"
+                else:
+                    line = (
+                        f"{display_name} • Roblox: {roblox_nick} ({roblox_username})"
+                    )
+            elif roblox_username:
+                line = f"{display_name} • Roblox: {roblox_username}"
+            else:
+                line = str(display_name)
+            lines.append(line)
+        unique_names = sorted(lines, key=str.lower)
         container.add_item(
             discord.ui.TextDisplay(
-                content=f"👥 **Počet uložených jmen:** `{len(unique_names)}`"
+                content=f"👥 **Počet uložených členů:** `{len(unique_names)}`"
             )
         )
         container.add_item(discord.ui.TextDisplay(content=updated_line))
