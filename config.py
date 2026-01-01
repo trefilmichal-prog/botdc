@@ -24,6 +24,8 @@ if not DEEPL_API_KEY:
     )
 DEEPL_API_URL = os.getenv("DEEPL_API_URL", "https://api-free.deepl.com/v2/translate")
 DEEPL_TIMEOUT = int(os.getenv("DEEPL_TIMEOUT", "30"))
+DEEPL_SSL_VERIFY = os.getenv("DEEPL_SSL_VERIFY", "true").lower() == "true"
+DEEPL_CA_BUNDLE = os.getenv("DEEPL_CA_BUNDLE")
 
 # Přehled času – cílová místnost a výchozí americká oblast
 TIME_STATUS_CHANNEL_ID = 1445973251019898961
