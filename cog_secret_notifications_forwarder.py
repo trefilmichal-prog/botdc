@@ -85,6 +85,20 @@ class SecretNotificationsForwarder(commands.Cog):
         self._secret_role_ids = self._load_secret_role_ids()
         self._load_cached_players_from_db()
         self._load_last_processed_notification_id()
+        existing_group = self.bot.tree.get_command(
+            "dropstats", type=discord.AppCommandType.chat_input
+        )
+        if existing_group:
+            self.bot.tree.remove_command(
+                "dropstats", type=discord.AppCommandType.chat_input
+            )
+        existing_secret = self.bot.tree.get_command(
+            "secret", type=discord.AppCommandType.chat_input
+        )
+        if existing_secret:
+            self.bot.tree.remove_command(
+                "secret", type=discord.AppCommandType.chat_input
+            )
         self.dropstats_group = app_commands.Group(
             name="dropstats", description="Statistiky dropu"
         )
@@ -121,20 +135,6 @@ class SecretNotificationsForwarder(commands.Cog):
         self.secret_roles_group.command(
             name="remove", description="Odebere roli pro secret notifikace."
         )(self.secret_roles_remove)
-        existing_group = self.bot.tree.get_command(
-            "dropstats", type=discord.AppCommandType.chat_input
-        )
-        if existing_group:
-            self.bot.tree.remove_command(
-                "dropstats", type=discord.AppCommandType.chat_input
-            )
-        existing_secret = self.bot.tree.get_command(
-            "secret", type=discord.AppCommandType.chat_input
-        )
-        if existing_secret:
-            self.bot.tree.remove_command(
-                "secret", type=discord.AppCommandType.chat_input
-            )
         self.bot.tree.add_command(self.dropstats_group)
         self.bot.tree.add_command(self.secret_group)
         self.poll_notifications.start()
