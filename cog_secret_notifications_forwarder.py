@@ -186,12 +186,16 @@ class SecretNotificationsForwarder(commands.Cog):
                     json.dumps(payload, ensure_ascii=False, default=str),
                 )
                 lines = self._format_message_lines(payload)
+                match_lines = self._format_message_lines(
+                    payload, include_congrats_for_match=True
+                )
                 if not lines:
                     if isinstance(notification_id, int):
                         discarded_ids.append(notification_id)
                     continue
                 text_body = "\n".join(lines)
-                matched_players = self._find_player_mentions(text_body)
+                match_text = "\n".join(match_lines or lines)
+                matched_players = self._find_player_mentions(match_text)
                 if not matched_players:
                     if isinstance(notification_id, int):
                         discarded_ids.append(notification_id)
@@ -303,11 +307,19 @@ class SecretNotificationsForwarder(commands.Cog):
                 filtered.append(notification)
         return filtered
 
-    def _format_message_lines(self, notification: Dict[str, Any]) -> Optional[List[str]]:
+    def _format_message_lines(
+        self,
+        notification: Dict[str, Any],
+        include_congrats_for_match: bool = False,
+    ) -> Optional[List[str]]:
         try:
-            panel_lines = self._extract_panel_text_from_notification(notification)
+            panel_lines = self._extract_panel_text_from_notification(
+                notification, include_congrats_for_match
+            )
             if panel_lines is not None:
-                return self._filter_notification_lines(panel_lines)
+                return self._filter_notification_lines(
+                    panel_lines, include_congrats_for_match
+                )
 
             text_joined = notification.get("text_joined")
             text_line = (
@@ -318,6 +330,8 @@ class SecretNotificationsForwarder(commands.Cog):
 
             text_lines = (text_line or "").splitlines() or [""]
             stripped_lines = [self._strip_app_prefix(line) for line in text_lines]
+            if include_congrats_for_match:
+                return stripped_lines
             return [
                 line
                 for line in stripped_lines
@@ -328,7 +342,7 @@ class SecretNotificationsForwarder(commands.Cog):
             return None
 
     def _extract_panel_text_from_notification(
-        self, payload: Dict[str, Any]
+        self, payload: Dict[str, Any], include_congrats_for_match: bool = False
     ) -> Optional[List[str]]:
         if "notification" not in payload:
             return None
@@ -339,7 +353,8 @@ class SecretNotificationsForwarder(commands.Cog):
         lines.extend(self._extract_notification_header_lines(notification))
         lines.extend(
             self._extract_notification_text_lines(
-                notification.get("text") or notification.get("texts")
+                notification.get("text") or notification.get("texts"),
+                include_congrats_for_match,
             )
         )
         raw_payload = self._extract_notification_raw_payload(notification)
@@ -351,7 +366,8 @@ class SecretNotificationsForwarder(commands.Cog):
                 lines.extend(self._extract_notification_header_lines(source))
                 lines.extend(
                     self._extract_notification_text_lines(
-                        source.get("text") or source.get("texts")
+                        source.get("text") or source.get("texts"),
+                        include_congrats_for_match,
                     )
                 )
         normalized_lines: List[str] = []
@@ -394,7 +410,9 @@ class SecretNotificationsForwarder(commands.Cog):
                     headers.append(normalized)
         return headers
 
-    def _extract_notification_text_lines(self, text_value: Any) -> List[str]:
+    def _extract_notification_text_lines(
+        self, text_value: Any, include_congrats_for_match: bool = False
+    ) -> List[str]:
         if text_value is None:
             return []
         lines: List[str] = []
@@ -408,28 +426,35 @@ class SecretNotificationsForwarder(commands.Cog):
                 entry_text = str(entry)
                 entry_lines = entry_text.splitlines() or [entry_text]
                 for line in entry_lines:
-                    if congrats_pattern.match(str(line)):
+                    if (
+                        not include_congrats_for_match
+                        and congrats_pattern.match(str(line))
+                    ):
                         continue
                     lines.append(line)
             return lines
         if isinstance(text_value, str):
             split_lines = text_value.splitlines() or [text_value]
+            if include_congrats_for_match:
+                return split_lines
             return [
                 line for line in split_lines if not congrats_pattern.match(str(line))
             ]
         text_line = str(text_value)
-        if congrats_pattern.match(text_line):
+        if not include_congrats_for_match and congrats_pattern.match(text_line):
             return []
         return [text_line]
 
-    def _filter_notification_lines(self, lines: List[str]) -> List[str]:
+    def _filter_notification_lines(
+        self, lines: List[str], include_congrats_for_match: bool = False
+    ) -> List[str]:
         filtered: List[str] = []
         for line in lines:
             if line is None:
                 filtered.append(line)
                 continue
             text_line = str(line)
-            if CONGRATS_LINE_REGEX.match(text_line):
+            if not include_congrats_for_match and CONGRATS_LINE_REGEX.match(text_line):
                 continue
             filtered.append(line)
         return filtered
