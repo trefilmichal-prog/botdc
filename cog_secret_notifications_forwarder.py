@@ -53,6 +53,9 @@ ROBLOX_USERNAME_REGEX = re.compile(r"[A-Za-z0-9_]{3,26}")
 ROBLOX_USERNAME_BATCH_SIZE = 50
 ROBLOX_USERNAME_REQUEST_DELAY_SECONDS = 0.6
 ROBLOX_NICK_REFRESH_MINUTES = 360
+CONGRATS_LINE_REGEX = re.compile(
+    r"^🔥\s*Congrats!\s*:flag_[a-z]{2}:", re.IGNORECASE
+)
 
 logger = logging.getLogger("botdc.secret_notifications")
 winrt_logger = logging.getLogger("botdc.winrt_notifications")
@@ -304,7 +307,7 @@ class SecretNotificationsForwarder(commands.Cog):
         try:
             panel_lines = self._extract_panel_text_from_notification(notification)
             if panel_lines is not None:
-                return panel_lines
+                return self._filter_notification_lines(panel_lines)
 
             text_joined = notification.get("text_joined")
             text_line = (
@@ -418,6 +421,18 @@ class SecretNotificationsForwarder(commands.Cog):
         if congrats_pattern.match(text_line):
             return []
         return [text_line]
+
+    def _filter_notification_lines(self, lines: List[str]) -> List[str]:
+        filtered: List[str] = []
+        for line in lines:
+            if line is None:
+                filtered.append(line)
+                continue
+            text_line = str(line)
+            if CONGRATS_LINE_REGEX.match(text_line):
+                continue
+            filtered.append(line)
+        return filtered
 
     def _extract_notification_raw_payload(
         self, notification: Dict[str, Any]
