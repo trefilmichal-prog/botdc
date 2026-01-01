@@ -132,8 +132,7 @@ class MyBot(commands.Bot):
             logger.info("WinRT ingest notifikací je vypnutý v konfiguraci.")
 
         # sync slash commandů globálně
-        self.tree.clear_commands(guild=None)
-        await self.tree.sync(guild=None)
+        await self.tree.sync()
 
     async def on_app_command_error(
         self, interaction: discord.Interaction, error: app_commands.AppCommandError
