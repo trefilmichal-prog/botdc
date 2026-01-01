@@ -223,13 +223,13 @@ class AutoTranslateCog(commands.Cog):
         translation = await self._translate_text(target_lang, message.content)
         if not translation:
             await interaction.edit_original_response(
-                "Překlad se nepodařil, zkuste to prosím znovu."
+                content="Překlad se nepodařil, zkuste to prosím znovu."
             )
             return
 
         safe_translation = self._sanitize_output(translation)
         await interaction.edit_original_response(
-            f"Překlad do {language_label}: {safe_translation}",
+            content=f"Překlad do {language_label}: {safe_translation}",
             allowed_mentions=self._safe_allowed_mentions,
         )
 
