@@ -101,6 +101,10 @@ class SecretNotificationsForwarder(commands.Cog):
             name="cache",
             description="Zobrazí uložená jména hráčů pro notifikace.",
         )(self.secret_cache)
+        self.secret_group.command(
+            name="refresh",
+            description="Vynutí refresh Roblox přezdívky pro člena.",
+        )(self.secret_cache_refresh)
         existing_group = self.bot.tree.get_command(
             "dropstats", type=discord.AppCommandType.chat_input
         )
@@ -818,6 +822,43 @@ class SecretNotificationsForwarder(commands.Cog):
         if normalized not in cache:
             cache[normalized] = entry
 
+    def _replace_cache_nick_key(
+        self,
+        old_nick: Optional[str],
+        new_nick: Optional[str],
+        entry: dict[str, Any],
+    ) -> None:
+        if old_nick:
+            old_key = self._normalize_name(str(old_nick))
+            if (
+                old_key
+                and old_key in self._clan_member_cache
+                and self._clan_member_cache.get(old_key) is entry
+            ):
+                del self._clan_member_cache[old_key]
+        if new_nick:
+            self._add_cache_key(self._clan_member_cache, new_nick, entry)
+
+    def _find_member_entry_by_id(
+        self, member_id: int
+    ) -> Optional[dict[str, Any]]:
+        for entry in self._clan_member_cache.values():
+            if entry.get("id") == member_id:
+                return entry
+        return None
+
+    def _find_member_entry_by_roblox_username(
+        self, username: str
+    ) -> Optional[dict[str, Any]]:
+        if not username:
+            return None
+        normalized = str(username).lower()
+        for entry in self._clan_member_cache.values():
+            roblox_username = entry.get("roblox_username")
+            if roblox_username and str(roblox_username).lower() == normalized:
+                return entry
+        return None
+
     def _parse_datetime_value(self, value: Any) -> Optional[datetime]:
         if not value:
             return None
@@ -963,10 +1004,99 @@ class SecretNotificationsForwarder(commands.Cog):
             view=view, ephemeral=True, allowed_mentions=discord.AllowedMentions.none()
         )
 
+    @app_commands.describe(
+        username="Roblox username pro refresh přezdívky.",
+        member="Discord člen, kterému se má refreshnout Roblox přezdívka.",
+    )
+    async def secret_cache_refresh(
+        self,
+        interaction: discord.Interaction,
+        username: Optional[str] = None,
+        member: Optional[discord.Member] = None,
+    ):
+        if not username and not member:
+            view = self._build_notice_view(
+                "⚠️ Zadej Roblox username nebo vyber Discord člena."
+            )
+            await interaction.response.send_message(view=view, ephemeral=True)
+            return
+
+        entry = None
+        if member is not None:
+            entry = self._find_member_entry_by_id(member.id)
+        if entry is None and username:
+            entry = self._find_member_entry_by_roblox_username(username)
+        if entry is None:
+            view = self._build_notice_view("⚠️ Člen nebyl v cache nalezen.")
+            await interaction.response.send_message(view=view, ephemeral=True)
+            return
+
+        roblox_username = entry.get("roblox_username")
+        if not roblox_username:
+            view = self._build_notice_view(
+                "⚠️ Tento člen nemá uložený Roblox username."
+            )
+            await interaction.response.send_message(view=view, ephemeral=True)
+            return
+
+        previous_nick = entry.get("roblox_nick")
+        username_map = await self._fetch_roblox_display_names(
+            [str(roblox_username)]
+        )
+        now = datetime.now(timezone.utc)
+        now_iso = now.isoformat()
+        display_name = username_map.get(str(roblox_username))
+        entry["roblox_nick_checked_at"] = now_iso
+        if display_name:
+            entry["roblox_nick"] = display_name
+            entry["roblox_nick_updated_at"] = now_iso
+            if display_name != previous_nick:
+                self._replace_cache_nick_key(previous_nick, display_name, entry)
+        self._clan_member_cache_updated_at = now
+        self._save_clan_member_cache()
+
+        view = self._build_secret_refresh_view(
+            roblox_username=str(roblox_username),
+            previous_nick=previous_nick,
+            new_nick=entry.get("roblox_nick"),
+            refreshed_at=now,
+        )
+        await interaction.response.send_message(view=view, ephemeral=True)
+
     def _build_notice_view(self, message: str) -> discord.ui.LayoutView:
         view = discord.ui.LayoutView()
         container = discord.ui.Container()
         container.add_item(discord.ui.TextDisplay(content=message))
+        view.add_item(container)
+        return view
+
+    def _build_secret_refresh_view(
+        self,
+        roblox_username: str,
+        previous_nick: Optional[str],
+        new_nick: Optional[str],
+        refreshed_at: datetime,
+    ) -> discord.ui.LayoutView:
+        view = discord.ui.LayoutView()
+        container = discord.ui.Container()
+        container.add_item(
+            discord.ui.TextDisplay(content="🔄 **Roblox přezdívka refreshnuta**")
+        )
+        container.add_item(discord.ui.Separator())
+        before = previous_nick or "—"
+        after = new_nick or "—"
+        container.add_item(
+            discord.ui.TextDisplay(content=f"🆔 Roblox username: `{roblox_username}`")
+        )
+        container.add_item(
+            discord.ui.TextDisplay(content=f"🏷️ Přezdívka: **{before} → {after}**")
+        )
+        refreshed_ts = int(refreshed_at.timestamp())
+        container.add_item(
+            discord.ui.TextDisplay(
+                content=f"🕒 Refresh: <t:{refreshed_ts}:F>"
+            )
+        )
         view.add_item(container)
         return view
 
