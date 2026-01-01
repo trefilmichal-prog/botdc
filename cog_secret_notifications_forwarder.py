@@ -200,6 +200,7 @@ class SecretNotificationsForwarder(commands.Cog):
                     if isinstance(notification_id, int):
                         discarded_ids.append(notification_id)
                     continue
+                lines = self._replace_egg_lines(lines)
                 mention_line = self._format_player_mentions(matched_players)
                 if mention_line:
                     lines.append(f"Ping: {mention_line}")
@@ -559,6 +560,33 @@ class SecretNotificationsForwarder(commands.Cog):
         except Exception:
             logger.exception("Chyba při vyhledání hráče v textu notifikace.")
             return []
+
+    def _replace_egg_lines(self, lines: List[str]) -> List[str]:
+        if not lines:
+            return lines
+        pattern = re.compile(
+            r"🥚\s*\*\*Egg:\*\*\s*(\d+)\s*`+\(([^)]+)\s+opened\)`+"
+        )
+        updated: List[str] = []
+        for line in lines:
+            if not line:
+                updated.append(line)
+                continue
+            text = str(line)
+            match = pattern.search(text)
+            if not match:
+                updated.append(line)
+                continue
+            egg_number = match.group(1)
+            opened_value = match.group(2)
+            prefix = text[: match.start()].strip()
+            suffix = text[match.end() :].strip()
+            if prefix:
+                updated.append(prefix)
+            updated.append(f"🥚Egg: {egg_number} - {opened_value} opened\\")
+            if suffix:
+                updated.append(suffix)
+        return updated
 
     def _format_player_names(self, player_ids: List[int]) -> List[str]:
         return [self._get_display_name_for_id(player_id) for player_id in player_ids]
