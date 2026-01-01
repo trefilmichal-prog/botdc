@@ -136,8 +136,10 @@ class MyBot(commands.Bot):
 
         # sync slash commandů (preferuj povolený server kvůli rychlé dostupnosti)
         if ALLOWED_GUILD_ID:
+            self.tree.clear_commands(guild=discord.Object(id=ALLOWED_GUILD_ID))
             await self.tree.sync(guild=discord.Object(id=ALLOWED_GUILD_ID))
         else:
+            self.tree.clear_commands()
             await self.tree.sync()
 
     async def _check_allowed_guild(self, interaction: discord.Interaction) -> bool:
