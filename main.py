@@ -31,7 +31,6 @@ from cog_welcome import WelcomeCog
 from cog_wood import WoodCog
 from cog_xp import XpCog
 from config import (
-    ALLOWED_GUILD_ID,
     TOKEN,
     WINDOWS_NOTIFICATION_WINRT_ENABLED,
     WINDOWS_NOTIFICATION_WINRT_POLL_INTERVAL,
@@ -85,8 +84,6 @@ class MyBot(commands.Bot):
                 )
 
         await add_cog_safe(DiscordWriteCoordinatorCog(self))
-        self.tree.interaction_check = self._check_allowed_guild
-
         for cog in [
             LoggingCog(self),
             AutoUpdater(self),
@@ -135,31 +132,16 @@ class MyBot(commands.Bot):
             logger.info("WinRT ingest notifikací je vypnutý v konfiguraci.")
 
         # sync slash commandů globálně
-        self.tree.clear_commands()
-        await self.tree.sync()
-
-    async def _check_allowed_guild(self, interaction: discord.Interaction) -> bool:
-        guild = interaction.guild
-        if guild is not None and guild.id != ALLOWED_GUILD_ID:
-            raise app_commands.CheckFailure("guild_not_allowed")
-        return True
+        self.tree.clear_commands(guild=None)
+        await self.tree.sync(guild=None)
 
     async def on_app_command_error(
         self, interaction: discord.Interaction, error: app_commands.AppCommandError
     ) -> None:
-        if isinstance(error, app_commands.CheckFailure) and str(error) == "guild_not_allowed":
-            message = "Bot je dostupný pouze na povoleném serveru."
-            if interaction.response.is_done():
-                await interaction.followup.send(message, ephemeral=True)
-            else:
-                await interaction.response.send_message(message, ephemeral=True)
-            return
         logger.exception("App command error: %s", error)
 
     async def on_ready(self):
         logger.info("Přihlášen jako %s (ID: %s)", self.user, self.user.id)
-        await self._leave_unapproved_guilds()
-
     async def on_interaction(self, interaction: discord.Interaction):
         if interaction.type == discord.InteractionType.application_command:
             now = time.monotonic()
@@ -176,43 +158,6 @@ class MyBot(commands.Bot):
                 return
             self._recent_interactions[interaction.id] = now
         return
-
-    async def _leave_unapproved_guilds(self) -> None:
-        if not ALLOWED_GUILD_ID:
-            return
-
-        for guild in list(self.guilds):
-            if guild.id == ALLOWED_GUILD_ID:
-                continue
-            logger.warning(
-                "Bot je připojen na nepovolený server %s (ID: %s), odcházím.",
-                guild.name,
-                guild.id,
-            )
-            try:
-                await guild.leave()
-            except Exception:
-                logger.exception(
-                    "Odchod z nepovoleného serveru %s (ID: %s) selhal.",
-                    guild.name,
-                    guild.id,
-                )
-
-    async def on_guild_join(self, guild: discord.Guild):
-        if guild.id != ALLOWED_GUILD_ID:
-            logger.warning(
-                "Bot byl přidán na nepovolený server %s (ID: %s), odcházím.",
-                guild.name,
-                guild.id,
-            )
-            try:
-                await guild.leave()
-            except Exception:
-                logger.exception(
-                    "Odchod z nepovoleného serveru %s (ID: %s) selhal.",
-                    guild.name,
-                    guild.id,
-                )
 
     async def on_message(self, message: discord.Message):
         if message.author.bot:
