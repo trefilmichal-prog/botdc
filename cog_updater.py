@@ -9,7 +9,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-from config import DB_PATH
+from config import DB_PATH, WINRT_LOG_PATH
 
 import discord
 from discord import app_commands
@@ -26,7 +26,10 @@ class AutoUpdater(commands.Cog):
         self.default_repo_url = "https://github.com/trefilmichal-prog/botdc.git"
         self.default_branch = "main"
         self.allowed_user_id = 369810917673795586
-        self.preserved_paths = {Path(DB_PATH).resolve()}
+        self.preserved_paths = {
+            Path(DB_PATH).resolve(),
+            Path(WINRT_LOG_PATH).resolve(),
+        }
 
     async def _download_archive(self, url: str, destination: Path) -> None:
         await asyncio.to_thread(self._download_archive_sync, url, destination)
