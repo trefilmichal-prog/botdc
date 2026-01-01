@@ -1,3 +1,6 @@
+import importlib
+import importlib.util
+import logging
 import os
 
 # Absolutní cesta ke kořenovému adresáři projektu
@@ -17,6 +20,9 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
 OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))
 
 # DeepL konfigurace
+# Pokud se objeví SSL chyba, nainstalujte CA certifikáty v systému
+# nebo nastavte cestu přes DEEPL_CA_BUNDLE (případně dočasně vypněte
+# ověření pomocí DEEPL_SSL_VERIFY=false).
 DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
 if not DEEPL_API_KEY:
     raise RuntimeError(
@@ -26,6 +32,23 @@ DEEPL_API_URL = os.getenv("DEEPL_API_URL", "https://api-free.deepl.com/v2/transl
 DEEPL_TIMEOUT = int(os.getenv("DEEPL_TIMEOUT", "30"))
 DEEPL_SSL_VERIFY = os.getenv("DEEPL_SSL_VERIFY", "true").lower() == "true"
 DEEPL_CA_BUNDLE = os.getenv("DEEPL_CA_BUNDLE")
+
+logger = logging.getLogger(__name__)
+
+if DEEPL_CA_BUNDLE:
+    if not (os.path.isfile(DEEPL_CA_BUNDLE) and os.access(DEEPL_CA_BUNDLE, os.R_OK)):
+        logger.warning(
+            "DEEPL_CA_BUNDLE path is not readable or missing: %s", DEEPL_CA_BUNDLE
+        )
+        DEEPL_CA_BUNDLE = None
+
+if not DEEPL_CA_BUNDLE:
+    certifi_spec = importlib.util.find_spec("certifi")
+    if certifi_spec is not None:
+        certifi = importlib.import_module("certifi")
+        certifi_path = certifi.where()
+        if os.path.isfile(certifi_path) and os.access(certifi_path, os.R_OK):
+            DEEPL_CA_BUNDLE = certifi_path
 
 # Přehled času – cílová místnost a výchozí americká oblast
 TIME_STATUS_CHANNEL_ID = 1445973251019898961
