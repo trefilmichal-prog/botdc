@@ -121,6 +121,12 @@ def _guild_clan_config(guild_id: int | None, clan_value: str):
     return db_row
 
 
+def _simple_text_view(message: str) -> discord.ui.LayoutView:
+    view = discord.ui.LayoutView(timeout=None)
+    view.add_item(discord.ui.Container(discord.ui.TextDisplay(content=message)))
+    return view
+
+
 def _clan_select_options_for_guild(guild_id: int | None) -> list[discord.SelectOption]:
     if guild_id is None:
         return []
@@ -895,7 +901,7 @@ class ClanApplicationModal(discord.ui.Modal):
 
         intake_category = guild.get_channel(TICKET_CATEGORY_ID)
         if intake_category is None or not isinstance(intake_category, discord.CategoryChannel):
-            await interaction.edit_original_response(content=_t(lang, "intake_missing"))
+            await interaction.edit_original_response(view=_simple_text_view(_t(lang, "intake_missing")))
             return
 
         roblox_display = (self.display_name.value or "").strip()
@@ -947,10 +953,12 @@ class ClanApplicationModal(discord.ui.Modal):
                 reason=f"Clan ticket: {self.clan_value}",
             )
         except discord.Forbidden:
-            await interaction.edit_original_response(content=_t(lang, "create_no_perms"))
+            await interaction.edit_original_response(view=_simple_text_view(_t(lang, "create_no_perms")))
             return
         except discord.HTTPException as e:
-            await interaction.edit_original_response(content=f"{_t(lang, 'create_api_err')} {e}")
+            await interaction.edit_original_response(
+                view=_simple_text_view(f"{_t(lang, 'create_api_err')} {e}")
+            )
             return
 
         app_id = None
@@ -1113,7 +1121,7 @@ class ClanApplicationModal(discord.ui.Modal):
         )
 
         await interaction.edit_original_response(
-            content=f"{_t(lang, 'ticket_created')} {ticket_channel.mention}"
+            view=_simple_text_view(f"{_t(lang, 'ticket_created')} {ticket_channel.mention}")
         )
 
 
