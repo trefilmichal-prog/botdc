@@ -133,7 +133,6 @@ class SecretNotificationsForwarder(commands.Cog):
         self.secret_roles_group.command(
             name="remove", description="Odebere roli pro secret notifikace."
         )(self.secret_roles_remove)
-        self.secret_group.add_command(self.secret_roles_group)
         self.bot.tree.add_command(self.dropstats_group)
         self.bot.tree.add_command(self.secret_group)
         self.poll_notifications.start()
