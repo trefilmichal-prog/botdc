@@ -1091,11 +1091,19 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         if "kwargs" in payload:
             self._sanitize_view_kwargs(payload["kwargs"])
             self._sanitize_components_v2_kwargs(payload["kwargs"])
-        return await self._original_interaction_send(
-            interaction.response,
-            *payload.get("args", ()),
-            **payload["kwargs"],
-        )
+        try:
+            return await self._original_interaction_send(
+                interaction.response,
+                *payload.get("args", ()),
+                **payload["kwargs"],
+            )
+        except discord.NotFound as exc:
+            if getattr(exc, "code", None) == 10062:
+                self.logger.info(
+                    "Interaction vypršela (Unknown interaction) při send_message."
+                )
+                return None
+            raise
 
     async def _op_interaction_followup(self, payload: dict[str, Any]):
         interaction = payload["interaction"]
