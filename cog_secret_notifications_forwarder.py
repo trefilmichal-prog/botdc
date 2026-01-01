@@ -333,9 +333,10 @@ class SecretNotificationsForwarder(commands.Cog):
             if include_congrats_for_match:
                 return stripped_lines
             return [
-                line
+                self._strip_congrats_prefix(str(line))
+                if CONGRATS_LINE_REGEX.match(str(line))
+                else line
                 for line in stripped_lines
-                if not re.match(r"^🔥\s*Congrats!\s*:flag_[a-z]{2}:", str(line), re.I)
             ]
         except Exception:
             logger.exception("Chyba při formátování notifikace.")
@@ -430,6 +431,7 @@ class SecretNotificationsForwarder(commands.Cog):
                         not include_congrats_for_match
                         and congrats_pattern.match(str(line))
                     ):
+                        lines.append(self._strip_congrats_prefix(str(line)))
                         continue
                     lines.append(line)
             return lines
@@ -438,11 +440,14 @@ class SecretNotificationsForwarder(commands.Cog):
             if include_congrats_for_match:
                 return split_lines
             return [
-                line for line in split_lines if not congrats_pattern.match(str(line))
+                self._strip_congrats_prefix(str(line))
+                if congrats_pattern.match(str(line))
+                else line
+                for line in split_lines
             ]
         text_line = str(text_value)
         if not include_congrats_for_match and congrats_pattern.match(text_line):
-            return []
+            return [self._strip_congrats_prefix(text_line)]
         return [text_line]
 
     def _filter_notification_lines(
@@ -455,9 +460,17 @@ class SecretNotificationsForwarder(commands.Cog):
                 continue
             text_line = str(line)
             if not include_congrats_for_match and CONGRATS_LINE_REGEX.match(text_line):
+                filtered.append(self._strip_congrats_prefix(text_line))
                 continue
             filtered.append(line)
         return filtered
+
+    def _strip_congrats_prefix(self, text: str) -> str:
+        if not text:
+            return text
+        if CONGRATS_LINE_REGEX.match(text):
+            return CONGRATS_LINE_REGEX.sub("", text, count=1).lstrip()
+        return text
 
     def _extract_notification_raw_payload(
         self, notification: Dict[str, Any]
