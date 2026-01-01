@@ -314,7 +314,12 @@ class SecretNotificationsForwarder(commands.Cog):
             )
 
             text_lines = (text_line or "").splitlines() or [""]
-            return [self._strip_app_prefix(line) for line in text_lines]
+            stripped_lines = [self._strip_app_prefix(line) for line in text_lines]
+            return [
+                line
+                for line in stripped_lines
+                if not re.match(r"^🔥\s*Congrats!\s*:flag_[a-z]{2}:", str(line), re.I)
+            ]
         except Exception:
             logger.exception("Chyba při formátování notifikace.")
             return None
@@ -390,17 +395,29 @@ class SecretNotificationsForwarder(commands.Cog):
         if text_value is None:
             return []
         lines: List[str] = []
+        congrats_pattern = re.compile(
+            r"^🔥\s*Congrats!\s*:flag_[a-z]{2}:", re.IGNORECASE
+        )
         if isinstance(text_value, list):
             for entry in text_value:
                 if entry is None:
                     continue
                 entry_text = str(entry)
                 entry_lines = entry_text.splitlines() or [entry_text]
-                lines.extend(entry_lines)
+                for line in entry_lines:
+                    if congrats_pattern.match(str(line)):
+                        continue
+                    lines.append(line)
             return lines
         if isinstance(text_value, str):
-            return text_value.splitlines() or [text_value]
-        return [str(text_value)]
+            split_lines = text_value.splitlines() or [text_value]
+            return [
+                line for line in split_lines if not congrats_pattern.match(str(line))
+            ]
+        text_line = str(text_value)
+        if congrats_pattern.match(text_line):
+            return []
+        return [text_line]
 
     def _extract_notification_raw_payload(
         self, notification: Dict[str, Any]
