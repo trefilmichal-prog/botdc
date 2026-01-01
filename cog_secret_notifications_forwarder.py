@@ -26,11 +26,13 @@ from db import (
     get_all_dropstats_panels,
     get_connection,
     get_secret_drop_breakdown_since,
+    get_secret_notifications_role_ids,
     get_windows_notifications,
     increment_secret_drop_stat,
     normalize_clan_member_name,
     remove_dropstats_panel,
     reset_secret_drop_stats,
+    set_secret_notifications_role_ids,
 )
 
 
@@ -80,6 +82,7 @@ class SecretNotificationsForwarder(commands.Cog):
         self._clan_member_cache_updated_at: Optional[datetime] = None
         self._received_notifications_count = 0
         self._last_processed_notification_id: Optional[int] = None
+        self._secret_role_ids = self._load_secret_role_ids()
         self._load_cached_players_from_db()
         self._load_last_processed_notification_id()
         self.dropstats_group = app_commands.Group(
@@ -97,6 +100,11 @@ class SecretNotificationsForwarder(commands.Cog):
         self.secret_group = app_commands.Group(
             name="secret", description="Secret notifikace"
         )
+        self.secret_roles_group = app_commands.Group(
+            name="roles",
+            description="Správa rolí pro secret notifikace",
+            parent=self.secret_group,
+        )
         self.secret_group.command(
             name="cache",
             description="Zobrazí uložená jména hráčů pro notifikace.",
@@ -105,6 +113,12 @@ class SecretNotificationsForwarder(commands.Cog):
             name="refresh",
             description="Vynutí refresh Roblox přezdívky pro člena.",
         )(self.secret_cache_refresh)
+        self.secret_roles_group.command(
+            name="add", description="Přidá roli pro secret notifikace."
+        )(self.secret_roles_add)
+        self.secret_roles_group.command(
+            name="remove", description="Odebere roli pro secret notifikace."
+        )(self.secret_roles_remove)
         existing_group = self.bot.tree.get_command(
             "dropstats", type=discord.AppCommandType.chat_input
         )
@@ -681,6 +695,26 @@ class SecretNotificationsForwarder(commands.Cog):
                 except Exception:
                     logger.exception("Uzavření DB spojení selhalo.")
 
+    def _load_secret_role_ids(self) -> list[int]:
+        role_ids = get_secret_notifications_role_ids()
+        if role_ids:
+            return self._normalize_secret_role_ids(role_ids)
+        fallback = [role_id for role_id in CLAN_MEMBER_ROLE_IDS if role_id]
+        return self._normalize_secret_role_ids(fallback)
+
+    def _normalize_secret_role_ids(self, role_ids: list[int]) -> list[int]:
+        normalized: list[int] = []
+        seen = set()
+        for role_id in role_ids:
+            if not role_id:
+                continue
+            normalized_id = int(role_id)
+            if normalized_id in seen:
+                continue
+            seen.add(normalized_id)
+            normalized.append(normalized_id)
+        return normalized
+
     async def _refresh_clan_member_cache(self) -> None:
         channel = await self._get_channel()
         if channel is None:
@@ -696,7 +730,7 @@ class SecretNotificationsForwarder(commands.Cog):
                 existing_by_id[member_id] = entry
         new_entries_by_id: dict[int, dict[str, Any]] = {}
         name_keys_by_id: dict[int, set[str]] = {}
-        for role_id in [rid for rid in CLAN_MEMBER_ROLE_IDS if rid]:
+        for role_id in self._secret_role_ids:
             role = guild.get_role(role_id)
             if role is None:
                 logger.warning("Role %s nebyla nalezena pro cache hráčů.", role_id)
@@ -1060,6 +1094,43 @@ class SecretNotificationsForwarder(commands.Cog):
             previous_nick=previous_nick,
             new_nick=entry.get("roblox_nick"),
             refreshed_at=now,
+        )
+        await interaction.response.send_message(view=view, ephemeral=True)
+
+    async def secret_roles_add(
+        self, interaction: discord.Interaction, role: discord.Role
+    ):
+        if role.id in self._secret_role_ids:
+            view = self._build_notice_view(
+                f"ℹ️ Role {role.mention} už je v seznamu."
+            )
+            await interaction.response.send_message(view=view, ephemeral=True)
+            return
+        self._secret_role_ids.append(role.id)
+        self._secret_role_ids = self._normalize_secret_role_ids(
+            self._secret_role_ids
+        )
+        set_secret_notifications_role_ids(self._secret_role_ids)
+        view = self._build_notice_view(
+            f"✅ Role {role.mention} byla přidána do seznamu."
+        )
+        await interaction.response.send_message(view=view, ephemeral=True)
+
+    async def secret_roles_remove(
+        self, interaction: discord.Interaction, role: discord.Role
+    ):
+        if role.id not in self._secret_role_ids:
+            view = self._build_notice_view(
+                f"ℹ️ Role {role.mention} nebyla v seznamu."
+            )
+            await interaction.response.send_message(view=view, ephemeral=True)
+            return
+        self._secret_role_ids = [
+            role_id for role_id in self._secret_role_ids if role_id != role.id
+        ]
+        set_secret_notifications_role_ids(self._secret_role_ids)
+        view = self._build_notice_view(
+            f"✅ Role {role.mention} byla odebrána ze seznamu."
         )
         await interaction.response.send_message(view=view, ephemeral=True)
 

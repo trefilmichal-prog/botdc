@@ -610,6 +610,31 @@ def get_setting(key: str) -> Optional[str]:
     return row[0] if row else None
 
 
+def set_secret_notifications_role_ids(role_ids: List[int]) -> None:
+    normalized = [int(role_id) for role_id in role_ids if role_id]
+    set_setting("secret_notifications_role_ids", json.dumps(normalized))
+
+
+def get_secret_notifications_role_ids() -> List[int]:
+    value = get_setting("secret_notifications_role_ids")
+    if not value:
+        return []
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, list):
+        return []
+    result: List[int] = []
+    for entry in payload:
+        try:
+            role_id = int(entry)
+        except (TypeError, ValueError):
+            continue
+        result.append(role_id)
+    return result
+
+
 def clan_member_nick_exists(nick: str) -> bool:
     if not nick:
         return False
