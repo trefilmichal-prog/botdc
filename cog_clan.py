@@ -1120,8 +1120,10 @@ class ClanApplicationModal(discord.ui.Modal):
             allowed_mentions=discord.AllowedMentions(roles=False, users=True, everyone=False),
         )
 
-        await interaction.edit_original_response(
-            view=_simple_text_view(f"{_t(lang, 'ticket_created')} {ticket_channel.mention}")
+        await interaction.followup.send(
+            content="",
+            view=_simple_text_view(f"{_t(lang, 'ticket_created')} {ticket_channel.mention}"),
+            ephemeral=True,
         )
 
 
