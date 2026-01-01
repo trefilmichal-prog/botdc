@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import ssl
 import types
 import urllib.error
 import urllib.parse
@@ -18,6 +19,8 @@ from config import (
     CLAN_MEMBER_ROLE_ID,
     DEEPL_API_KEY,
     DEEPL_API_URL,
+    DEEPL_CA_BUNDLE,
+    DEEPL_SSL_VERIFY,
     DEEPL_TIMEOUT,
     REACTION_TRANSLATION_BLOCKED_CHANNEL_IDS,
 )
@@ -110,7 +113,15 @@ class AutoTranslateCog(commands.Cog):
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=DEEPL_TIMEOUT) as response:
+        context = None
+        if not DEEPL_SSL_VERIFY:
+            context = ssl._create_unverified_context()
+        elif DEEPL_CA_BUNDLE:
+            context = ssl.create_default_context(cafile=DEEPL_CA_BUNDLE)
+
+        with urllib.request.urlopen(
+            request, timeout=DEEPL_TIMEOUT, context=context
+        ) as response:
             return response.read().decode("utf-8")
 
     def _resolve_language(self, language: str) -> tuple[str, str] | None:
