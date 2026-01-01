@@ -119,7 +119,6 @@ class SecretNotificationsForwarder(commands.Cog):
         self.secret_roles_group.command(
             name="remove", description="Odebere roli pro secret notifikace."
         )(self.secret_roles_remove)
-        self.secret_group.add_command(self.secret_roles_group)
         existing_group = self.bot.tree.get_command(
             "dropstats", type=discord.AppCommandType.chat_input
         )
