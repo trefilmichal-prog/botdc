@@ -105,6 +105,8 @@ class SecretNotificationsForwarder(commands.Cog):
             description="Správa rolí pro secret notifikace",
             parent=self.secret_group,
         )
+        if not self.secret_group.get_command("roles"):
+            self.secret_group.add_command(self.secret_roles_group)
         self.secret_group.command(
             name="cache",
             description="Zobrazí uložená jména hráčů pro notifikace.",
