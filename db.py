@@ -344,6 +344,17 @@ def init_db():
 
     c.execute(
         """
+        CREATE TABLE IF NOT EXISTS clan_ticket_category_labels (
+            guild_id INTEGER NOT NULL,
+            category_id INTEGER NOT NULL,
+            base_name TEXT NOT NULL,
+            PRIMARY KEY (guild_id, category_id)
+        )
+        """
+    )
+
+    c.execute(
+        """
         CREATE TABLE IF NOT EXISTS leaderboard_panels (
             message_id INTEGER PRIMARY KEY,
             guild_id INTEGER NOT NULL,
@@ -2325,6 +2336,40 @@ def delete_clan_ticket_vacation(channel_id: int):
     conn = get_connection()
     c = conn.cursor()
     c.execute("DELETE FROM clan_ticket_vacations WHERE channel_id = ?", (channel_id,))
+    conn.commit()
+    conn.close()
+
+
+def get_clan_ticket_category_base_name(guild_id: int, category_id: int) -> Optional[str]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT base_name
+        FROM clan_ticket_category_labels
+        WHERE guild_id = ? AND category_id = ?
+        """,
+        (guild_id, category_id),
+    )
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return row[0]
+    return None
+
+
+def set_clan_ticket_category_base_name(guild_id: int, category_id: int, base_name: str) -> None:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO clan_ticket_category_labels (guild_id, category_id, base_name)
+        VALUES (?, ?, ?)
+        ON CONFLICT(guild_id, category_id)
+        DO UPDATE SET base_name = excluded.base_name
+        """,
+        (guild_id, category_id, base_name),
+    )
     conn.commit()
     conn.close()
 
