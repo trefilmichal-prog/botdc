@@ -8,6 +8,7 @@ import discord
 from discord.ext import commands
 from discord.ext import tasks
 from discord import app_commands
+from cog_discord_writer import WritePriority, get_writer
 from db import (
     add_clan_application_panel,
     delete_clan_definition,
@@ -2211,12 +2212,12 @@ class ClanPanelCog(commands.Cog):
                     return
 
                 try:
-                    await _retry_rate_limited(
-                        "move ticket topic",
-                        lambda: ticket_channel.edit(
-                            topic=f"clan_applicant={applicant_id};clan={target_clan}",
-                            reason=f"Clan ticket: move to {target_clan}",
-                        ),
+                    writer = get_writer(self.bot)
+                    await writer.edit_channel(
+                        ticket_channel,
+                        topic=f"clan_applicant={applicant_id};clan={target_clan}",
+                        reason=f"Clan ticket: move to {target_clan}",
+                        priority=WritePriority.NORMAL,
                     )
                 except discord.Forbidden:
                     await interaction.response.send_message(_t(lang, "move_no_perms"), ephemeral=True)
