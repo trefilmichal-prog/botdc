@@ -587,14 +587,6 @@ def init_db():
         )
         """
     )
-    c.execute(
-        """
-        CREATE TABLE IF NOT EXISTS clan_ticket_move_rename_cooldowns (
-            channel_id INTEGER PRIMARY KEY,
-            last_rename_ts INTEGER NOT NULL
-        )
-        """
-    )
 
     c.execute("PRAGMA table_info(clan_applications)")
     columns = [row[1] for row in c.fetchall()]
@@ -2403,49 +2395,6 @@ def clear_ticket_last_rename(channel_id: int) -> None:
     c = conn.cursor()
     c.execute(
         "DELETE FROM clan_ticket_rename_cooldowns WHERE channel_id = ?",
-        (channel_id,),
-    )
-    conn.commit()
-    conn.close()
-
-
-def get_ticket_last_move_rename(channel_id: int) -> Optional[int]:
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute(
-        """
-        SELECT last_rename_ts
-        FROM clan_ticket_move_rename_cooldowns
-        WHERE channel_id = ?
-        """,
-        (channel_id,),
-    )
-    row = c.fetchone()
-    conn.close()
-    return row[0] if row else None
-
-
-def set_ticket_last_move_rename(channel_id: int, ts: int) -> None:
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute(
-        """
-        INSERT INTO clan_ticket_move_rename_cooldowns (channel_id, last_rename_ts)
-        VALUES (?, ?)
-        ON CONFLICT(channel_id)
-        DO UPDATE SET last_rename_ts = excluded.last_rename_ts
-        """,
-        (channel_id, ts),
-    )
-    conn.commit()
-    conn.close()
-
-
-def clear_ticket_last_move_rename(channel_id: int) -> None:
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute(
-        "DELETE FROM clan_ticket_move_rename_cooldowns WHERE channel_id = ?",
         (channel_id,),
     )
     conn.commit()
