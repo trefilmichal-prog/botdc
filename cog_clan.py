@@ -2307,6 +2307,21 @@ class ClanPanelCog(commands.Cog):
                     )
                     return
 
+                prev_category_id = ticket_channel.category_id
+                target_category_id = _category_id_for_clan(target_clan, guild.id)
+                try:
+                    moved = await _move_ticket_to_clan_category(ticket_channel, target_clan)
+                except Exception:
+                    moved = False
+
+                if moved and target_category_id:
+                    try:
+                        await _update_ticket_category_label(guild, target_category_id)
+                        if prev_category_id and prev_category_id != target_category_id:
+                            await _update_ticket_category_label(guild, prev_category_id)
+                    except Exception:
+                        pass
+
                 status_emoji = _status_emoji_from_name(ticket_channel.name)
                 app_record = get_clan_application_by_channel(guild.id, channel_id)
                 player_name = ""
