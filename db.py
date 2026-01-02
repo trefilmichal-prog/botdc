@@ -87,6 +87,26 @@ def get_secret_drop_breakdown_since(since: datetime) -> Dict[int, Dict[str, int]
             conn.close()
 
 
+def get_secret_drop_breakdown_all_time() -> Dict[int, Dict[str, int]]:
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.execute(
+            """
+            SELECT user_id, rarity, COUNT(*) AS total_count
+            FROM secret_drop_events
+            GROUP BY user_id, rarity
+            """
+        )
+        results: Dict[int, Dict[str, int]] = {}
+        for user_id, rarity, total_count in cursor.fetchall():
+            results.setdefault(int(user_id), {})[str(rarity)] = int(total_count)
+        return results
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def get_secret_drop_leaderboard(limit: int = 10) -> List[Tuple[int, int]]:
     conn = None
     try:

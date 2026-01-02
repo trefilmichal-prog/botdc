@@ -25,7 +25,7 @@ from db import (
     delete_windows_notifications,
     get_all_dropstats_panels,
     get_connection,
-    get_secret_drop_breakdown_since,
+    get_secret_drop_breakdown_all_time,
     get_secret_notifications_role_ids,
     get_windows_notifications,
     increment_secret_drop_stat,
@@ -1286,7 +1286,7 @@ class SecretNotificationsForwarder(commands.Cog):
         container.add_item(
             discord.ui.TextDisplay(
                 content=(
-                    "Přehled dropů za posledních 24 hodin pro všechny členy clanů. "
+                    "Přehled dropů pro všechny členy clanů. "
                     "Počty se aktualizují automaticky a ukládají se pro restart bota."
                 )
             )
@@ -1333,7 +1333,7 @@ class SecretNotificationsForwarder(commands.Cog):
         container.add_item(
             discord.ui.TextDisplay(
                 content=(
-                    "🧮 **24h souhrn:** "
+                    "🧮 **Celkový souhrn:** "
                     f"Su `{total_supreme}`  •  "
                     f"Divine `{total_divine}`  •  "
                     f"Secret `{total_secret}`"
@@ -1425,8 +1425,7 @@ class SecretNotificationsForwarder(commands.Cog):
 
     def _get_drop_breakdown_safe(self) -> dict[int, dict[str, int]]:
         try:
-            since = datetime.now(timezone.utc) - timedelta(hours=24)
-            return get_secret_drop_breakdown_since(since)
+            return get_secret_drop_breakdown_all_time()
         except Exception:
             logger.exception("Načtení statistiky dropu selhalo.")
             return {}
