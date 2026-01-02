@@ -588,6 +588,15 @@ def init_db():
         """
     )
 
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS clan_ticket_move_cooldowns (
+            channel_id INTEGER PRIMARY KEY,
+            last_move_ts INTEGER NOT NULL
+        )
+        """
+    )
+
     c.execute("PRAGMA table_info(clan_applications)")
     columns = [row[1] for row in c.fetchall()]
     if "locale" not in columns:
@@ -2395,6 +2404,51 @@ def clear_ticket_last_rename(channel_id: int) -> None:
     c = conn.cursor()
     c.execute(
         "DELETE FROM clan_ticket_rename_cooldowns WHERE channel_id = ?",
+        (channel_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_ticket_last_move(channel_id: int) -> Optional[int]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT last_move_ts
+        FROM clan_ticket_move_cooldowns
+        WHERE channel_id = ?
+        """,
+        (channel_id,),
+    )
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return int(row[0])
+    return None
+
+
+def set_ticket_last_move(channel_id: int, ts: int) -> None:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO clan_ticket_move_cooldowns (channel_id, last_move_ts)
+        VALUES (?, ?)
+        ON CONFLICT(channel_id)
+        DO UPDATE SET last_move_ts = excluded.last_move_ts
+        """,
+        (channel_id, int(ts)),
+    )
+    conn.commit()
+    conn.close()
+
+
+def clear_ticket_last_move(channel_id: int) -> None:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "DELETE FROM clan_ticket_move_cooldowns WHERE channel_id = ?",
         (channel_id,),
     )
     conn.commit()

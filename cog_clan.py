@@ -27,9 +27,11 @@ from db import (
     remove_clan_application_panel,
     delete_clan_ticket_vacation,
     clear_ticket_last_rename,
+    clear_ticket_last_move,
     set_clan_application_status,
     set_clan_panel_config,
     set_ticket_last_rename,
+    set_ticket_last_move,
     save_clan_ticket_vacation,
     set_clan_ticket_category_base_name,
     mark_clan_application_deleted,
@@ -38,6 +40,7 @@ from db import (
     update_clan_application_last_message,
     update_clan_application_last_ping,
     get_ticket_last_rename,
+    get_ticket_last_move,
 )
 
 # Category where NEW ticket channels will be created (initial intake)
@@ -251,6 +254,7 @@ I18N = {
         "kick_ticket_delete_failed": "Discord API chyba při smazání ticketu.",
         "move_done": "🔁 Ticket přesunut do clanu: {clan}.",
         "move_same": "Ticket už patří do clanu: {clan}.",
+        "move_cooldown_remaining": "Ticket lze přesunout znovu za {remaining}.",
         "move_no_perms": "Nemám práva přesunout ticket (Manage Channels).",
         "move_api_err": "Discord API chyba při přesunu ticketu:",
         "vacation_missing_category": "Kategorie pro dovolenou neexistuje.",
@@ -363,6 +367,7 @@ I18N = {
         "kick_ticket_delete_failed": "Discord API error while deleting the ticket.",
         "move_done": "🔁 Ticket moved to clan: {clan}.",
         "move_same": "Ticket already belongs to clan: {clan}.",
+        "move_cooldown_remaining": "Ticket can be moved again in {remaining}.",
         "move_no_perms": "I don't have permission to move the ticket (Manage Channels).",
         "move_api_err": "Discord API error while moving the ticket:",
         "vacation_missing_category": "Vacation category is missing.",
@@ -685,6 +690,12 @@ def _status_emoji_from_name(name: str) -> str:
     if name[0] in STATUS_SET:
         return name[0]
     return STATUS_OPEN
+
+
+def _format_cooldown_remaining(seconds: int) -> str:
+    remaining = max(0, int(seconds))
+    minutes, secs = divmod(remaining, 60)
+    return f"{minutes}:{secs:02d}"
 
 
 async def _ensure_member_can_mention_everyone(
@@ -1898,6 +1909,7 @@ class ClanPanelCog(commands.Cog):
                             pass
                     try:
                         clear_ticket_last_rename(channel_id)
+                        clear_ticket_last_move(channel_id)
                     except Exception:
                         pass
 
@@ -1942,6 +1954,7 @@ class ClanPanelCog(commands.Cog):
                             pass
                     try:
                         clear_ticket_last_rename(channel_id)
+                        clear_ticket_last_move(channel_id)
                     except Exception:
                         pass
 
@@ -2235,6 +2248,18 @@ class ClanPanelCog(commands.Cog):
                 return
 
             if action.startswith("move_"):
+                now_ts = int(time.time())
+                last_move_ts = get_ticket_last_move(channel_id)
+                if last_move_ts is not None:
+                    delta = now_ts - last_move_ts
+                    if delta < 600:
+                        remaining = _format_cooldown_remaining(600 - delta)
+                        await interaction.response.send_message(
+                            _t(lang, "move_cooldown_remaining").format(remaining=remaining),
+                            ephemeral=True,
+                        )
+                        return
+
                 target_clan = action[5:].strip().lower()
                 if not target_clan:
                     await interaction.response.send_message(_t(lang, "unknown_action"), ephemeral=True)
@@ -2315,6 +2340,7 @@ class ClanPanelCog(commands.Cog):
                 response_text = _t(lang, "move_done").format(clan=target_display)
                 if not rename_ok and rename_err:
                     response_text = f"{response_text}\n{_t(lang, 'move_rename_skipped').format(reason=rename_err)}"
+                set_ticket_last_move(channel_id, now_ts)
                 await interaction.response.send_message(response_text, ephemeral=True)
                 return
 
