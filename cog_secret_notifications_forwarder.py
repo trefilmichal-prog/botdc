@@ -1390,20 +1390,20 @@ class SecretNotificationsForwarder(commands.Cog):
                 entries_by_id[member_id] = entry
         lines: List[str] = []
         for entry in entries_by_id.values():
-            display_name = entry.get("name") or str(entry.get("id"))
-            roblox_username = entry.get("roblox_username")
-            roblox_nick = entry.get("roblox_nick")
-            if roblox_nick and roblox_username:
-                if str(roblox_nick).lower() == str(roblox_username).lower():
-                    line = f"{display_name} • Roblox: {roblox_username}"
-                else:
-                    line = (
-                        f"{display_name} • Roblox: {roblox_nick} ({roblox_username})"
-                    )
-            elif roblox_username:
-                line = f"{display_name} • Roblox: {roblox_username}"
+            roblox_username = entry.get("roblox_username") or "neznámé"
+            roblox_nick = entry.get("roblox_nick") or "neznámé"
+            nick_timestamp_value = entry.get(
+                "roblox_nick_updated_at"
+            ) or entry.get("roblox_nick_checked_at")
+            nick_timestamp = self._parse_datetime_value(nick_timestamp_value)
+            if nick_timestamp and nick_timestamp.tzinfo is None:
+                nick_timestamp = nick_timestamp.replace(tzinfo=timezone.utc)
+            if nick_timestamp:
+                nick_ts = int(nick_timestamp.timestamp())
+                time_label = f"<t:{nick_ts}:R>"
             else:
-                line = str(display_name)
+                time_label = "neznámé"
+            line = f"{roblox_username} : {roblox_nick} : {time_label}"
             lines.append(line)
         unique_names = sorted(lines, key=str.lower)
         container.add_item(
