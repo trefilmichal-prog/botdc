@@ -220,6 +220,7 @@ I18N = {
         "accepted_role_added": "Role přidána:",
         "denied_msg": "⛔ **ZAMÍTNUTO** — zamítl",
         "accepted_ephemeral": "✅ Přijato.",
+        "accept_rename_cooldown": "Přijetí nelze dokončit. Ticket lze přejmenovat znovu za {remaining}.",
         "denied_ephemeral": "⛔ Zamítnuto.",
         "unknown_action": "Neznámá akce.",
         "screenshot_title_prefix": "## Ahoj",
@@ -333,6 +334,7 @@ I18N = {
         "accepted_role_added": "Role added:",
         "denied_msg": "⛔ **DENIED** — denied by",
         "accepted_ephemeral": "✅ Accepted.",
+        "accept_rename_cooldown": "Cannot accept yet. The ticket can be renamed again in {remaining}.",
         "denied_ephemeral": "⛔ Denied.",
         "unknown_action": "Unknown action.",
         "screenshot_title_prefix": "## Hi",
@@ -2375,6 +2377,19 @@ class ClanPanelCog(commands.Cog):
                 if role is None:
                     await interaction.response.send_message(_t(lang, "accept_role_missing"), ephemeral=True)
                     return
+
+                last_rename_ts = get_ticket_last_rename(channel_id)
+                now_ts = int(time.time())
+                if last_rename_ts is not None:
+                    delta = now_ts - last_rename_ts
+                    if delta < 600:
+                        remaining = 600 - delta
+                        remaining_str = _format_cooldown_remaining(remaining)
+                        await interaction.response.send_message(
+                            _t(lang, "accept_rename_cooldown").format(remaining=remaining_str),
+                            ephemeral=True,
+                        )
+                        return
 
                 try:
                     await applicant.add_roles(role, reason=f"Clan application accepted for {clan_value}")
