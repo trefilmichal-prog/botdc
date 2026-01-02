@@ -229,6 +229,7 @@ I18N = {
         "btn_vacation_restore": "Vrátit zpět",
         "btn_move_clan1": "Přesun do HROT",
         "btn_move_clan2": "Přesun do HR2T",
+        "btn_move_prefix": "Přesun do {clan}",
         "btn_kick": "Kicknout člena",
         "btn_delete": "Smazat ticket",
         "delete_no_perms": "Nemám práva smazat ticket (Manage Channels).",
@@ -339,6 +340,7 @@ I18N = {
         "btn_vacation_restore": "Restore",
         "btn_move_clan1": "Move to HROT",
         "btn_move_clan2": "Move to HR2T",
+        "btn_move_prefix": "Move to {clan}",
         "btn_kick": "Kick member",
         "btn_delete": "Delete ticket",
         "delete_no_perms": "I don't have permission to delete the ticket (Manage Channels).",
@@ -516,6 +518,10 @@ def _display_name_for_clan(clan_value: str, guild_id: int | None = None) -> str:
         if display_name:
             return display_name
     return (clan_value or "").strip().upper() or "CLAN"
+
+
+def _move_label(lang: str, display_name: str) -> str:
+    return _t(lang, "btn_move_prefix", clan=display_name)
 
 
 async def _update_ticket_category_label(guild: discord.Guild, category_id: int | None) -> None:
@@ -832,8 +838,33 @@ class ScreenshotInstructionsView(discord.ui.LayoutView):
 class AdminDecisionView(discord.ui.LayoutView):
     """Ephemeral panel shown after clicking ⚙️. Only admin/clan role can use."""
 
-    def __init__(self, ticket_channel_id: int, clan_value: str, lang: str):
+    def __init__(self, ticket_channel_id: int, clan_value: str, lang: str, guild_id: int | None):
         super().__init__(timeout=None)
+
+        move_rows: list[discord.ui.ActionRow] = []
+        clan_entries = list_clan_definitions(guild_id) if guild_id is not None else []
+        move_buttons: list[discord.ui.Button] = []
+        for entry in clan_entries:
+            clan_key = (entry.get("clan_key") or "").strip().lower()
+            if not clan_key:
+                continue
+            display_name = (entry.get("display_name") or clan_key).strip() or clan_key
+            move_buttons.append(
+                discord.ui.Button(
+                    custom_id=_review_custom_id(
+                        f"move_{clan_key}",
+                        ticket_channel_id,
+                        clan_value,
+                        lang,
+                    ),
+                    label=_move_label(lang, display_name)[:80],
+                    style=discord.ButtonStyle.secondary,
+                )
+            )
+
+        max_per_row = 3
+        for start in range(0, len(move_buttons), max_per_row):
+            move_rows.append(discord.ui.ActionRow(*move_buttons[start:start + max_per_row]))
 
         container = discord.ui.Container(
             discord.ui.TextDisplay(content=_t(lang, "manage_title")),
@@ -865,18 +896,6 @@ class AdminDecisionView(discord.ui.LayoutView):
             ),
             discord.ui.ActionRow(
                 discord.ui.Button(
-                    custom_id=_review_custom_id("move_hrot", ticket_channel_id, clan_value, lang),
-                    label=_t(lang, "btn_move_clan1"),
-                    style=discord.ButtonStyle.secondary,
-                ),
-                discord.ui.Button(
-                    custom_id=_review_custom_id("move_hr2t", ticket_channel_id, clan_value, lang),
-                    label=_t(lang, "btn_move_clan2"),
-                    style=discord.ButtonStyle.secondary,
-                ),
-            ),
-            discord.ui.ActionRow(
-                discord.ui.Button(
                     custom_id=_review_custom_id("delete", ticket_channel_id, clan_value, lang),
                     label=_t(lang, "btn_delete"),
                     style=discord.ButtonStyle.danger,
@@ -887,6 +906,7 @@ class AdminDecisionView(discord.ui.LayoutView):
                     style=discord.ButtonStyle.danger,
                 )
             ),
+            *move_rows,
         )
         self.add_item(container)
 
@@ -1732,7 +1752,7 @@ class ClanPanelCog(commands.Cog):
 
             await interaction.response.send_message(
                 content="",
-                view=AdminDecisionView(channel_id, clan_value, lang),
+                view=AdminDecisionView(channel_id, clan_value, lang, guild.id),
                 ephemeral=True,
             )
             return
@@ -2170,8 +2190,11 @@ class ClanPanelCog(commands.Cog):
                 )
                 return
 
-            if action in {"move_hrot", "move_hr2t"}:
-                target_clan = "hrot" if action == "move_hrot" else "hr2t"
+            if action.startswith("move_"):
+                target_clan = action[5:].strip().lower()
+                if not target_clan:
+                    await interaction.response.send_message(_t(lang, "unknown_action"), ephemeral=True)
+                    return
                 current_clan = (clan_value or "").strip().lower()
                 target_display = _display_name_for_clan(target_clan, guild.id)
                 current_display = _display_name_for_clan(current_clan, guild.id)
