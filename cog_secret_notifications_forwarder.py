@@ -52,7 +52,7 @@ ROBLOX_USERNAMES_URL = "https://users.roblox.com/v1/usernames/users"
 ROBLOX_USERNAME_REGEX = re.compile(r"[A-Za-z0-9_]{3,26}")
 ROBLOX_USERNAME_BATCH_SIZE = 50
 ROBLOX_USERNAME_REQUEST_DELAY_SECONDS = 0.6
-ROBLOX_NICK_REFRESH_MINUTES = 360
+ROBLOX_NICK_REFRESH_MINUTES = 10
 CONGRATS_LINE_REGEX = re.compile(
     r"^🔥\s*Congrats!\s*:flag_[a-z]{2}:", re.IGNORECASE
 )
@@ -1012,12 +1012,11 @@ class SecretNotificationsForwarder(commands.Cog):
         self, entries_by_id: dict[int, dict[str, Any]]
     ) -> None:
         usernames: list[str] = []
+        entries_to_refresh: list[dict[str, Any]] = []
         now = datetime.now(timezone.utc)
         for entry in entries_by_id.values():
             roblox_username = entry.get("roblox_username")
             if not roblox_username:
-                continue
-            if entry.get("roblox_nick"):
                 continue
             last_checked = self._parse_datetime_value(
                 entry.get("roblox_nick_checked_at")
@@ -1027,19 +1026,31 @@ class SecretNotificationsForwarder(commands.Cog):
             ):
                 continue
             usernames.append(str(roblox_username))
+            entries_to_refresh.append(entry)
         if not usernames:
             return
         username_map = await self._fetch_roblox_display_names(usernames)
         now_iso = datetime.now(timezone.utc).isoformat()
-        for entry in entries_by_id.values():
+        updated_cache = False
+        for entry in entries_to_refresh:
             roblox_username = entry.get("roblox_username")
             if not roblox_username:
                 continue
             display_name = username_map.get(str(roblox_username))
             if display_name:
+                previous_nick = entry.get("roblox_nick")
                 entry["roblox_nick"] = display_name
                 entry["roblox_nick_updated_at"] = now_iso
+                if previous_nick != display_name:
+                    self._replace_cache_nick_key(
+                        previous_nick, display_name, entry
+                    )
+                self._add_cache_key(self._clan_member_cache, display_name, entry)
+                updated_cache = True
             entry["roblox_nick_checked_at"] = now_iso
+        if updated_cache:
+            self._clan_member_cache_updated_at = datetime.now(timezone.utc)
+            self._save_clan_member_cache()
 
     async def _fetch_roblox_display_names(
         self, usernames: List[str]
