@@ -106,6 +106,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "cs": "Původní ticket se nenašel, označuji ho jako smazaný.",
         "en": "Original ticket not found; marking it as deleted.",
     },
+    "rename_cooldown": {
+        "cs": "Ticket lze přejmenovat nejdříve za 10 minut od poslední změny.",
+        "en": "Ticket can be renamed only 10 minutes after the last change.",
+    },
     "ban_success": {
         "cs": "\N{HAMMER} {user} byl/a zabanován/a. Důvod: {reason}.",
         "en": "\N{HAMMER} {user} has been banned. Reason: {reason}.",
