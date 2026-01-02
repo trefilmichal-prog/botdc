@@ -834,11 +834,8 @@ class SecretNotificationsForwarder(commands.Cog):
                 logger.warning("Role %s nebyla nalezena pro cache hráčů.", role_id)
                 continue
             for member in role.members:
-                names = {member.display_name, member.name}
                 global_name = getattr(member, "global_name", None)
-                if global_name:
-                    names.add(global_name)
-                candidate_username = self._extract_roblox_username(names)
+                candidate_username = str(member.display_name)
                 existing_entry = existing_by_id.get(member.id)
                 entry: dict[str, Any] = {
                     "id": member.id,
@@ -859,18 +856,18 @@ class SecretNotificationsForwarder(commands.Cog):
                         entry["roblox_nick_checked_at"] = existing_entry.get(
                             "roblox_nick_checked_at"
                         )
-                if candidate_username:
-                    previous_username = entry.get("roblox_username")
-                    if (
-                        previous_username
-                        and str(previous_username) != candidate_username
-                    ):
-                        entry.pop("roblox_nick", None)
-                        entry.pop("roblox_nick_updated_at", None)
-                    entry["roblox_username"] = candidate_username
+                previous_username = entry.get("roblox_username")
+                if previous_username and str(previous_username) != candidate_username:
+                    entry.pop("roblox_nick", None)
+                    entry.pop("roblox_nick_updated_at", None)
+                entry["roblox_username"] = candidate_username
                 new_entries_by_id[member.id] = entry
                 name_keys_by_id.setdefault(member.id, set()).update(
-                    {str(name) for name in names if name}
+                    {
+                        str(name)
+                        for name in (member.display_name, member.name, global_name)
+                        if name
+                    }
                 )
 
         await self._refresh_roblox_nicknames(new_entries_by_id)
