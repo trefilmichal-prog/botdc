@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+import time
 from datetime import datetime, timedelta
 from typing import Awaitable, Callable, TypeVar
 
@@ -25,8 +26,10 @@ from db import (
     get_clan_ticket_category_base_name,
     remove_clan_application_panel,
     delete_clan_ticket_vacation,
+    clear_ticket_last_rename,
     set_clan_application_status,
     set_clan_panel_config,
+    set_ticket_last_rename,
     save_clan_ticket_vacation,
     set_clan_ticket_category_base_name,
     mark_clan_application_deleted,
@@ -34,6 +37,7 @@ from db import (
     update_clan_application_form,
     update_clan_application_last_message,
     update_clan_application_last_ping,
+    get_ticket_last_rename,
 )
 
 # Category where NEW ticket channels will be created (initial intake)
@@ -174,6 +178,7 @@ I18N = {
         "nick_notfound": "Uživatel nebyl nalezen (NotFound).",
         "rename_no_perms": "Nemám práva na přejmenování kanálu (Manage Channels).",
         "rename_api_err": "Discord API chyba při přejmenování kanálu:",
+        "rename_cooldown": "Ticket lze přejmenovat nejdříve za 10 minut od poslední změny.",
         "perm_no_perms": "Nemám práva nastavovat permissions (Manage Channels).",
         "perm_api_err": "Discord API chyba při nastavování permissions:",
         "summary_title": "## 📄 Přihláška",
@@ -285,6 +290,7 @@ I18N = {
         "nick_notfound": "User not found (NotFound).",
         "rename_no_perms": "I don't have permission to rename the channel (Manage Channels).",
         "rename_api_err": "Discord API error while renaming the channel:",
+        "rename_cooldown": "Ticket can be renamed only 10 minutes after the last change.",
         "perm_no_perms": "I don't have permission to edit channel permissions (Manage Channels).",
         "perm_api_err": "Discord API error while editing channel permissions:",
         "summary_title": "## 📄 Application",
@@ -727,12 +733,13 @@ async def _rename_ticket_prefix(
     channel: discord.TextChannel,
     clan_value: str,
     player_name: str,
+    lang: str,
     status_emoji: str = STATUS_OPEN,
-) -> bool:
+) -> tuple[bool, str | None]:
     """Rename ticket to requested format: 🟠přihlášky-{clan}-{player}"""
     clan_key = (clan_value or "").strip().lower()
     if not clan_key:
-        return False
+        return False, None
 
     slug = _slugify_channel_part(player_name)
     name = f"{status_emoji}přihlášky-{clan_key}-{slug}"
@@ -743,13 +750,19 @@ async def _rename_ticket_prefix(
             name = f"{status_emoji}přihlášky-{clan_key}"
 
     if channel.name == name:
-        return True
+        return True, None
+
+    last_rename_ts = get_ticket_last_rename(channel.id)
+    now_ts = int(time.time())
+    if last_rename_ts is not None and now_ts - last_rename_ts < 600:
+        return False, _t(lang, "rename_cooldown")
 
     await _retry_rate_limited(
         "rename ticket to requested format",
         lambda: channel.edit(name=name, reason="Clan ticket: rename to requested format"),
     )
-    return True
+    set_ticket_last_rename(channel.id, now_ts)
+    return True, None
 
 
 class Components(discord.ui.LayoutView):
@@ -1086,7 +1099,13 @@ class ClanApplicationModal(discord.ui.Modal):
         rename_ok = False
         rename_err = None
         try:
-            rename_ok = await _rename_ticket_prefix(ticket_channel, self.clan_value, roblox_display, STATUS_OPEN)
+            rename_ok, rename_err = await _rename_ticket_prefix(
+                ticket_channel,
+                self.clan_value,
+                roblox_display,
+                lang,
+                STATUS_OPEN,
+            )
         except discord.Forbidden:
             rename_err = _t(lang, "rename_no_perms")
         except discord.HTTPException as e:
@@ -1857,9 +1876,14 @@ class ClanPanelCog(commands.Cog):
                 except discord.HTTPException:
                     ticket_info = _t(lang, "kick_ticket_delete_failed")
 
-                if deleted_ok and category_id:
+                if deleted_ok:
+                    if category_id:
+                        try:
+                            await _update_ticket_category_label(guild, category_id)
+                        except Exception:
+                            pass
                     try:
-                        await _update_ticket_category_label(guild, category_id)
+                        clear_ticket_last_rename(channel_id)
                     except Exception:
                         pass
 
@@ -1896,9 +1920,14 @@ class ClanPanelCog(commands.Cog):
                     await interaction.edit_original_response(content=f"{_t(lang, 'delete_api_err')} {e}")
                     return
 
-                if deleted_ok and category_id:
+                if deleted_ok:
+                    if category_id:
+                        try:
+                            await _update_ticket_category_label(guild, category_id)
+                        except Exception:
+                            pass
                     try:
-                        await _update_ticket_category_label(guild, category_id)
+                        clear_ticket_last_rename(channel_id)
                     except Exception:
                         pass
 
@@ -2247,8 +2276,16 @@ class ClanPanelCog(commands.Cog):
                 if not player_name:
                     player_name = applicant.display_name
 
+                rename_ok = False
+                rename_err = None
                 try:
-                    await _rename_ticket_prefix(ticket_channel, target_clan, player_name, status_emoji)
+                    rename_ok, rename_err = await _rename_ticket_prefix(
+                        ticket_channel,
+                        target_clan,
+                        player_name,
+                        lang,
+                        status_emoji,
+                    )
                 except discord.Forbidden:
                     await interaction.response.send_message(_t(lang, "rename_no_perms"), ephemeral=True)
                     return
@@ -2261,9 +2298,10 @@ class ClanPanelCog(commands.Cog):
                 await ticket_channel.send(
                     _t(lang, "move_done").format(clan=target_display)
                 )
-                await interaction.response.send_message(
-                    _t(lang, "move_done").format(clan=target_display), ephemeral=True
-                )
+                response_text = _t(lang, "move_done").format(clan=target_display)
+                if not rename_ok and rename_err:
+                    response_text = f"{response_text}\n{rename_err}"
+                await interaction.response.send_message(response_text, ephemeral=True)
                 return
 
             if action == "accept":
