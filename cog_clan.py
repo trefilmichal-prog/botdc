@@ -1169,6 +1169,7 @@ class ClanApplicationModal(discord.ui.Modal):
 class ClanPanelCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self._labels_refreshed = False
 
         self.clan_panel_group = app_commands.Group(
             name="clan_panel",
@@ -1406,8 +1407,12 @@ class ClanPanelCog(commands.Cog):
         except Exception:
             pass
 
+    @commands.Cog.listener()
+    async def on_ready(self):
+        if self._labels_refreshed:
+            return
+        self._labels_refreshed = True
         try:
-            await self.bot.wait_until_ready()
             await self._refresh_ticket_category_labels()
         except Exception:
             pass
