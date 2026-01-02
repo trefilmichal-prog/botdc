@@ -1272,6 +1272,36 @@ class ClanPanelCog(commands.Cog):
                     reason="Clan ticket: enable mentions for open ticket (fallback)",
                 )
 
+    async def _refresh_ticket_category_labels(self) -> None:
+        for guild in self.bot.guilds:
+            category_ids: set[int] = set()
+            if TICKET_CATEGORY_ID:
+                category_ids.add(TICKET_CATEGORY_ID)
+            if VACATION_CATEGORY_ID:
+                category_ids.add(VACATION_CATEGORY_ID)
+
+            clan_keys = set(CLAN_CATEGORY_IDS.keys())
+            try:
+                clan_definitions = list_clan_definitions(guild.id)
+            except Exception:
+                clan_definitions = []
+
+            for entry in clan_definitions:
+                clan_key = (entry.get("clan_key") or "").strip().lower()
+                if clan_key:
+                    clan_keys.add(clan_key)
+                accept_category_id = entry.get("accept_category_id")
+                if accept_category_id:
+                    category_ids.add(accept_category_id)
+
+            for clan_key in clan_keys:
+                accept_category_id = _category_id_for_clan(clan_key, guild.id)
+                if accept_category_id:
+                    category_ids.add(accept_category_id)
+
+            for category_id in category_ids:
+                await _update_ticket_category_label(guild, category_id)
+
     async def _ensure_ticket_mentions(
         self,
         channel: discord.TextChannel,
@@ -1368,6 +1398,11 @@ class ClanPanelCog(commands.Cog):
 
         try:
             await self._restore_open_ticket_mentions()
+        except Exception:
+            pass
+
+        try:
+            await self._refresh_ticket_category_labels()
         except Exception:
             pass
 
