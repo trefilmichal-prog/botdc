@@ -2292,22 +2292,27 @@ class ClanPanelCog(commands.Cog):
 
                 rename_ok = False
                 rename_err = None
-                try:
-                    rename_ok, rename_err = await _rename_ticket_prefix(
-                        ticket_channel,
-                        target_clan,
-                        player_name,
-                        lang,
-                        status_emoji,
-                    )
-                except discord.Forbidden:
-                    await interaction.response.send_message(_t(lang, "rename_no_perms"), ephemeral=True)
-                    return
-                except discord.HTTPException as e:
-                    await interaction.response.send_message(
-                        f"{_t(lang, 'rename_api_err')} {e}", ephemeral=True
-                    )
-                    return
+                last_rename_ts = get_ticket_last_rename(ticket_channel.id)
+                if last_rename_ts is not None and time.time() - last_rename_ts < 600:
+                    rename_ok = False
+                    rename_err = _t(lang, "rename_cooldown")
+                else:
+                    try:
+                        rename_ok, rename_err = await _rename_ticket_prefix(
+                            ticket_channel,
+                            target_clan,
+                            player_name,
+                            lang,
+                            status_emoji,
+                        )
+                    except discord.Forbidden:
+                        await interaction.response.send_message(_t(lang, "rename_no_perms"), ephemeral=True)
+                        return
+                    except discord.HTTPException as e:
+                        await interaction.response.send_message(
+                            f"{_t(lang, 'rename_api_err')} {e}", ephemeral=True
+                        )
+                        return
 
                 await ticket_channel.send(
                     _t(lang, "move_done").format(clan=target_display)
