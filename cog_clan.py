@@ -166,7 +166,7 @@ def _clan_select_options_for_guild(guild_id: int | None) -> list[discord.SelectO
 I18N = {
     "cs": {
         "modal_title": "Přihláška do clanu",
-        "label_display": "Roblox Display Name",
+        "label_display": "Roblox username",
         "ph_display": "Např. senpaicat221",
         "label_rebirths": "Kolik máš rebirthů (text)",
         "ph_rebirths": "Např. 2SP / 150k / ...",
@@ -190,7 +190,7 @@ I18N = {
         "summary_title": "## 📄 Přihláška",
         "summary_clan": "**Clan:**",
         "summary_user": "**Uživatel:**",
-        "summary_display": "**Roblox Display Name:**",
+        "summary_display": "**Roblox username:**",
         "summary_rebirths": "**Rebirthy:**",
         "summary_hours": "**Hodiny denně:**",
         "summary_auto": "### ✅ Automatické nastavení",
@@ -280,7 +280,7 @@ I18N = {
     },
     "en": {
         "modal_title": "Clan application",
-        "label_display": "Roblox Display Name",
+        "label_display": "Roblox username",
         "ph_display": "e.g. senpaicat221",
         "label_rebirths": "How many rebirths do you have (text)",
         "ph_rebirths": "e.g. 2SP / 150k / ...",
@@ -304,7 +304,7 @@ I18N = {
         "summary_title": "## 📄 Application",
         "summary_clan": "**Clan:**",
         "summary_user": "**User:**",
-        "summary_display": "**Roblox Display Name:**",
+        "summary_display": "**Roblox username:**",
         "summary_rebirths": "**Rebirths:**",
         "summary_hours": "**Hours per day:**",
         "summary_auto": "### ✅ Automatic setup",
@@ -1078,7 +1078,7 @@ class ClanApplicationModal(discord.ui.Modal):
             # DB errors should not block ticket creation; continue silently.
             pass
 
-        # 1) Set user's nickname on the server to the Roblox Display Name.
+        # 1) Set user's nickname on the server to the Roblox username.
         nick_ok = False
         nick_err = None
         nick_diag = []
@@ -1102,7 +1102,7 @@ class ClanApplicationModal(discord.ui.Modal):
 
             await member.edit(
                 nick=roblox_display_nick,
-                reason="Clan application: set nickname to Roblox Display Name",
+                reason="Clan application: set nickname to Roblox username",
             )
             nick_ok = True
 
