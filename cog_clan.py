@@ -717,16 +717,35 @@ async def _ensure_member_can_mention_everyone(
     return True
 
 
-async def _set_ticket_status(channel: discord.TextChannel, status_emoji: str) -> bool:
+async def _rename_ticket_with_cooldown(
+    channel: discord.TextChannel,
+    lang: str,
+    reason: str,
+    rename_action: Callable[[], Awaitable[None]],
+) -> tuple[bool, str | None]:
+    last_rename_ts = get_ticket_last_rename(channel.id)
+    now_ts = int(time.time())
+    if last_rename_ts is not None and now_ts - last_rename_ts < 600:
+        return False, _t(lang, "rename_cooldown")
+
+    await _retry_rate_limited(reason, rename_action)
+    set_ticket_last_rename(channel.id, now_ts)
+    return True, None
+
+
+async def _set_ticket_status(
+    channel: discord.TextChannel, status_emoji: str, lang: str
+) -> tuple[bool, str | None]:
     """Update ticket status emoji in channel name."""
     new_name = _apply_status_to_name(channel.name, status_emoji)
     if new_name == channel.name:
-        return True
-    await _retry_rate_limited(
+        return True, None
+    return await _rename_ticket_with_cooldown(
+        channel,
+        lang,
         "update ticket status emoji",
         lambda: channel.edit(name=new_name, reason="Clan ticket: update status emoji"),
     )
-    return True
 
 
 async def _rename_ticket_prefix(
@@ -752,17 +771,12 @@ async def _rename_ticket_prefix(
     if channel.name == name:
         return True, None
 
-    last_rename_ts = get_ticket_last_rename(channel.id)
-    now_ts = int(time.time())
-    if last_rename_ts is not None and now_ts - last_rename_ts < 600:
-        return False, _t(lang, "rename_cooldown")
-
-    await _retry_rate_limited(
+    return await _rename_ticket_with_cooldown(
+        channel,
+        lang,
         "rename ticket to requested format",
         lambda: channel.edit(name=name, reason="Clan ticket: rename to requested format"),
     )
-    set_ticket_last_rename(channel.id, now_ts)
-    return True, None
 
 
 class Components(discord.ui.LayoutView):
@@ -2345,8 +2359,12 @@ class ClanPanelCog(commands.Cog):
                         pass
 
                 # Status emoji -> 🟢
+                rename_ok = True
+                rename_err = None
                 try:
-                    await _set_ticket_status(ticket_channel, STATUS_ACCEPTED)
+                    rename_ok, rename_err = await _set_ticket_status(
+                        ticket_channel, STATUS_ACCEPTED, lang
+                    )
                 except Exception:
                     pass
 
@@ -2360,14 +2378,23 @@ class ClanPanelCog(commands.Cog):
                 except Exception:
                     pass
 
-                await ticket_channel.send(f"{_t(lang, 'accepted_msg')} {clicker.mention}. {_t(lang, 'accepted_role_added')} <@&{role_id}>.")
-                await interaction.response.send_message(_t(lang, "accepted_ephemeral"), ephemeral=True)
+                await ticket_channel.send(
+                    f"{_t(lang, 'accepted_msg')} {clicker.mention}. {_t(lang, 'accepted_role_added')} <@&{role_id}>."
+                )
+                response_text = _t(lang, "accepted_ephemeral")
+                if not rename_ok and rename_err:
+                    response_text = f"{response_text}\n{rename_err}"
+                await interaction.response.send_message(response_text, ephemeral=True)
                 return
 
             if action == "deny":
                 # Status emoji -> 🔴
+                rename_ok = True
+                rename_err = None
                 try:
-                    await _set_ticket_status(ticket_channel, STATUS_DENIED)
+                    rename_ok, rename_err = await _set_ticket_status(
+                        ticket_channel, STATUS_DENIED, lang
+                    )
                 except Exception:
                     pass
 
@@ -2382,7 +2409,10 @@ class ClanPanelCog(commands.Cog):
                     pass
 
                 await ticket_channel.send(f"{_t(lang, 'denied_msg')} {clicker.mention}.")
-                await interaction.response.send_message(_t(lang, "denied_ephemeral"), ephemeral=True)
+                response_text = _t(lang, "denied_ephemeral")
+                if not rename_ok and rename_err:
+                    response_text = f"{response_text}\n{rename_err}"
+                await interaction.response.send_message(response_text, ephemeral=True)
                 return
 
             await interaction.response.send_message(_t(lang, "unknown_action"), ephemeral=True)
