@@ -522,6 +522,11 @@ async def _update_ticket_category_label(guild: discord.Guild, category_id: int |
     if guild is None or not category_id:
         return
     category = guild.get_channel(category_id)
+    if category is None:
+        try:
+            category = await guild.fetch_channel(category_id)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return
     if category is None or not isinstance(category, discord.CategoryChannel):
         return
 
@@ -1402,6 +1407,7 @@ class ClanPanelCog(commands.Cog):
             pass
 
         try:
+            await self.bot.wait_until_ready()
             await self._refresh_ticket_category_labels()
         except Exception:
             pass
