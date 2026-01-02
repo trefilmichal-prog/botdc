@@ -69,6 +69,9 @@ STATUS_ACCEPTED = "🟢"
 STATUS_DENIED = "🔴"
 STATUS_SET = (STATUS_OPEN, STATUS_ACCEPTED, STATUS_DENIED)
 
+# When True, ticket category labels are only updated by the periodic refresh task.
+ONLY_PERIODIC_TICKET_REFRESH = True
+
 # Clan -> "review" role id (leaders/officers) that should see the ticket (and can accept/deny)
 CLAN_REVIEW_ROLE_IDS = {
     "hrot": 1440268371152339065,
@@ -1054,10 +1057,11 @@ class ClanApplicationModal(discord.ui.Modal):
             )
             return
 
-        try:
-            await _update_ticket_category_label(guild, intake_category.id)
-        except Exception:
-            pass
+        if not ONLY_PERIODIC_TICKET_REFRESH:
+            try:
+                await _update_ticket_category_label(guild, intake_category.id)
+            except Exception:
+                pass
 
         app_id = None
         try:
@@ -1234,7 +1238,6 @@ class ClanApplicationModal(discord.ui.Modal):
 class ClanPanelCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self._labels_refreshed = False
 
         self.clan_panel_group = app_commands.Group(
             name="clan_panel",
@@ -1255,6 +1258,7 @@ class ClanPanelCog(commands.Cog):
             description="Ruční kontrola připomínek u ticketů",
         )(self.clan_panel_ticket_reminders)
         self.__cog_app_commands__ = []
+        self._ticket_category_refresh_task.start()
 
     def cog_unload(self):
         return
@@ -1442,6 +1446,14 @@ class ClanPanelCog(commands.Cog):
                 continue
         return sent
 
+    @tasks.loop(minutes=11)
+    async def _ticket_category_refresh_task(self):
+        await self._refresh_ticket_category_labels()
+
+    @_ticket_category_refresh_task.before_loop
+    async def _before_ticket_category_refresh_task(self):
+        await self.bot.wait_until_ready()
+
     @tasks.loop(minutes=5)
     async def _ticket_reminder_task(self):
         for guild in self.bot.guilds:
@@ -1469,16 +1481,6 @@ class ClanPanelCog(commands.Cog):
 
         try:
             await self._restore_open_ticket_mentions()
-        except Exception:
-            pass
-
-    @commands.Cog.listener()
-    async def on_ready(self):
-        if self._labels_refreshed:
-            return
-        self._labels_refreshed = True
-        try:
-            await self._refresh_ticket_category_labels()
         except Exception:
             pass
 
@@ -1902,7 +1904,7 @@ class ClanPanelCog(commands.Cog):
                     ticket_info = _t(lang, "kick_ticket_delete_failed")
 
                 if deleted_ok:
-                    if category_id:
+                    if category_id and not ONLY_PERIODIC_TICKET_REFRESH:
                         try:
                             await _update_ticket_category_label(guild, category_id)
                         except Exception:
@@ -1947,7 +1949,7 @@ class ClanPanelCog(commands.Cog):
                     return
 
                 if deleted_ok:
-                    if category_id:
+                    if category_id and not ONLY_PERIODIC_TICKET_REFRESH:
                         try:
                             await _update_ticket_category_label(guild, category_id)
                         except Exception:
@@ -2110,12 +2112,13 @@ class ClanPanelCog(commands.Cog):
                     VACATION_ROLE_ID,
                 )
 
-                try:
-                    await _update_ticket_category_label(guild, vacation_category.id)
-                    if prev_category_id:
-                        await _update_ticket_category_label(guild, prev_category_id)
-                except Exception:
-                    pass
+                if not ONLY_PERIODIC_TICKET_REFRESH:
+                    try:
+                        await _update_ticket_category_label(guild, vacation_category.id)
+                        if prev_category_id:
+                            await _update_ticket_category_label(guild, prev_category_id)
+                    except Exception:
+                        pass
 
                 await interaction.response.send_message(_t(lang, "vacation_set"), ephemeral=True)
                 return
@@ -2235,13 +2238,14 @@ class ClanPanelCog(commands.Cog):
                         return
 
                 delete_clan_ticket_vacation(channel_id)
-                try:
-                    if prev_category_id:
-                        await _update_ticket_category_label(guild, prev_category_id)
-                    if vacation_category_id and vacation_category_id != prev_category_id:
-                        await _update_ticket_category_label(guild, vacation_category_id)
-                except Exception:
-                    pass
+                if not ONLY_PERIODIC_TICKET_REFRESH:
+                    try:
+                        if prev_category_id:
+                            await _update_ticket_category_label(guild, prev_category_id)
+                        if vacation_category_id and vacation_category_id != prev_category_id:
+                            await _update_ticket_category_label(guild, vacation_category_id)
+                    except Exception:
+                        pass
                 await interaction.response.send_message(
                     _t(lang, "vacation_restored"), ephemeral=True
                 )
@@ -2314,7 +2318,7 @@ class ClanPanelCog(commands.Cog):
                 except Exception:
                     moved = False
 
-                if moved and target_category_id:
+                if moved and target_category_id and not ONLY_PERIODIC_TICKET_REFRESH:
                     try:
                         await _update_ticket_category_label(guild, target_category_id)
                         if prev_category_id and prev_category_id != target_category_id:
@@ -2391,7 +2395,7 @@ class ClanPanelCog(commands.Cog):
                 except Exception:
                     moved = False
 
-                if moved and target_category_id:
+                if moved and target_category_id and not ONLY_PERIODIC_TICKET_REFRESH:
                     try:
                         await _update_ticket_category_label(guild, target_category_id)
                         if prev_category_id and prev_category_id != target_category_id:
