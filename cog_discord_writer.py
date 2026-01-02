@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import string
+import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Callable, Optional
@@ -23,7 +24,6 @@ from config import DISCORD_WRITE_MIN_INTERVAL_SECONDS
 # požadavky musí projít přes queue (grep: "Discord write selhal").
 from db import (
     clan_member_nick_exists,
-    clear_pending_discord_writes,
     enqueue_discord_write,
     fetch_pending_discord_writes,
     mark_discord_write_done,
@@ -38,7 +38,26 @@ class WriteRequest:
     persist: bool
     future: asyncio.Future | None
     db_id: int | None
+    priority: int
     attempts: int = 0
+
+
+class WritePriority:
+    URGENT = 0
+    NORMAL = 10
+
+    @classmethod
+    def normalize(cls, value: str | int | None) -> int:
+        if value is None:
+            return cls.NORMAL
+        if isinstance(value, int):
+            return value
+        normalized = str(value).strip().lower()
+        if normalized == "urgent":
+            return cls.URGENT
+        if normalized == "normal":
+            return cls.NORMAL
+        return cls.NORMAL
 
 
 def get_writer(bot: commands.Bot) -> "DiscordWriteCoordinatorCog":
@@ -246,6 +265,24 @@ async def _patched_channel_delete(channel: discord.abc.GuildChannel, *args, **kw
         if original is None:
             raise
         return await original(channel, *args, **kwargs)
+
+
+async def _patched_channel_set_permissions(
+    channel: discord.abc.GuildChannel, target: discord.abc.Snowflake, **kwargs
+):
+    try:
+        writer = get_writer(_get_client_from_state(channel))
+        return await writer.set_permissions(channel, target, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální set_permissions pro kanál %s.",
+            type(channel).__name__,
+            exc_info=exc,
+        )
+        original = getattr(type(channel), "__discord_write_original_set_permissions__", None)
+        if original is None:
+            raise
+        return await original(channel, target, **kwargs)
 
 
 async def _patched_create_text_channel(guild: discord.Guild, *args, **kwargs):
@@ -496,12 +533,14 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         self._worker_task: asyncio.Task | None = None
         self._last_write_at: float | None = None
         self._blocked_until: float | None = None
+        self._max_backoff_seconds = 30.0
         # DISCORD_WRITE_MIN_INTERVAL_SECONDS (např. 0.1–1.0 s) určuje minimální rozestup zápisů.
         self._min_interval_seconds = DISCORD_WRITE_MIN_INTERVAL_SECONDS
         self._patched = False
         self._messageable_send_originals: dict[type, Callable[..., Any]] = {}
         self._channel_edit_originals: dict[type, Callable[..., Any]] = {}
         self._channel_delete_originals: dict[type, Callable[..., Any]] = {}
+        self._channel_set_permissions_originals: dict[type, Callable[..., Any]] = {}
         self._original_message_edit: Optional[Callable[..., Any]] = None
         self._original_message_delete: Optional[Callable[..., Any]] = None
         self._original_create_text_channel: Optional[Callable[..., Any]] = None
@@ -520,11 +559,6 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
 
     async def cog_load(self):
         try:
-            cleared = clear_pending_discord_writes()
-            if cleared:
-                self.logger.warning(
-                    "Při startu smazáno %d pending Discord write záznamů.", cleared
-                )
             await self._restore_pending()
         except Exception:  # noqa: BLE001
             self.logger.exception("Obnova pending Discord write fronty selhala.")
@@ -634,6 +668,20 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                     setattr(cls, "__discord_write_original_delete__", original_delete)
                     cls.delete = _patched_channel_delete
                     patched_targets.append(f"{cls.__name__}.delete")
+            original_set_permissions = getattr(cls, "set_permissions", None)
+            if (
+                original_set_permissions is not None
+                and cls not in self._channel_set_permissions_originals
+            ):
+                self._channel_set_permissions_originals[cls] = original_set_permissions
+                if apply_patches:
+                    setattr(
+                        cls,
+                        "__discord_write_original_set_permissions__",
+                        original_set_permissions,
+                    )
+                    cls.set_permissions = _patched_channel_set_permissions
+                    patched_targets.append(f"{cls.__name__}.set_permissions")
 
         self._original_create_text_channel = getattr(discord.Guild, "create_text_channel", None)
         if self._original_create_text_channel is not None:
@@ -785,8 +833,12 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         for cls, original in self._channel_delete_originals.items():
             if getattr(cls, "delete", None) is _patched_channel_delete:
                 cls.delete = original
+        for cls, original in self._channel_set_permissions_originals.items():
+            if getattr(cls, "set_permissions", None) is _patched_channel_set_permissions:
+                cls.set_permissions = original
         self._channel_edit_originals.clear()
         self._channel_delete_originals.clear()
+        self._channel_set_permissions_originals.clear()
 
         if (
             self._original_create_text_channel
@@ -858,8 +910,9 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                 persist=True,
                 future=None,
                 db_id=item["id"],
+                priority=WritePriority.normalize(item.get("priority")),
             )
-            await self._queue.put((1, next(self._queue_counter), request))
+            await self._queue.put((request.priority, next(self._queue_counter), request))
             count += 1
         self.logger.info("Obnoveno %d pending Discord write záznamů.", count)
 
@@ -872,7 +925,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             except discord.HTTPException as exc:
                 if exc.status == 429:
                     retry_after = getattr(exc, "retry_after", None)
-                    delay = retry_after or self._min_interval_seconds
+                    delay = self._compute_backoff_delay(request, retry_after)
                     now = asyncio.get_running_loop().time()
                     blocked_until = now + delay
                     if self._blocked_until is None or blocked_until > self._blocked_until:
@@ -882,7 +935,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                     )
                     await asyncio.sleep(delay)
                     request.attempts += 1
-                    await self._queue.put(request)
+                    await self._queue.put((request.priority, next(self._queue_counter), request))
                     continue
                 self._mark_failed(request, exc)
                 continue
@@ -907,6 +960,13 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             wait_for = max(wait_for, self._blocked_until - now)
         if wait_for > 0:
             await asyncio.sleep(wait_for)
+
+    def _compute_backoff_delay(self, request: WriteRequest, retry_after: float | None) -> float:
+        base_delay = float(retry_after) if retry_after is not None else self._min_interval_seconds
+        backoff = base_delay * (2 ** min(request.attempts, 5))
+        backoff = min(backoff, self._max_backoff_seconds)
+        jitter = random.uniform(0, min(1.0, backoff * 0.25))
+        return max(self._min_interval_seconds, backoff + jitter)
 
     def _mark_failed(self, request: WriteRequest, exc: Exception):
         self.logger.exception("Discord write selhal: %s", request.operation)
@@ -954,6 +1014,8 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             return await self._op_interaction_modal(payload)
         if op == "webhook_send":
             return await self._op_webhook_send(payload)
+        if op == "set_permissions":
+            return await self._op_set_permissions(payload)
         raise ValueError(f"Neznámá operace: {op}")
 
     async def _op_send_message(self, payload: dict[str, Any]):
@@ -1007,6 +1069,28 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             self.logger.warning("Edit kanálu není podporován pro %s.", type(channel).__name__)
             raise RuntimeError("Kanál k úpravě nemá podporovaný edit.")
         return await original(channel, **payload["kwargs"])
+
+    async def _op_set_permissions(self, payload: dict[str, Any]):
+        channel = await self._resolve_channel(payload["channel_id"])
+        if channel is None or not isinstance(channel, discord.abc.GuildChannel):
+            raise RuntimeError("Kanál pro set_permissions nebyl nalezen.")
+        target = await self._resolve_permission_target(channel, payload)
+        if target is None:
+            raise RuntimeError("Cíl pro set_permissions nebyl nalezen.")
+        original = self._get_channel_original(
+            channel, self._channel_set_permissions_originals, "set_permissions"
+        )
+        if original is None:
+            self.logger.warning(
+                "set_permissions není podporováno pro %s.", type(channel).__name__
+            )
+            raise RuntimeError("Kanál nemá podporovaný set_permissions.")
+        overwrite = None
+        if payload.get("overwrite_allow") is not None and payload.get("overwrite_deny") is not None:
+            allow = discord.Permissions(payload["overwrite_allow"])
+            deny = discord.Permissions(payload["overwrite_deny"])
+            overwrite = discord.PermissionOverwrite.from_pair(allow, deny)
+        return await original(channel, target, overwrite=overwrite, reason=payload.get("reason"))
 
     async def _op_delete_channel(self, payload: dict[str, Any]):
         channel = await self._resolve_channel(payload["channel_id"])
@@ -1199,17 +1283,34 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
     async def edit_channel(self, channel: discord.abc.GuildChannel, **kwargs):
         payload = {"channel_id": channel.id, "kwargs": kwargs}
         persist = self._is_serializable(kwargs)
-        return await self._enqueue("edit_channel", payload, persist)
+        return await self._enqueue("edit_channel", payload, persist, priority=kwargs.pop("priority", None))
 
     async def delete_channel(self, channel: discord.abc.GuildChannel, **kwargs):
         payload = {"channel_id": channel.id, "kwargs": kwargs}
         persist = self._is_serializable(kwargs)
-        return await self._enqueue("delete_channel", payload, persist)
+        return await self._enqueue("delete_channel", payload, persist, priority=kwargs.pop("priority", None))
+
+    async def set_permissions(
+        self,
+        channel: discord.abc.GuildChannel,
+        target: discord.abc.Snowflake,
+        *,
+        overwrite: discord.PermissionOverwrite | None,
+        reason: str | None = None,
+        priority: str | int | None = None,
+    ):
+        payload = self._build_set_permissions_payload(
+            channel, target, overwrite=overwrite, reason=reason
+        )
+        persist = self._is_serializable(payload)
+        return await self._enqueue("set_permissions", payload, persist, priority=priority)
 
     async def create_text_channel(self, guild: discord.Guild, name: str, **kwargs):
         payload = {"guild_id": guild.id, "name": name, "kwargs": kwargs}
         persist = self._is_serializable(kwargs)
-        return await self._enqueue("create_text_channel", payload, persist)
+        return await self._enqueue(
+            "create_text_channel", payload, persist, priority=kwargs.pop("priority", None)
+        )
 
     async def add_roles(self, member: discord.Member, *roles: discord.Role, reason: str | None = None):
         payload = {
@@ -1244,7 +1345,9 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             "reason": reason,
             "delete_message_days": delete_message_days,
         }
-        return await self._enqueue("ban_member", payload, persist=True)
+        return await self._enqueue(
+            "ban_member", payload, persist=True, priority=WritePriority.URGENT
+        )
 
     async def kick_member(self, member: discord.Member, reason: str | None = None):
         payload = {
@@ -1252,7 +1355,9 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             "member_id": member.id,
             "reason": reason,
         }
-        return await self._enqueue("kick_member", payload, persist=True)
+        return await self._enqueue(
+            "kick_member", payload, persist=True, priority=WritePriority.URGENT
+        )
 
     async def timeout_member(
         self, member: discord.Member, until, reason: str | None = None
@@ -1264,7 +1369,9 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             "reason": reason,
         }
         persist = self._is_serializable({"until": until})
-        return await self._enqueue("timeout_member", payload, persist)
+        return await self._enqueue(
+            "timeout_member", payload, persist, priority=WritePriority.URGENT
+        )
 
     async def edit_member(self, member: discord.Member, **kwargs):
         payload = {
@@ -1309,11 +1416,18 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         payload = {"webhook": webhook, "args": args, "kwargs": kwargs}
         return await self._enqueue("webhook_send", payload, persist=False)
 
-    async def _enqueue(self, operation: str, payload: dict[str, Any], persist: bool):
+    async def _enqueue(
+        self,
+        operation: str,
+        payload: dict[str, Any],
+        persist: bool,
+        priority: str | int | None = None,
+    ):
+        normalized_priority = WritePriority.normalize(priority)
         db_id = None
         if persist:
             stored_payload = self._serialize_payload(payload)
-            db_id = enqueue_discord_write(operation, stored_payload)
+            db_id = enqueue_discord_write(operation, stored_payload, normalized_priority)
         future = asyncio.get_running_loop().create_future()
         request = WriteRequest(
             operation=operation,
@@ -1321,8 +1435,9 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             persist=persist,
             future=future,
             db_id=db_id,
+            priority=normalized_priority,
         )
-        await self._queue.put((0, next(self._queue_counter), request))
+        await self._queue.put((normalized_priority, next(self._queue_counter), request))
         return await future
 
     def _serialize_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1528,6 +1643,33 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             persist = self._is_serializable(payload)
         return payload, persist
 
+    def _build_set_permissions_payload(
+        self,
+        channel: discord.abc.GuildChannel,
+        target: discord.abc.Snowflake,
+        *,
+        overwrite: discord.PermissionOverwrite | None,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        target_type = "role"
+        if isinstance(target, discord.Member) or isinstance(target, discord.User):
+            target_type = "member"
+        if isinstance(target, discord.Role):
+            target_type = "role"
+        payload: dict[str, Any] = {
+            "channel_id": channel.id,
+            "target_id": target.id,
+            "target_type": target_type,
+            "reason": reason,
+            "overwrite_allow": None,
+            "overwrite_deny": None,
+        }
+        if overwrite is not None:
+            allow, deny = overwrite.pair()
+            payload["overwrite_allow"] = allow.value
+            payload["overwrite_deny"] = deny.value
+        return payload
+
     async def _resolve_target(self, payload: dict[str, Any]):
         if payload["target_type"] == "user":
             return await self._resolve_user(payload["target_id"])
@@ -1571,6 +1713,25 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             return await guild.fetch_member(payload["member_id"])
         except (discord.NotFound, discord.HTTPException):
             return None
+
+    async def _resolve_permission_target(
+        self, channel: discord.abc.GuildChannel, payload: dict[str, Any]
+    ):
+        target_type = payload.get("target_type")
+        target_id = payload.get("target_id")
+        if not target_type or target_id is None:
+            return None
+        if target_type == "role":
+            return channel.guild.get_role(target_id)
+        if target_type == "member":
+            member = channel.guild.get_member(target_id)
+            if member is not None:
+                return member
+            try:
+                return await channel.guild.fetch_member(target_id)
+            except (discord.NotFound, discord.HTTPException):
+                return None
+        return None
 
     def _resolve_roles(self, guild: discord.Guild, role_ids: list[int]):
         roles: list[discord.Role] = []

@@ -216,6 +216,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             operation TEXT NOT NULL,
             payload TEXT NOT NULL,
+            priority INTEGER NOT NULL DEFAULT 10,
             status TEXT NOT NULL DEFAULT 'pending',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
@@ -273,6 +274,12 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    try:
+        c.execute(
+            "ALTER TABLE discord_write_queue ADD COLUMN priority INTEGER NOT NULL DEFAULT 10"
+        )
+    except sqlite3.OperationalError:
+        pass
     c.execute(
         """
         CREATE TABLE IF NOT EXISTS clan_panels (
@@ -2374,17 +2381,17 @@ def set_clan_ticket_category_base_name(guild_id: int, category_id: int, base_nam
     conn.close()
 
 
-def enqueue_discord_write(operation: str, payload: Dict[str, Any]) -> int:
+def enqueue_discord_write(operation: str, payload: Dict[str, Any], priority: int = 10) -> int:
     conn = get_connection()
     c = conn.cursor()
     now = datetime.utcnow().isoformat()
     payload_json = json.dumps(payload, ensure_ascii=False)
     c.execute(
         """
-        INSERT INTO discord_write_queue (operation, payload, status, created_at, updated_at)
-        VALUES (?, ?, 'pending', ?, ?)
+        INSERT INTO discord_write_queue (operation, payload, priority, status, created_at, updated_at)
+        VALUES (?, ?, ?, 'pending', ?, ?)
         """,
-        (operation, payload_json, now, now),
+        (operation, payload_json, priority, now, now),
     )
     conn.commit()
     row_id = c.lastrowid
@@ -2397,7 +2404,7 @@ def fetch_pending_discord_writes(limit: int = 100) -> List[Dict[str, Any]]:
     c = conn.cursor()
     c.execute(
         """
-        SELECT id, operation, payload
+        SELECT id, operation, payload, priority
         FROM discord_write_queue
         WHERE status = 'pending'
         ORDER BY id ASC
@@ -2408,7 +2415,13 @@ def fetch_pending_discord_writes(limit: int = 100) -> List[Dict[str, Any]]:
     rows = c.fetchall()
     conn.close()
     return [
-        {"id": row[0], "operation": row[1], "payload": row[2]} for row in rows
+        {
+            "id": row[0],
+            "operation": row[1],
+            "payload": row[2],
+            "priority": row[3],
+        }
+        for row in rows
     ]
 
 
