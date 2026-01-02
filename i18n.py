@@ -110,6 +110,14 @@ STRINGS: dict[str, dict[str, str]] = {
         "cs": "Ticket lze přejmenovat nejdříve za 10 minut od poslední změny.",
         "en": "Ticket can be renamed only 10 minutes after the last change.",
     },
+    "move_rename_cooldown": {
+        "cs": "Přejmenování při přesunu je možné nejdříve za 10 minut od poslední změny.",
+        "en": "Move rename is available only 10 minutes after the last change.",
+    },
+    "move_rename_skipped": {
+        "cs": "Přejmenování při přesunu přeskočeno: {reason}",
+        "en": "Rename skipped during move: {reason}",
+    },
     "ban_success": {
         "cs": "\N{HAMMER} {user} byl/a zabanován/a. Důvod: {reason}.",
         "en": "\N{HAMMER} {user} has been banned. Reason: {reason}.",

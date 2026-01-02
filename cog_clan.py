@@ -27,9 +27,11 @@ from db import (
     remove_clan_application_panel,
     delete_clan_ticket_vacation,
     clear_ticket_last_rename,
+    clear_ticket_last_move_rename,
     set_clan_application_status,
     set_clan_panel_config,
     set_ticket_last_rename,
+    set_ticket_last_move_rename,
     save_clan_ticket_vacation,
     set_clan_ticket_category_base_name,
     mark_clan_application_deleted,
@@ -38,6 +40,7 @@ from db import (
     update_clan_application_last_message,
     update_clan_application_last_ping,
     get_ticket_last_rename,
+    get_ticket_last_move_rename,
 )
 
 # Category where NEW ticket channels will be created (initial intake)
@@ -733,6 +736,22 @@ async def _rename_ticket_with_cooldown(
     return True, None
 
 
+async def _rename_ticket_with_move_cooldown(
+    channel: discord.TextChannel,
+    lang: str,
+    reason: str,
+    rename_action: Callable[[], Awaitable[None]],
+) -> tuple[bool, str | None]:
+    last_rename_ts = get_ticket_last_move_rename(channel.id)
+    now_ts = int(time.time())
+    if last_rename_ts is not None and now_ts - last_rename_ts < 600:
+        return False, _t(lang, "move_rename_cooldown")
+
+    await _retry_rate_limited(reason, rename_action)
+    set_ticket_last_move_rename(channel.id, now_ts)
+    return True, None
+
+
 async def _set_ticket_status(
     channel: discord.TextChannel, status_emoji: str, lang: str
 ) -> tuple[bool, str | None]:
@@ -754,6 +773,8 @@ async def _rename_ticket_prefix(
     player_name: str,
     lang: str,
     status_emoji: str = STATUS_OPEN,
+    *,
+    use_move_cooldown: bool = False,
 ) -> tuple[bool, str | None]:
     """Rename ticket to requested format: 🟠přihlášky-{clan}-{player}"""
     clan_key = (clan_value or "").strip().lower()
@@ -771,7 +792,12 @@ async def _rename_ticket_prefix(
     if channel.name == name:
         return True, None
 
-    return await _rename_ticket_with_cooldown(
+    rename_with_cooldown = (
+        _rename_ticket_with_move_cooldown
+        if use_move_cooldown
+        else _rename_ticket_with_cooldown
+    )
+    return await rename_with_cooldown(
         channel,
         lang,
         "rename ticket to requested format",
@@ -1898,6 +1924,7 @@ class ClanPanelCog(commands.Cog):
                             pass
                     try:
                         clear_ticket_last_rename(channel_id)
+                        clear_ticket_last_move_rename(channel_id)
                     except Exception:
                         pass
 
@@ -1942,6 +1969,7 @@ class ClanPanelCog(commands.Cog):
                             pass
                     try:
                         clear_ticket_last_rename(channel_id)
+                        clear_ticket_last_move_rename(channel_id)
                     except Exception:
                         pass
 
@@ -2292,34 +2320,30 @@ class ClanPanelCog(commands.Cog):
 
                 rename_ok = False
                 rename_err = None
-                last_rename_ts = get_ticket_last_rename(ticket_channel.id)
-                if last_rename_ts is not None and time.time() - last_rename_ts < 600:
-                    rename_ok = False
-                    rename_err = _t(lang, "rename_cooldown")
-                else:
-                    try:
-                        rename_ok, rename_err = await _rename_ticket_prefix(
-                            ticket_channel,
-                            target_clan,
-                            player_name,
-                            lang,
-                            status_emoji,
-                        )
-                    except discord.Forbidden:
-                        await interaction.response.send_message(_t(lang, "rename_no_perms"), ephemeral=True)
-                        return
-                    except discord.HTTPException as e:
-                        await interaction.response.send_message(
-                            f"{_t(lang, 'rename_api_err')} {e}", ephemeral=True
-                        )
-                        return
+                try:
+                    rename_ok, rename_err = await _rename_ticket_prefix(
+                        ticket_channel,
+                        target_clan,
+                        player_name,
+                        lang,
+                        status_emoji,
+                        use_move_cooldown=True,
+                    )
+                except discord.Forbidden:
+                    await interaction.response.send_message(_t(lang, "rename_no_perms"), ephemeral=True)
+                    return
+                except discord.HTTPException as e:
+                    await interaction.response.send_message(
+                        f"{_t(lang, 'rename_api_err')} {e}", ephemeral=True
+                    )
+                    return
 
                 await ticket_channel.send(
                     _t(lang, "move_done").format(clan=target_display)
                 )
                 response_text = _t(lang, "move_done").format(clan=target_display)
                 if not rename_ok and rename_err:
-                    response_text = f"{response_text}\n{rename_err}"
+                    response_text = f"{response_text}\n{_t(lang, 'move_rename_skipped').format(reason=rename_err)}"
                 await interaction.response.send_message(response_text, ephemeral=True)
                 return
 
