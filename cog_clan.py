@@ -2439,7 +2439,7 @@ class ClanPanelCog(commands.Cog):
                     pass
 
                 await ticket_channel.send(
-                    f"{_t(lang, 'accepted_msg')} {clicker.mention}. {_t(lang, 'accepted_role_added')} <@&{role_id}>.",
+                    f"{_t(lang, 'accepted_msg')} {clicker.mention}. {_t(lang, 'accepted_role_added')} {role.name}.",
                     allowed_mentions=discord.AllowedMentions(roles=False, users=True, everyone=False),
                 )
                 response_text = _t(lang, "accepted_ephemeral")
