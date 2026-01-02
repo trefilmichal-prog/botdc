@@ -565,7 +565,7 @@ class SecretNotificationsForwarder(commands.Cog):
         if not lines:
             return lines
         pattern = re.compile(
-            r"🥚\s*\*\*Egg:\*\*\s*(\d+)\s*`+\(([^)]+)\s+opened\)`+"
+            r"🥚\s*\*\*Egg:\*\*\s*([^`]+?)\s*`+\(([^)]+)\s+opened\)`+"
         )
         updated: List[str] = []
         for line in lines:
@@ -577,13 +577,13 @@ class SecretNotificationsForwarder(commands.Cog):
             if not match:
                 updated.append(line)
                 continue
-            egg_number = match.group(1)
+            egg_name = match.group(1).strip()
             opened_value = match.group(2)
             prefix = text[: match.start()].strip()
             suffix = text[match.end() :].strip()
             if prefix:
                 updated.append(prefix)
-            updated.append(f"🥚Egg: {egg_number} - {opened_value} opened")
+            updated.append(f"🥚Egg: {egg_name} - {opened_value} opened")
             if suffix:
                 updated.append(suffix)
         return updated
