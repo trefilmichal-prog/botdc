@@ -21,11 +21,13 @@ from db import (
     list_clan_definitions,
     get_next_clan_sort_order,
     get_clan_ticket_vacation,
+    get_clan_ticket_category_base_name,
     remove_clan_application_panel,
     delete_clan_ticket_vacation,
     set_clan_application_status,
     set_clan_panel_config,
     save_clan_ticket_vacation,
+    set_clan_ticket_category_base_name,
     mark_clan_application_deleted,
     upsert_clan_definition,
     update_clan_application_form,
@@ -516,6 +518,33 @@ def _display_name_for_clan(clan_value: str, guild_id: int | None = None) -> str:
     return (clan_value or "").strip().upper() or "CLAN"
 
 
+async def _update_ticket_category_label(guild: discord.Guild, category_id: int | None) -> None:
+    if guild is None or not category_id:
+        return
+    category = guild.get_channel(category_id)
+    if category is None or not isinstance(category, discord.CategoryChannel):
+        return
+
+    base_name = get_clan_ticket_category_base_name(guild.id, category_id)
+    if not base_name:
+        base_name = re.sub(r"\s*\(\d+\)\s*$", "", category.name or "").strip()
+        if not base_name:
+            base_name = category.name or "Tickets"
+        set_clan_ticket_category_base_name(guild.id, category_id, base_name)
+
+    count = len(category.text_channels)
+    new_name = f"{base_name} ({count})"
+    if category.name == new_name:
+        return
+    try:
+        await _retry_rate_limited(
+            "update ticket category label",
+            lambda: category.edit(name=new_name, reason="Clan ticket: update category label"),
+        )
+    except discord.HTTPException:
+        pass
+
+
 def _parse_ticket_topic(topic: str):
     """Parse channel.topic for applicant and clan. Returns (applicant_id:int|None, clan:str|None)."""
     if not topic:
@@ -960,6 +989,11 @@ class ClanApplicationModal(discord.ui.Modal):
                 view=_simple_text_view(f"{_t(lang, 'create_api_err')} {e}")
             )
             return
+
+        try:
+            await _update_ticket_category_label(guild, intake_category.id)
+        except Exception:
+            pass
 
         app_id = None
         try:
@@ -1737,6 +1771,8 @@ class ClanPanelCog(commands.Cog):
                     app_record = None
 
                 ticket_info = _t(lang, "kick_ticket_deleted")
+                category_id = ticket_channel.category_id
+                deleted_ok = False
                 logging.getLogger("botdc").info(
                     "Mazání clan ticketu (kick) vyvolal %s (%s) pro %s (%s) v kanálu %s (%s).",
                     clicker,
@@ -1748,10 +1784,17 @@ class ClanPanelCog(commands.Cog):
                 )
                 try:
                     await ticket_channel.delete(reason=f"Clan kick by {clicker} ({applicant})")
+                    deleted_ok = True
                 except discord.Forbidden:
                     ticket_info = _t(lang, "kick_ticket_delete_forbidden")
                 except discord.HTTPException:
                     ticket_info = _t(lang, "kick_ticket_delete_failed")
+
+                if deleted_ok and category_id:
+                    try:
+                        await _update_ticket_category_label(guild, category_id)
+                    except Exception:
+                        pass
 
                 if app_record:
                     try:
@@ -1766,6 +1809,8 @@ class ClanPanelCog(commands.Cog):
             if action == "delete":
                 await interaction.response.send_message(_t(lang, "deleted_ephemeral"), ephemeral=True)
                 app_record = None
+                category_id = ticket_channel.category_id
+                deleted_ok = False
                 try:
                     app_record = get_clan_application_by_channel(guild.id, channel_id)
                     logging.getLogger("botdc").info(
@@ -1776,12 +1821,19 @@ class ClanPanelCog(commands.Cog):
                         ticket_channel.id,
                     )
                     await ticket_channel.delete(reason=f"Clan ticket deleted by {clicker}")
+                    deleted_ok = True
                 except discord.Forbidden:
                     await interaction.edit_original_response(content=_t(lang, "delete_no_perms"))
                     return
                 except discord.HTTPException as e:
                     await interaction.edit_original_response(content=f"{_t(lang, 'delete_api_err')} {e}")
                     return
+
+                if deleted_ok and category_id:
+                    try:
+                        await _update_ticket_category_label(guild, category_id)
+                    except Exception:
+                        pass
 
                 if app_record:
                     try:
@@ -1935,6 +1987,13 @@ class ClanPanelCog(commands.Cog):
                     VACATION_ROLE_ID,
                 )
 
+                try:
+                    await _update_ticket_category_label(guild, vacation_category.id)
+                    if prev_category_id:
+                        await _update_ticket_category_label(guild, prev_category_id)
+                except Exception:
+                    pass
+
                 await interaction.response.send_message(_t(lang, "vacation_set"), ephemeral=True)
                 return
 
@@ -1946,6 +2005,7 @@ class ClanPanelCog(commands.Cog):
                     )
                     return
 
+                vacation_category_id = ticket_channel.category_id
                 removed_role_ids = record.get("removed_role_ids") or []
                 prev_category_id = record.get("prev_category_id")
                 vacation_role_id = record.get("vacation_role_id") or VACATION_ROLE_ID
@@ -2052,6 +2112,13 @@ class ClanPanelCog(commands.Cog):
                         return
 
                 delete_clan_ticket_vacation(channel_id)
+                try:
+                    if prev_category_id:
+                        await _update_ticket_category_label(guild, prev_category_id)
+                    if vacation_category_id and vacation_category_id != prev_category_id:
+                        await _update_ticket_category_label(guild, vacation_category_id)
+                except Exception:
+                    pass
                 await interaction.response.send_message(
                     _t(lang, "vacation_restored"), ephemeral=True
                 )
@@ -2152,10 +2219,22 @@ class ClanPanelCog(commands.Cog):
                     return
 
                 # Move ticket to clan category
+                prev_category_id = ticket_channel.category_id
+                target_category_id = _category_id_for_clan(
+                    clan_value, guild.id if guild else None
+                )
                 try:
-                    await _move_ticket_to_clan_category(ticket_channel, clan_value)
+                    moved = await _move_ticket_to_clan_category(ticket_channel, clan_value)
                 except Exception:
-                    pass
+                    moved = False
+
+                if moved and target_category_id:
+                    try:
+                        await _update_ticket_category_label(guild, target_category_id)
+                        if prev_category_id and prev_category_id != target_category_id:
+                            await _update_ticket_category_label(guild, prev_category_id)
+                    except Exception:
+                        pass
 
                 # Status emoji -> 🟢
                 try:
