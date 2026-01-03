@@ -325,8 +325,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS clan_panel_configs (
             guild_id INTEGER PRIMARY KEY,
             title TEXT NOT NULL,
-            us_requirements TEXT NOT NULL,
-            cz_requirements TEXT NOT NULL
+            requirements TEXT NOT NULL
         )
         """
     )
@@ -378,6 +377,22 @@ def init_db():
 
     try:
         c.execute("ALTER TABLE clan_clans ADD COLUMN cz_requirements TEXT NOT NULL DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        c.execute("ALTER TABLE clan_panel_configs ADD COLUMN requirements TEXT NOT NULL DEFAULT ''")
+        c.execute(
+            """
+            UPDATE clan_panel_configs
+            SET requirements = us_requirements
+                || CASE
+                    WHEN us_requirements != '' AND cz_requirements != '' THEN '\n\n'
+                    ELSE ''
+                END
+                || cz_requirements
+            """
+        )
     except sqlite3.OperationalError:
         pass
 
@@ -1132,37 +1147,36 @@ def get_all_clan_panels() -> list[tuple[int, int, int]]:
     return [(int(g), int(ch), int(msg)) for g, ch, msg in rows]
 
 
-def set_clan_panel_config(guild_id: int, title: str, us_requirements: str, cz_requirements: str):
+def set_clan_panel_config(guild_id: int, title: str, requirements: str):
     conn = get_connection()
     c = conn.cursor()
     c.execute(
         """
-        INSERT INTO clan_panel_configs (guild_id, title, us_requirements, cz_requirements)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO clan_panel_configs (guild_id, title, requirements)
+        VALUES (?, ?, ?)
         ON CONFLICT(guild_id) DO UPDATE SET
             title = excluded.title,
-            us_requirements = excluded.us_requirements,
-            cz_requirements = excluded.cz_requirements
+            requirements = excluded.requirements
         """,
-        (guild_id, title, us_requirements, cz_requirements),
+        (guild_id, title, requirements),
     )
     conn.commit()
     conn.close()
 
 
-def get_clan_panel_config(guild_id: int) -> tuple[str, str, str] | None:
+def get_clan_panel_config(guild_id: int) -> tuple[str, str] | None:
     conn = get_connection()
     c = conn.cursor()
     c.execute(
-        "SELECT title, us_requirements, cz_requirements FROM clan_panel_configs WHERE guild_id = ?",
+        "SELECT title, requirements FROM clan_panel_configs WHERE guild_id = ?",
         (guild_id,),
     )
     row = c.fetchone()
     conn.close()
     if not row:
         return None
-    title, us_requirements, cz_requirements = row
-    return str(title), str(us_requirements), str(cz_requirements)
+    title, requirements = row
+    return str(title), str(requirements)
 
 
 # ---------- CLAN APPLICATION PANELY ----------
