@@ -1235,60 +1235,38 @@ class ClanApplicationModal(discord.ui.Modal):
         )
 
 
-class ClanPanelEditModal(discord.ui.Modal):
-    """Modal for editing clan requirements."""
+class ClanPanelConfigModal(discord.ui.Modal):
+    """Modal for editing clan application panel text."""
 
-    def __init__(self, guild_id: int, clan_key: str):
+    def __init__(self, guild_id: int):
         self.guild_id = guild_id
-        self.clan_key = clan_key
-        existing = get_clan_definition(guild_id, clan_key) or {}
-        super().__init__(title=f"Úprava clanu {clan_key}")
+        title, requirements = ClanPanelCog._get_config_for_guild(guild_id)
+        super().__init__(title="Úprava panelu")
 
-        merged_requirements = (
-            (existing.get("us_requirements") or "")
-            or (existing.get("cz_requirements") or "")
-        )[:4000]
-        self.requirements = discord.ui.TextInput(
-            label="Globální requirements clanu",
-            placeholder="Volitelné (platí pro CZ i US)",
-            default=merged_requirements,
+        self.panel_title = discord.ui.TextInput(
+            label="Nadpis panelu",
+            placeholder="Např. CLAN APPLICATIONS",
+            default=title[:256],
+            required=False,
+            max_length=256,
+        )
+        self.panel_requirements = discord.ui.TextInput(
+            label="Text požadavků na panelu",
+            placeholder="Zde uveď požadavky pro přihlášky",
+            default=requirements[:4000],
             required=False,
             style=discord.TextStyle.paragraph,
             max_length=4000,
         )
 
-        self.add_item(self.requirements)
+        self.add_item(self.panel_title)
+        self.add_item(self.panel_requirements)
 
     async def on_submit(self, interaction: discord.Interaction):
-        existing = get_clan_definition(self.guild_id, self.clan_key) or {}
-        final_display = (existing.get("display_name") or self.clan_key).strip()
-        final_requirements = (self.requirements.value or "").strip()
-        final_desc = (existing.get("description") or "").strip()
-        final_accept_role_id = existing.get("accept_role_id")
-        final_accept_role_id_cz = existing.get("accept_role_id_cz")
-        final_accept_role_id_en = existing.get("accept_role_id_en")
-        final_accept_category_id = existing.get("accept_category_id")
-        final_review_role_id = existing.get("review_role_id")
-        final_sort_order = existing.get("sort_order")
-        if final_sort_order is None:
-            final_sort_order = get_next_clan_sort_order(self.guild_id)
-        else:
-            final_sort_order = int(final_sort_order)
-
-        upsert_clan_definition(
-            self.guild_id,
-            self.clan_key,
-            final_display or self.clan_key,
-            final_desc,
-            final_requirements,
-            final_requirements,
-            final_accept_role_id,
-            final_accept_role_id_cz,
-            final_accept_role_id_en,
-            final_accept_category_id,
-            final_review_role_id,
-            final_sort_order,
-        )
+        default_title, default_requirements = ClanPanelCog._default_clan_panel_config()
+        final_title = (self.panel_title.value or "").strip() or default_title
+        final_requirements = (self.panel_requirements.value or "").strip() or default_requirements
+        set_clan_panel_config(self.guild_id, final_title, final_requirements)
 
         panel_cog = interaction.client.get_cog("ClanPanelCog")
         if panel_cog is not None and hasattr(panel_cog, "_refresh_clan_panels_for_guild"):
@@ -1299,7 +1277,7 @@ class ClanPanelEditModal(discord.ui.Modal):
 
         await interaction.response.send_message(
             content="",
-            view=_simple_text_view("Clan byl upraven."),
+            view=_simple_text_view("Panel byl upraven."),
             ephemeral=True,
         )
 
@@ -1317,7 +1295,7 @@ class ClanPanelCog(commands.Cog):
             name="post", description="Zobrazí panel pro přihlášky do clanu"
         )(self.clan_panel)
         self.clan_panel_group.command(
-            name="edit", description="Upraví text panelu přes formulář"
+            name="edit", description="Upraví text panelu s požadavky"
         )(self.clan_panel_edit)
         self.clan_panel_group.command(
             name="clan", description="Správa clanů a rolí pro přihlášky",
@@ -1592,14 +1570,11 @@ class ClanPanelCog(commands.Cog):
         view.add_item(discord.ui.TextDisplay(content=_t(lang, message_key).format(count=sent)))
         await interaction.edit_original_response(content="", view=view)
 
+    @app_commands.checks.has_permissions(administrator=True)
     @app_commands.guild_only()
-    @app_commands.describe(
-        clan_key="Kód clanu (např. hrot)",
-    )
     async def clan_panel_edit(
         self,
         interaction: discord.Interaction,
-        clan_key: str,
     ):
         guild = interaction.guild
         if guild is None:
@@ -1608,20 +1583,8 @@ class ClanPanelCog(commands.Cog):
             )
             return
 
-        member = interaction.user if isinstance(interaction.user, discord.Member) else None
-        key_slug = (clan_key or "").strip().lower()
-        review_role_id = _review_role_id_for_clan(key_slug, guild.id)
-        has_review_role = (
-            member is not None
-            and review_role_id is not None
-            and any(role.id == review_role_id for role in member.roles)
-        )
-        if member is None or (not member.guild_permissions.administrator and not has_review_role):
-            await interaction.response.send_message("no_perm", ephemeral=True)
-            return
-
         await interaction.response.send_modal(
-            ClanPanelEditModal(guild.id, key_slug)
+            ClanPanelConfigModal(guild.id)
         )
 
     @app_commands.checks.has_permissions(administrator=True)
