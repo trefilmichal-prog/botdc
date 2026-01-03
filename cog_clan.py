@@ -802,8 +802,7 @@ class Components(discord.ui.LayoutView):
         self,
         *,
         title: str,
-        us_requirements: str,
-        cz_requirements: str,
+        requirements: str,
         select_options: list[discord.SelectOption],
         clan_entries: list[dict],
     ):
@@ -838,26 +837,14 @@ class Components(discord.ui.LayoutView):
             )
 
         requirements_items: list[discord.ui.TextDisplay] = []
-        us_req = (us_requirements or "").strip()
-        cz_req = (cz_requirements or "").strip()
-        if us_req:
+        requirements_text = (requirements or "").strip()
+        if requirements_text:
             requirements_items.append(
                 discord.ui.TextDisplay(
                     content=(
-                        "🇺🇸 Requirements\n"
+                        "### Requirements\n"
                         "```\n"
-                        f"{us_req}\n"
-                        "```"
-                    )
-                )
-            )
-        if cz_req:
-            requirements_items.append(
-                discord.ui.TextDisplay(
-                    content=(
-                        "🇨🇿 Podmínky přijetí\n"
-                        "```\n"
-                        f"{cz_req}\n"
+                        f"{requirements_text}\n"
                         "```"
                     )
                 )
@@ -1285,33 +1272,27 @@ class ClanPanelEditModal(discord.ui.Modal):
             style=discord.TextStyle.paragraph,
             max_length=4000,
         )
-        self.us_requirements = discord.ui.TextInput(
-            label="Requirements (US)",
+        merged_requirements = (
+            (existing.get("us_requirements") or "")
+            or (existing.get("cz_requirements") or "")
+        )[:4000]
+        self.requirements = discord.ui.TextInput(
+            label="Requirements",
             placeholder="Volitelné",
-            default=(existing.get("us_requirements") or "")[:4000],
-            required=False,
-            style=discord.TextStyle.paragraph,
-            max_length=4000,
-        )
-        self.cz_requirements = discord.ui.TextInput(
-            label="Podmínky přijetí (CZ)",
-            placeholder="Volitelné",
-            default=(existing.get("cz_requirements") or "")[:4000],
+            default=merged_requirements,
             required=False,
             style=discord.TextStyle.paragraph,
             max_length=4000,
         )
 
         self.add_item(self.description)
-        self.add_item(self.us_requirements)
-        self.add_item(self.cz_requirements)
+        self.add_item(self.requirements)
 
     async def on_submit(self, interaction: discord.Interaction):
         existing = get_clan_definition(self.guild_id, self.clan_key) or {}
         final_display = (existing.get("display_name") or self.clan_key).strip()
         final_desc = (self.description.value or "").strip()
-        final_us_requirements = (self.us_requirements.value or "").strip()
-        final_cz_requirements = (self.cz_requirements.value or "").strip()
+        final_requirements = (self.requirements.value or "").strip()
         final_accept_role_id = existing.get("accept_role_id")
         final_accept_role_id_cz = existing.get("accept_role_id_cz")
         final_accept_role_id_en = existing.get("accept_role_id_en")
@@ -1328,8 +1309,8 @@ class ClanPanelEditModal(discord.ui.Modal):
             self.clan_key,
             final_display or self.clan_key,
             final_desc,
-            final_us_requirements,
-            final_cz_requirements,
+            final_requirements,
+            final_requirements,
             final_accept_role_id,
             final_accept_role_id_cz,
             final_accept_role_id_en,
@@ -1381,15 +1362,15 @@ class ClanPanelCog(commands.Cog):
         return
 
     @staticmethod
-    def _default_clan_panel_config() -> tuple[str, str, str]:
+    def _default_clan_panel_config() -> tuple[str, str]:
         return (
             "CLAN APPLICATIONS",
-            "- 15SP rebirths +\n- Play 24/7\n- 30% index\n- 10d playtime",
+            "- 15SP rebirths +\n- Play 24/7\n- 30% index\n- 10d playtime\n\n"
             "- 15SP rebirthů +\n- Hrát 24/7\n- 30% index\n- 10d playtime",
         )
 
     @classmethod
-    def _get_config_for_guild(cls, guild_id: int | None) -> tuple[str, str, str]:
+    def _get_config_for_guild(cls, guild_id: int | None) -> tuple[str, str]:
         if guild_id is None:
             return cls._default_clan_panel_config()
         db_config = get_clan_panel_config(guild_id)
@@ -1398,13 +1379,12 @@ class ClanPanelCog(commands.Cog):
         return cls._default_clan_panel_config()
 
     def _build_panel_view(self, guild_id: int | None) -> Components:
-        title, us_requirements, cz_requirements = self._get_config_for_guild(guild_id)
+        title, requirements = self._get_config_for_guild(guild_id)
         select_options = _clan_select_options_for_guild(guild_id)
         clan_entries = list_clan_definitions(guild_id) if guild_id is not None else []
         return Components(
             title=title,
-            us_requirements=us_requirements,
-            cz_requirements=cz_requirements,
+            requirements=requirements,
             select_options=select_options,
             clan_entries=clan_entries,
         )
