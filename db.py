@@ -380,21 +380,47 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
-    try:
-        c.execute("ALTER TABLE clan_panel_configs ADD COLUMN requirements TEXT NOT NULL DEFAULT ''")
+    column_rows = c.execute("PRAGMA table_info(clan_panel_configs)").fetchall()
+    config_columns = {row[1] for row in column_rows}
+    needs_config_migration = (
+        "requirements" not in config_columns
+        or "us_requirements" in config_columns
+        or "cz_requirements" in config_columns
+    )
+    if config_columns and needs_config_migration:
         c.execute(
             """
-            UPDATE clan_panel_configs
-            SET requirements = us_requirements
-                || CASE
-                    WHEN us_requirements != '' AND cz_requirements != '' THEN '\n\n'
-                    ELSE ''
-                END
-                || cz_requirements
+            CREATE TABLE clan_panel_configs_new (
+                guild_id INTEGER PRIMARY KEY,
+                title TEXT NOT NULL,
+                requirements TEXT NOT NULL
+            )
             """
         )
-    except sqlite3.OperationalError:
-        pass
+        if "requirements" in config_columns:
+            requirements_expr = "requirements"
+        else:
+            us_expr = "COALESCE(us_requirements, '')" if "us_requirements" in config_columns else "''"
+            cz_expr = "COALESCE(cz_requirements, '')" if "cz_requirements" in config_columns else "''"
+            if "us_requirements" in config_columns and "cz_requirements" in config_columns:
+                requirements_expr = (
+                    f"{us_expr} || CASE WHEN {us_expr} != '' AND {cz_expr} != '' THEN '\\n\\n' ELSE '' END || {cz_expr}"
+                )
+            elif "us_requirements" in config_columns:
+                requirements_expr = us_expr
+            elif "cz_requirements" in config_columns:
+                requirements_expr = cz_expr
+            else:
+                requirements_expr = "''"
+        c.execute(
+            f"""
+            INSERT INTO clan_panel_configs_new (guild_id, title, requirements)
+            SELECT guild_id, title, {requirements_expr}
+            FROM clan_panel_configs
+            """
+        )
+        c.execute("DROP TABLE clan_panel_configs")
+        c.execute("ALTER TABLE clan_panel_configs_new RENAME TO clan_panel_configs")
 
     c.execute(
         """
