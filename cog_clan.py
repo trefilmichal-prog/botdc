@@ -1267,6 +1267,7 @@ class ClanPanelEditModal(discord.ui.Modal):
             placeholder="Volitelné",
             default=(existing.get("description") or "")[:4000],
             required=False,
+            style=discord.TextStyle.paragraph,
             max_length=4000,
         )
         self.us_requirements = discord.ui.TextInput(
@@ -1274,6 +1275,7 @@ class ClanPanelEditModal(discord.ui.Modal):
             placeholder="Volitelné",
             default=(existing.get("us_requirements") or "")[:4000],
             required=False,
+            style=discord.TextStyle.paragraph,
             max_length=4000,
         )
         self.cz_requirements = discord.ui.TextInput(
@@ -1281,6 +1283,7 @@ class ClanPanelEditModal(discord.ui.Modal):
             placeholder="Volitelné",
             default=(existing.get("cz_requirements") or "")[:4000],
             required=False,
+            style=discord.TextStyle.paragraph,
             max_length=4000,
         )
 
