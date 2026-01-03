@@ -1236,7 +1236,7 @@ class ClanApplicationModal(discord.ui.Modal):
 
 
 class ClanPanelEditModal(discord.ui.Modal):
-    """Modal for editing clan description and requirements."""
+    """Modal for editing clan requirements."""
 
     def __init__(self, guild_id: int, clan_key: str):
         self.guild_id = guild_id
@@ -1244,35 +1244,26 @@ class ClanPanelEditModal(discord.ui.Modal):
         existing = get_clan_definition(guild_id, clan_key) or {}
         super().__init__(title=f"Úprava clanu {clan_key}")
 
-        self.description = discord.ui.TextInput(
-            label="Popisek clanu",
-            placeholder="Volitelné",
-            default=(existing.get("description") or "")[:4000],
-            required=False,
-            style=discord.TextStyle.paragraph,
-            max_length=4000,
-        )
         merged_requirements = (
             (existing.get("us_requirements") or "")
             or (existing.get("cz_requirements") or "")
         )[:4000]
         self.requirements = discord.ui.TextInput(
-            label="Requirements",
-            placeholder="Volitelné",
+            label="Globální requirements clanu",
+            placeholder="Volitelné (platí pro CZ i US)",
             default=merged_requirements,
             required=False,
             style=discord.TextStyle.paragraph,
             max_length=4000,
         )
 
-        self.add_item(self.description)
         self.add_item(self.requirements)
 
     async def on_submit(self, interaction: discord.Interaction):
         existing = get_clan_definition(self.guild_id, self.clan_key) or {}
         final_display = (existing.get("display_name") or self.clan_key).strip()
-        final_desc = (self.description.value or "").strip()
         final_requirements = (self.requirements.value or "").strip()
+        final_desc = (existing.get("description") or "").strip()
         final_accept_role_id = existing.get("accept_role_id")
         final_accept_role_id_cz = existing.get("accept_role_id_cz")
         final_accept_role_id_en = existing.get("accept_role_id_en")
