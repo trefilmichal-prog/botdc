@@ -1549,52 +1549,65 @@ class ClanPanelCog(commands.Cog):
         view.add_item(discord.ui.TextDisplay(content=_t(lang, message_key).format(count=sent)))
         await interaction.edit_original_response(content="", view=view)
 
-    @app_commands.checks.has_permissions(administrator=True)
-    async def clan_panel_edit(self, interaction: discord.Interaction):
-        guild_id = interaction.guild.id if interaction.guild else None
-        title, us_requirements, cz_requirements = self._get_config_for_guild(guild_id)
-
-        class ClanPanelEditModal(discord.ui.Modal, title="Upravit clan panel"):
-            panel_title = discord.ui.TextInput(
-                label="Nadpis panelu",
-                default=title,
-                max_length=80,
+    @app_commands.guild_only()
+    @app_commands.describe(
+        clan_key="Kód clanu (např. hrot)",
+        description="Nový popisek clanu",
+    )
+    async def clan_panel_edit(
+        self,
+        interaction: discord.Interaction,
+        clan_key: str,
+        description: str,
+    ):
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message(
+                "Příkaz lze použít pouze na serveru.", ephemeral=True
             )
-            panel_us = discord.ui.TextInput(
-                label="US požadavky",
-                style=discord.TextStyle.paragraph,
-                default=us_requirements,
-                max_length=400,
-            )
-            panel_cz = discord.ui.TextInput(
-                label="CZ požadavky",
-                style=discord.TextStyle.paragraph,
-                default=cz_requirements,
-                max_length=400,
-            )
+            return
 
-            async def on_submit(self, modal_interaction: discord.Interaction):
-                if guild_id is None:
-                    await modal_interaction.response.send_message(
-                        "Formulář lze použít pouze na serveru.", ephemeral=True
-                    )
-                    return
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        key_slug = (clan_key or "").strip().lower()
+        review_role_id = _review_role_id_for_clan(key_slug, guild.id)
+        has_review_role = (
+            member is not None
+            and review_role_id is not None
+            and any(role.id == review_role_id for role in member.roles)
+        )
+        if member is None or (not member.guild_permissions.administrator and not has_review_role):
+            await interaction.response.send_message("no_perm", ephemeral=True)
+            return
 
-                set_clan_panel_config(
-                    guild_id,
-                    str(self.panel_title.value).strip() or title,
-                    str(self.panel_us.value).strip() or us_requirements,
-                    str(self.panel_cz.value).strip() or cz_requirements,
-                )
-                await self_refresh()
-                await modal_interaction.response.send_message(
-                    "Panel byl aktualizován.", ephemeral=True
-                )
+        existing = get_clan_definition(guild.id, key_slug) or {}
+        final_display = (existing.get("display_name") or key_slug).strip()
+        final_desc = (description or "").strip()
+        final_accept_role_id = existing.get("accept_role_id")
+        final_accept_role_id_cz = existing.get("accept_role_id_cz")
+        final_accept_role_id_en = existing.get("accept_role_id_en")
+        final_accept_category_id = existing.get("accept_category_id")
+        final_review_role_id = existing.get("review_role_id")
+        final_sort_order = existing.get("sort_order")
+        if final_sort_order is None:
+            final_sort_order = get_next_clan_sort_order(guild.id)
+        else:
+            final_sort_order = int(final_sort_order)
 
-        async def self_refresh():
-            await self._refresh_clan_panels_for_guild(guild_id)
+        upsert_clan_definition(
+            guild.id,
+            key_slug,
+            final_display or key_slug,
+            final_desc,
+            final_accept_role_id,
+            final_accept_role_id_cz,
+            final_accept_role_id_en,
+            final_accept_category_id,
+            final_review_role_id,
+            final_sort_order,
+        )
 
-        await interaction.response.send_modal(ClanPanelEditModal())
+        await interaction.response.send_message("Popisek clanu byl uložen.", ephemeral=True)
+        await self._refresh_clan_panels_for_guild(guild.id)
 
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.choices(
