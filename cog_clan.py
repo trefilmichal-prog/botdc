@@ -805,6 +805,7 @@ class Components(discord.ui.LayoutView):
         us_requirements: str,
         cz_requirements: str,
         select_options: list[discord.SelectOption],
+        clan_entries: list[dict],
     ):
         super().__init__(timeout=None)
         options = select_options or []
@@ -816,6 +817,25 @@ class Components(discord.ui.LayoutView):
                 description="Přidej clan přes /clan_panel clan",
             )
         ]
+
+        clan_items: list[discord.ui.TextDisplay] = [
+            discord.ui.TextDisplay(content="### Clany")
+        ]
+        for entry in clan_entries:
+            display_name = (entry.get("display_name") or entry.get("clan_key") or "").strip()
+            if not display_name:
+                continue
+            description = (entry.get("description") or "").strip()
+            if description:
+                content = f"**{display_name}**\n{description}"
+            else:
+                content = f"**{display_name}**"
+            clan_items.append(discord.ui.TextDisplay(content=content))
+
+        if len(clan_items) == 1:
+            clan_items.append(
+                discord.ui.TextDisplay(content="Žádné clany nejsou nastaveny.")
+            )
 
         container = discord.ui.Container(
             discord.ui.TextDisplay(content=f"## {title}"),
@@ -838,6 +858,9 @@ class Components(discord.ui.LayoutView):
                     "```\n"
                 )
             ),
+            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
+
+            *clan_items,
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
 
             discord.ui.ActionRow(
@@ -1285,11 +1308,13 @@ class ClanPanelCog(commands.Cog):
     def _build_panel_view(self, guild_id: int | None) -> Components:
         title, us_requirements, cz_requirements = self._get_config_for_guild(guild_id)
         select_options = _clan_select_options_for_guild(guild_id)
+        clan_entries = list_clan_definitions(guild_id) if guild_id is not None else []
         return Components(
             title=title,
             us_requirements=us_requirements,
             cz_requirements=cz_requirements,
             select_options=select_options,
+            clan_entries=clan_entries,
         )
 
     async def _restore_open_ticket_mentions(self):
