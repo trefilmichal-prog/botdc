@@ -826,21 +826,9 @@ class Components(discord.ui.LayoutView):
             if not display_name:
                 continue
             description = (entry.get("description") or "").strip()
-            us_req = (entry.get("us_requirements") or "").strip() or us_requirements
-            cz_req = (entry.get("cz_requirements") or "").strip() or cz_requirements
             lines = [f"**{display_name}**"]
             if description:
                 lines.append(description)
-            if us_req:
-                lines.append("🇺🇸 Requirements")
-                lines.append("```")
-                lines.append(us_req)
-                lines.append("```")
-            if cz_req:
-                lines.append("🇨🇿 Podmínky přijetí")
-                lines.append("```")
-                lines.append(cz_req)
-                lines.append("```")
             content = "\n".join(lines)
             clan_items.append(discord.ui.TextDisplay(content=content))
 
@@ -849,10 +837,37 @@ class Components(discord.ui.LayoutView):
                 discord.ui.TextDisplay(content="Žádné clany nejsou nastaveny.")
             )
 
+        requirements_items: list[discord.ui.TextDisplay] = []
+        us_req = (us_requirements or "").strip()
+        cz_req = (cz_requirements or "").strip()
+        if us_req:
+            requirements_items.append(
+                discord.ui.TextDisplay(
+                    content=(
+                        "🇺🇸 Requirements\n"
+                        "```\n"
+                        f"{us_req}\n"
+                        "```"
+                    )
+                )
+            )
+        if cz_req:
+            requirements_items.append(
+                discord.ui.TextDisplay(
+                    content=(
+                        "🇨🇿 Podmínky přijetí\n"
+                        "```\n"
+                        f"{cz_req}\n"
+                        "```"
+                    )
+                )
+            )
+
         container = discord.ui.Container(
             discord.ui.TextDisplay(content=f"## {title}"),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
 
+            *requirements_items,
             *clan_items,
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
 
