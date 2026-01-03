@@ -1545,7 +1545,7 @@ class ClanPanelCog(commands.Cog):
     @app_commands.guild_only()
     @app_commands.describe(
         clan_key="Kód clanu (např. hrot)",
-        description="Nový popisek clanu",
+        description="Nový popisek clanu (volitelné)",
         us_requirements="Požadavky pro 🇺🇸 verzi clanu",
         cz_requirements="Požadavky pro 🇨🇿 verzi clanu",
     )
@@ -1553,7 +1553,7 @@ class ClanPanelCog(commands.Cog):
         self,
         interaction: discord.Interaction,
         clan_key: str,
-        description: str,
+        description: str | None = None,
         us_requirements: str | None = None,
         cz_requirements: str | None = None,
     ):
@@ -1578,7 +1578,7 @@ class ClanPanelCog(commands.Cog):
 
         existing = get_clan_definition(guild.id, key_slug) or {}
         final_display = (existing.get("display_name") or key_slug).strip()
-        final_desc = (description or "").strip()
+        final_desc = (description if description is not None else existing.get("description") or "").strip()
         final_us_requirements = (us_requirements or existing.get("us_requirements") or "").strip()
         final_cz_requirements = (cz_requirements or existing.get("cz_requirements") or "").strip()
         final_accept_role_id = existing.get("accept_role_id")
