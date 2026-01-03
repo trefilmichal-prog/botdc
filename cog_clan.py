@@ -817,25 +817,6 @@ class Components(discord.ui.LayoutView):
             )
         ]
 
-        clan_items: list[discord.ui.TextDisplay] = [
-            discord.ui.TextDisplay(content="### Clany")
-        ]
-        for entry in clan_entries:
-            display_name = (entry.get("display_name") or entry.get("clan_key") or "").strip()
-            if not display_name:
-                continue
-            description = (entry.get("description") or "").strip()
-            lines = [f"**{display_name}**"]
-            if description:
-                lines.append(description)
-            content = "\n".join(lines)
-            clan_items.append(discord.ui.TextDisplay(content=content))
-
-        if len(clan_items) == 1:
-            clan_items.append(
-                discord.ui.TextDisplay(content="Žádné clany nejsou nastaveny.")
-            )
-
         requirements_items: list[discord.ui.TextDisplay] = []
         requirements_text = (requirements or "").strip()
         if requirements_text:
@@ -855,7 +836,6 @@ class Components(discord.ui.LayoutView):
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
 
             *requirements_items,
-            *clan_items,
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
 
             discord.ui.ActionRow(
