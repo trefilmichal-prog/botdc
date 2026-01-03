@@ -338,6 +338,8 @@ def init_db():
             clan_key TEXT NOT NULL,
             display_name TEXT NOT NULL,
             description TEXT NOT NULL,
+            us_requirements TEXT NOT NULL DEFAULT '',
+            cz_requirements TEXT NOT NULL DEFAULT '',
             accept_role_id INTEGER,
             accept_role_id_cz INTEGER,
             accept_role_id_en INTEGER,
@@ -366,6 +368,16 @@ def init_db():
 
     try:
         c.execute("ALTER TABLE clan_clans ADD COLUMN sort_order INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        c.execute("ALTER TABLE clan_clans ADD COLUMN us_requirements TEXT NOT NULL DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        c.execute("ALTER TABLE clan_clans ADD COLUMN cz_requirements TEXT NOT NULL DEFAULT ''")
     except sqlite3.OperationalError:
         pass
 
@@ -1199,6 +1211,8 @@ def upsert_clan_definition(
     clan_key: str,
     display_name: str,
     description: str,
+    us_requirements: str,
+    cz_requirements: str,
     accept_role_id: int | None,
     accept_role_id_cz: int | None,
     accept_role_id_en: int | None,
@@ -1215,6 +1229,8 @@ def upsert_clan_definition(
             clan_key,
             display_name,
             description,
+            us_requirements,
+            cz_requirements,
             accept_role_id,
             accept_role_id_cz,
             accept_role_id_en,
@@ -1222,10 +1238,12 @@ def upsert_clan_definition(
             review_role_id,
             sort_order
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(guild_id, clan_key) DO UPDATE SET
             display_name = excluded.display_name,
             description = excluded.description,
+            us_requirements = excluded.us_requirements,
+            cz_requirements = excluded.cz_requirements,
             accept_role_id = excluded.accept_role_id,
             accept_role_id_cz = excluded.accept_role_id_cz,
             accept_role_id_en = excluded.accept_role_id_en,
@@ -1238,6 +1256,8 @@ def upsert_clan_definition(
             clan_key,
             display_name,
             description,
+            us_requirements,
+            cz_requirements,
             accept_role_id,
             accept_role_id_cz,
             accept_role_id_en,
@@ -1266,7 +1286,7 @@ def get_clan_definition(guild_id: int, clan_key: str):
     c = conn.cursor()
     c.execute(
         """
-        SELECT clan_key, display_name, description, accept_role_id, accept_role_id_cz, accept_role_id_en, accept_category_id, review_role_id, sort_order
+        SELECT clan_key, display_name, description, us_requirements, cz_requirements, accept_role_id, accept_role_id_cz, accept_role_id_en, accept_category_id, review_role_id, sort_order
         FROM clan_clans
         WHERE guild_id = ? AND clan_key = ?
         """,
@@ -1280,6 +1300,8 @@ def get_clan_definition(guild_id: int, clan_key: str):
         key,
         name,
         description,
+        us_requirements,
+        cz_requirements,
         accept_role_id,
         accept_role_id_cz,
         accept_role_id_en,
@@ -1291,6 +1313,8 @@ def get_clan_definition(guild_id: int, clan_key: str):
         "clan_key": str(key),
         "display_name": str(name),
         "description": str(description),
+        "us_requirements": str(us_requirements or ""),
+        "cz_requirements": str(cz_requirements or ""),
         "accept_role_id": int(accept_role_id) if accept_role_id is not None else None,
         "accept_role_id_cz": int(accept_role_id_cz) if accept_role_id_cz is not None else None,
         "accept_role_id_en": int(accept_role_id_en) if accept_role_id_en is not None else None,
@@ -1305,7 +1329,7 @@ def list_clan_definitions(guild_id: int):
     c = conn.cursor()
     c.execute(
         """
-        SELECT clan_key, display_name, description, accept_role_id, accept_role_id_cz, accept_role_id_en, accept_category_id, review_role_id, sort_order
+        SELECT clan_key, display_name, description, us_requirements, cz_requirements, accept_role_id, accept_role_id_cz, accept_role_id_en, accept_category_id, review_role_id, sort_order
         FROM clan_clans
         WHERE guild_id = ?
         ORDER BY sort_order ASC, clan_key COLLATE NOCASE
@@ -1319,6 +1343,8 @@ def list_clan_definitions(guild_id: int):
         key,
         name,
         description,
+        us_requirements,
+        cz_requirements,
         accept_role_id,
         accept_role_id_cz,
         accept_role_id_en,
@@ -1331,6 +1357,8 @@ def list_clan_definitions(guild_id: int):
                 "clan_key": str(key),
                 "display_name": str(name),
                 "description": str(description),
+                "us_requirements": str(us_requirements or ""),
+                "cz_requirements": str(cz_requirements or ""),
                 "accept_role_id": int(accept_role_id) if accept_role_id is not None else None,
                 "accept_role_id_cz": int(accept_role_id_cz) if accept_role_id_cz is not None else None,
                 "accept_role_id_en": int(accept_role_id_en) if accept_role_id_en is not None else None,

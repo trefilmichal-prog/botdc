@@ -826,10 +826,22 @@ class Components(discord.ui.LayoutView):
             if not display_name:
                 continue
             description = (entry.get("description") or "").strip()
+            us_req = (entry.get("us_requirements") or "").strip() or us_requirements
+            cz_req = (entry.get("cz_requirements") or "").strip() or cz_requirements
+            lines = [f"**{display_name}**"]
             if description:
-                content = f"**{display_name}**\n{description}"
-            else:
-                content = f"**{display_name}**"
+                lines.append(description)
+            if us_req:
+                lines.append("🇺🇸 Requirements")
+                lines.append("```")
+                lines.append(us_req)
+                lines.append("```")
+            if cz_req:
+                lines.append("🇨🇿 Podmínky přijetí")
+                lines.append("```")
+                lines.append(cz_req)
+                lines.append("```")
+            content = "\n".join(lines)
             clan_items.append(discord.ui.TextDisplay(content=content))
 
         if len(clan_items) == 1:
@@ -839,25 +851,6 @@ class Components(discord.ui.LayoutView):
 
         container = discord.ui.Container(
             discord.ui.TextDisplay(content=f"## {title}"),
-            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
-
-            discord.ui.TextDisplay(
-                content=(
-                    "### 🇺🇸 Requirements\n"
-                    "```\n"
-                    f"{us_requirements}\n"
-                    "```\n"
-                )
-            ),
-            discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
-            discord.ui.TextDisplay(
-                content=(
-                    "### 🇨🇿 Podmínky přijetí\n"
-                    "```\n"
-                    f"{cz_requirements}\n"
-                    "```\n"
-                )
-            ),
             discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.large),
 
             *clan_items,
@@ -1260,6 +1253,87 @@ class ClanApplicationModal(discord.ui.Modal):
         )
 
 
+class ClanPanelEditModal(discord.ui.Modal):
+    """Modal for editing clan description and requirements."""
+
+    def __init__(self, guild_id: int, clan_key: str):
+        self.guild_id = guild_id
+        self.clan_key = clan_key
+        existing = get_clan_definition(guild_id, clan_key) or {}
+        super().__init__(title=f"Úprava clanu {clan_key}")
+
+        self.description = discord.ui.TextInput(
+            label="Popisek clanu",
+            placeholder="Volitelné",
+            default=(existing.get("description") or "")[:4000],
+            required=False,
+            max_length=4000,
+        )
+        self.us_requirements = discord.ui.TextInput(
+            label="Requirements (US)",
+            placeholder="Volitelné",
+            default=(existing.get("us_requirements") or "")[:4000],
+            required=False,
+            max_length=4000,
+        )
+        self.cz_requirements = discord.ui.TextInput(
+            label="Podmínky přijetí (CZ)",
+            placeholder="Volitelné",
+            default=(existing.get("cz_requirements") or "")[:4000],
+            required=False,
+            max_length=4000,
+        )
+
+        self.add_item(self.description)
+        self.add_item(self.us_requirements)
+        self.add_item(self.cz_requirements)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        existing = get_clan_definition(self.guild_id, self.clan_key) or {}
+        final_display = (existing.get("display_name") or self.clan_key).strip()
+        final_desc = (self.description.value or "").strip()
+        final_us_requirements = (self.us_requirements.value or "").strip()
+        final_cz_requirements = (self.cz_requirements.value or "").strip()
+        final_accept_role_id = existing.get("accept_role_id")
+        final_accept_role_id_cz = existing.get("accept_role_id_cz")
+        final_accept_role_id_en = existing.get("accept_role_id_en")
+        final_accept_category_id = existing.get("accept_category_id")
+        final_review_role_id = existing.get("review_role_id")
+        final_sort_order = existing.get("sort_order")
+        if final_sort_order is None:
+            final_sort_order = get_next_clan_sort_order(self.guild_id)
+        else:
+            final_sort_order = int(final_sort_order)
+
+        upsert_clan_definition(
+            self.guild_id,
+            self.clan_key,
+            final_display or self.clan_key,
+            final_desc,
+            final_us_requirements,
+            final_cz_requirements,
+            final_accept_role_id,
+            final_accept_role_id_cz,
+            final_accept_role_id_en,
+            final_accept_category_id,
+            final_review_role_id,
+            final_sort_order,
+        )
+
+        panel_cog = interaction.client.get_cog("ClanPanelCog")
+        if panel_cog is not None and hasattr(panel_cog, "_refresh_clan_panels_for_guild"):
+            try:
+                await panel_cog._refresh_clan_panels_for_guild(self.guild_id)
+            except Exception:
+                pass
+
+        await interaction.response.send_message(
+            content="",
+            view=_simple_text_view("Clan byl upraven."),
+            ephemeral=True,
+        )
+
+
 class ClanPanelCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -1552,13 +1626,11 @@ class ClanPanelCog(commands.Cog):
     @app_commands.guild_only()
     @app_commands.describe(
         clan_key="Kód clanu (např. hrot)",
-        description="Nový popisek clanu",
     )
     async def clan_panel_edit(
         self,
         interaction: discord.Interaction,
         clan_key: str,
-        description: str,
     ):
         guild = interaction.guild
         if guild is None:
@@ -1579,35 +1651,9 @@ class ClanPanelCog(commands.Cog):
             await interaction.response.send_message("no_perm", ephemeral=True)
             return
 
-        existing = get_clan_definition(guild.id, key_slug) or {}
-        final_display = (existing.get("display_name") or key_slug).strip()
-        final_desc = (description or "").strip()
-        final_accept_role_id = existing.get("accept_role_id")
-        final_accept_role_id_cz = existing.get("accept_role_id_cz")
-        final_accept_role_id_en = existing.get("accept_role_id_en")
-        final_accept_category_id = existing.get("accept_category_id")
-        final_review_role_id = existing.get("review_role_id")
-        final_sort_order = existing.get("sort_order")
-        if final_sort_order is None:
-            final_sort_order = get_next_clan_sort_order(guild.id)
-        else:
-            final_sort_order = int(final_sort_order)
-
-        upsert_clan_definition(
-            guild.id,
-            key_slug,
-            final_display or key_slug,
-            final_desc,
-            final_accept_role_id,
-            final_accept_role_id_cz,
-            final_accept_role_id_en,
-            final_accept_category_id,
-            final_review_role_id,
-            final_sort_order,
+        await interaction.response.send_modal(
+            ClanPanelEditModal(guild.id, key_slug)
         )
-
-        await interaction.response.send_message("Popisek clanu byl uložen.", ephemeral=True)
-        await self._refresh_clan_panels_for_guild(guild.id)
 
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.choices(
@@ -1621,6 +1667,8 @@ class ClanPanelCog(commands.Cog):
         clan_key="Kód clanu (např. hrot)",
         display_name="Zobrazovaný název",
         description="Popisek clanu",
+        us_requirements="Požadavky pro 🇺🇸 verzi clanu",
+        cz_requirements="Požadavky pro 🇨🇿 verzi clanu",
         accept_role="Výchozí role, která se má přidat po přijetí",
         accept_role_cz="Role po přijetí pro CZ hráče (podle jazykové role)",
         accept_role_en="Role po přijetí pro EN hráče (podle jazykové role)",
@@ -1635,6 +1683,8 @@ class ClanPanelCog(commands.Cog):
         clan_key: str | None = None,
         display_name: str | None = None,
         description: str | None = None,
+        us_requirements: str | None = None,
+        cz_requirements: str | None = None,
         accept_role: discord.Role | None = None,
         accept_role_cz: discord.Role | None = None,
         accept_role_en: discord.Role | None = None,
@@ -1675,6 +1725,8 @@ class ClanPanelCog(commands.Cog):
                             content=(
                                 f"**{entry['clan_key']}** — {entry.get('display_name', entry['clan_key'])}\n"
                                 f"{desc}\n"
+                                f"• Requirements (US): {(entry.get('us_requirements') or 'Nenastaveno')}\n"
+                                f"• Requirements (CZ): {(entry.get('cz_requirements') or 'Nenastaveno')}\n"
                                 f"• Role po přijetí (default): {accept_txt}\n"
                                 f"• Role po přijetí (CZ): {accept_cz_txt}\n"
                                 f"• Role po přijetí (EN): {accept_en_txt}\n"
@@ -1713,6 +1765,8 @@ class ClanPanelCog(commands.Cog):
         existing = get_clan_definition(guild.id, key_slug) or {}
         final_display = (display_name or existing.get("display_name") or key_slug).strip()
         final_desc = (description or existing.get("description") or "").strip()
+        final_us_requirements = (us_requirements or existing.get("us_requirements") or "").strip()
+        final_cz_requirements = (cz_requirements or existing.get("cz_requirements") or "").strip()
         final_accept_role_id = accept_role.id if accept_role else existing.get("accept_role_id")
         final_accept_role_id_cz = (
             accept_role_cz.id if accept_role_cz else existing.get("accept_role_id_cz")
@@ -1738,6 +1792,8 @@ class ClanPanelCog(commands.Cog):
             key_slug,
             final_display or key_slug,
             final_desc,
+            final_us_requirements,
+            final_cz_requirements,
             final_accept_role_id,
             final_accept_role_id_cz,
             final_accept_role_id_en,
