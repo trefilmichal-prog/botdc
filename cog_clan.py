@@ -1253,6 +1253,87 @@ class ClanApplicationModal(discord.ui.Modal):
         )
 
 
+class ClanPanelEditModal(discord.ui.Modal):
+    """Modal for editing clan description and requirements."""
+
+    def __init__(self, guild_id: int, clan_key: str):
+        self.guild_id = guild_id
+        self.clan_key = clan_key
+        existing = get_clan_definition(guild_id, clan_key) or {}
+        super().__init__(title=f"Úprava clanu {clan_key}")
+
+        self.description = discord.ui.TextInput(
+            label="Popisek clanu",
+            placeholder="Volitelné",
+            default=(existing.get("description") or "")[:4000],
+            required=False,
+            max_length=4000,
+        )
+        self.us_requirements = discord.ui.TextInput(
+            label="Requirements (US)",
+            placeholder="Volitelné",
+            default=(existing.get("us_requirements") or "")[:4000],
+            required=False,
+            max_length=4000,
+        )
+        self.cz_requirements = discord.ui.TextInput(
+            label="Podmínky přijetí (CZ)",
+            placeholder="Volitelné",
+            default=(existing.get("cz_requirements") or "")[:4000],
+            required=False,
+            max_length=4000,
+        )
+
+        self.add_item(self.description)
+        self.add_item(self.us_requirements)
+        self.add_item(self.cz_requirements)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        existing = get_clan_definition(self.guild_id, self.clan_key) or {}
+        final_display = (existing.get("display_name") or self.clan_key).strip()
+        final_desc = (self.description.value or "").strip()
+        final_us_requirements = (self.us_requirements.value or "").strip()
+        final_cz_requirements = (self.cz_requirements.value or "").strip()
+        final_accept_role_id = existing.get("accept_role_id")
+        final_accept_role_id_cz = existing.get("accept_role_id_cz")
+        final_accept_role_id_en = existing.get("accept_role_id_en")
+        final_accept_category_id = existing.get("accept_category_id")
+        final_review_role_id = existing.get("review_role_id")
+        final_sort_order = existing.get("sort_order")
+        if final_sort_order is None:
+            final_sort_order = get_next_clan_sort_order(self.guild_id)
+        else:
+            final_sort_order = int(final_sort_order)
+
+        upsert_clan_definition(
+            self.guild_id,
+            self.clan_key,
+            final_display or self.clan_key,
+            final_desc,
+            final_us_requirements,
+            final_cz_requirements,
+            final_accept_role_id,
+            final_accept_role_id_cz,
+            final_accept_role_id_en,
+            final_accept_category_id,
+            final_review_role_id,
+            final_sort_order,
+        )
+
+        panel_cog = interaction.client.get_cog("ClanPanelCog")
+        if panel_cog is not None and hasattr(panel_cog, "_refresh_clan_panels_for_guild"):
+            try:
+                await panel_cog._refresh_clan_panels_for_guild(self.guild_id)
+            except Exception:
+                pass
+
+        await interaction.response.send_message(
+            content="",
+            view=_simple_text_view("Clan byl upraven."),
+            ephemeral=True,
+        )
+
+
 class ClanPanelCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -1545,17 +1626,11 @@ class ClanPanelCog(commands.Cog):
     @app_commands.guild_only()
     @app_commands.describe(
         clan_key="Kód clanu (např. hrot)",
-        description="Nový popisek clanu (volitelné)",
-        us_requirements="Požadavky pro 🇺🇸 verzi clanu",
-        cz_requirements="Požadavky pro 🇨🇿 verzi clanu",
     )
     async def clan_panel_edit(
         self,
         interaction: discord.Interaction,
         clan_key: str,
-        description: str | None = None,
-        us_requirements: str | None = None,
-        cz_requirements: str | None = None,
     ):
         guild = interaction.guild
         if guild is None:
@@ -1576,39 +1651,9 @@ class ClanPanelCog(commands.Cog):
             await interaction.response.send_message("no_perm", ephemeral=True)
             return
 
-        existing = get_clan_definition(guild.id, key_slug) or {}
-        final_display = (existing.get("display_name") or key_slug).strip()
-        final_desc = (description if description is not None else existing.get("description") or "").strip()
-        final_us_requirements = (us_requirements or existing.get("us_requirements") or "").strip()
-        final_cz_requirements = (cz_requirements or existing.get("cz_requirements") or "").strip()
-        final_accept_role_id = existing.get("accept_role_id")
-        final_accept_role_id_cz = existing.get("accept_role_id_cz")
-        final_accept_role_id_en = existing.get("accept_role_id_en")
-        final_accept_category_id = existing.get("accept_category_id")
-        final_review_role_id = existing.get("review_role_id")
-        final_sort_order = existing.get("sort_order")
-        if final_sort_order is None:
-            final_sort_order = get_next_clan_sort_order(guild.id)
-        else:
-            final_sort_order = int(final_sort_order)
-
-        upsert_clan_definition(
-            guild.id,
-            key_slug,
-            final_display or key_slug,
-            final_desc,
-            final_us_requirements,
-            final_cz_requirements,
-            final_accept_role_id,
-            final_accept_role_id_cz,
-            final_accept_role_id_en,
-            final_accept_category_id,
-            final_review_role_id,
-            final_sort_order,
+        await interaction.response.send_modal(
+            ClanPanelEditModal(guild.id, key_slug)
         )
-
-        await interaction.response.send_message("Popisek clanu byl uložen.", ephemeral=True)
-        await self._refresh_clan_panels_for_guild(guild.id)
 
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.choices(
