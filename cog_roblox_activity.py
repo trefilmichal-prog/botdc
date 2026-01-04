@@ -1133,10 +1133,10 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
                 )
                 if friend_status_unknown:
                     note_parts.append(
-                        "Friend status unknown (missing cookie/API error)"
+                        "not friend with senpaicat22"
                     )
                     unresolved_lines.append(
-                        f"**{username}** – friend status unknown (missing cookie/API error)"
+                        f"**{username}** – not friend with senpaicat22"
                     )
                 if connection_status:
                     if connection_status.get("is_friend") is False:
