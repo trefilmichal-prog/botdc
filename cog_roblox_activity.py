@@ -1090,12 +1090,9 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             detail["members_display"] = members_text
             connection_status = connections.get(user_id)
             count_offline = not (
-                is_online is False
-                and connection_status is not None
-                and (
-                    connection_status.get("is_friend") is False
-                    or connection_status.get("is_pending")
-                )
+                connection_status is None
+                or connection_status.get("is_friend") is not True
+                or connection_status.get("is_pending") is True
             )
             if self._tracking_enabled and is_online is not None:
                 duration_seconds, went_offline, ended_online_duration = self._update_presence_tracking(
