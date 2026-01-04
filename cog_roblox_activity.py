@@ -1124,6 +1124,20 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             elif is_online is False:
                 note_parts: list[str] = []
                 no_friend = False
+                friend_status_unknown = (
+                    connection_status is None
+                    or (
+                        connection_status.get("is_friend") is None
+                        and not connection_status.get("is_pending")
+                    )
+                )
+                if friend_status_unknown:
+                    note_parts.append(
+                        "Friend status unknown (missing cookie/API error)"
+                    )
+                    unresolved_lines.append(
+                        f"**{username}** – friend status unknown (missing cookie/API error)"
+                    )
                 if connection_status:
                     if connection_status.get("is_friend") is False:
                         if connection_status.get("is_pending"):
