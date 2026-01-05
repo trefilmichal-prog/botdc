@@ -822,10 +822,7 @@ class Components(discord.ui.LayoutView):
         if requirements_text:
             requirements_items.append(
                 discord.ui.TextDisplay(
-                    content=(
-                        "### 🇺🇸 Requirements/podmínky 🇨🇿\n"
-                        f"{requirements_text}"
-                    )
+                    content=requirements_text
                 )
             )
 
