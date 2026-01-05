@@ -824,9 +824,7 @@ class Components(discord.ui.LayoutView):
                 discord.ui.TextDisplay(
                     content=(
                         "### 🇺🇸 Requirements/podmínky 🇨🇿\n"
-                        "```\n"
-                        f"{requirements_text}\n"
-                        "```"
+                        f"{requirements_text}"
                     )
                 )
             )
