@@ -1,3 +1,4 @@
+import io
 import logging
 
 import discord
@@ -38,9 +39,6 @@ class WelcomeCog(commands.Cog):
                 discord.ui.TextDisplay(content=member.mention),
                 discord.ui.TextDisplay(content="## 🎉 Welcome!"),
                 discord.ui.TextDisplay(content=description),
-                discord.ui.TextDisplay(
-                    content=f"Avatar: {member.display_avatar.url}"
-                ),
                 discord.ui.TextDisplay(content="We're glad you're here!"),
             )
         )
@@ -65,4 +63,8 @@ class WelcomeCog(commands.Cog):
         if channel is None:
             return
 
-        await channel.send(view=self._build_view(after, WELCOME_TEXT))
+        avatar_bytes = await after.display_avatar.with_size(256).read()
+        file = discord.File(io.BytesIO(avatar_bytes), filename="avatar.png")
+        await channel.send(
+            file=file, view=self._build_view(after, WELCOME_TEXT)
+        )
