@@ -551,6 +551,10 @@ class SecretNotificationsForwarder(commands.Cog):
             matched_ids = []
             seen_ids = set()
             for name, entry in self._clan_member_cache.items():
+                if not (
+                    entry.get("roblox_username") or entry.get("roblox_nick")
+                ):
+                    continue
                 if name and self._has_exact_name_match(normalized_text, name):
                     member_id = entry.get("id")
                     if member_id not in seen_ids:
@@ -827,14 +831,12 @@ class SecretNotificationsForwarder(commands.Cog):
             if isinstance(member_id, int) and member_id not in existing_by_id:
                 existing_by_id[member_id] = entry
         new_entries_by_id: dict[int, dict[str, Any]] = {}
-        name_keys_by_id: dict[int, set[str]] = {}
         for role_id in self._secret_role_ids:
             role = guild.get_role(role_id)
             if role is None:
                 logger.warning("Role %s nebyla nalezena pro cache hráčů.", role_id)
                 continue
             for member in role.members:
-                global_name = getattr(member, "global_name", None)
                 candidate_username = str(member.display_name)
                 existing_entry = existing_by_id.get(member.id)
                 entry: dict[str, Any] = {
@@ -862,20 +864,11 @@ class SecretNotificationsForwarder(commands.Cog):
                     entry.pop("roblox_nick_updated_at", None)
                 entry["roblox_username"] = candidate_username
                 new_entries_by_id[member.id] = entry
-                name_keys_by_id.setdefault(member.id, set()).update(
-                    {
-                        str(name)
-                        for name in (member.display_name, member.name, global_name)
-                        if name
-                    }
-                )
 
         await self._refresh_roblox_nicknames(new_entries_by_id)
 
         new_cache: dict[str, dict[str, Any]] = {}
         for member_id, entry in new_entries_by_id.items():
-            for name in name_keys_by_id.get(member_id, set()):
-                self._add_cache_key(new_cache, name, entry)
             if entry.get("roblox_username"):
                 self._add_cache_key(new_cache, entry["roblox_username"], entry)
             if entry.get("roblox_nick"):
@@ -1042,7 +1035,6 @@ class SecretNotificationsForwarder(commands.Cog):
                     self._replace_cache_nick_key(
                         previous_nick, display_name, entry
                     )
-                self._add_cache_key(self._clan_member_cache, display_name, entry)
                 updated_cache = True
             entry["roblox_nick_checked_at"] = now_iso
         if updated_cache:
