@@ -3,13 +3,15 @@ import contextlib
 import logging
 import os
 import shutil
+import ssl
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
 
-from config import DB_PATH, WINRT_LOG_PATH
+from config import DB_PATH, UPDATER_CA_BUNDLE, WINRT_LOG_PATH
 
 import discord
 from discord import app_commands
@@ -37,8 +39,35 @@ class AutoUpdater(commands.Cog):
     @staticmethod
     def _download_archive_sync(url: str, destination: Path) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
-        with urllib.request.urlopen(url) as response:
-            destination.write_bytes(response.read())
+        context = ssl.create_default_context(cafile=UPDATER_CA_BUNDLE)
+        try:
+            with urllib.request.urlopen(url, context=context) as response:
+                destination.write_bytes(response.read())
+        except ssl.SSLCertVerificationError as exc:
+            message = (
+                "SSL ověření selhalo. Nainstalujte CA certifikáty do systému "
+                "nebo nastavte UPDATER_CA_BUNDLE/SSL_CERT_FILE/REQUESTS_CA_BUNDLE "
+                "na cestu k CA bundle."
+            )
+            logging.getLogger("botdc.updater").exception(
+                "SSL ověření selhalo při stahování %s: %s", url, exc
+            )
+            raise RuntimeError(message) from exc
+        except urllib.error.URLError as exc:
+            if isinstance(exc.reason, ssl.SSLCertVerificationError):
+                message = (
+                    "SSL ověření selhalo. Nainstalujte CA certifikáty do systému "
+                    "nebo nastavte UPDATER_CA_BUNDLE/SSL_CERT_FILE/REQUESTS_CA_BUNDLE "
+                    "na cestu k CA bundle."
+                )
+                logging.getLogger("botdc.updater").exception(
+                    "SSL ověření selhalo při stahování %s: %s", url, exc
+                )
+                raise RuntimeError(message) from exc
+            logging.getLogger("botdc.updater").exception(
+                "Stahování archivu selhalo pro %s: %s", url, exc
+            )
+            raise
 
     async def _run_git_command(self, *args: str) -> tuple[int, str, str]:
         git_executable = shutil.which("git")

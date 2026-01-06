@@ -50,6 +50,23 @@ if not DEEPL_CA_BUNDLE:
         if os.path.isfile(certifi_path) and os.access(certifi_path, os.R_OK):
             DEEPL_CA_BUNDLE = certifi_path
 
+# CA bundle pro updater (přednostně UPDATER_CA_BUNDLE, pak standardní proměnné)
+UPDATER_CA_BUNDLE = (
+    os.getenv("UPDATER_CA_BUNDLE")
+    or os.getenv("SSL_CERT_FILE")
+    or os.getenv("REQUESTS_CA_BUNDLE")
+)
+if UPDATER_CA_BUNDLE:
+    if not (
+        os.path.isfile(UPDATER_CA_BUNDLE)
+        and os.access(UPDATER_CA_BUNDLE, os.R_OK)
+    ):
+        logger.warning(
+            "UPDATER_CA_BUNDLE path is not readable or missing: %s",
+            UPDATER_CA_BUNDLE,
+        )
+        UPDATER_CA_BUNDLE = None
+
 # Přehled času – cílová místnost a výchozí americká oblast
 TIME_STATUS_CHANNEL_ID = 1445973251019898961
 TIME_STATUS_STATE_NAME = os.getenv("TIME_STATUS_STATE_NAME", "New York")
