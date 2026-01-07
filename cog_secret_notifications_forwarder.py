@@ -434,6 +434,8 @@ class SecretNotificationsForwarder(commands.Cog):
                 entry_text = str(entry)
                 entry_lines = entry_text.splitlines() or [entry_text]
                 for line in entry_lines:
+                    if self._is_filtered_notification_header(str(line)):
+                        continue
                     if (
                         not include_congrats_for_match
                         and congrats_pattern.match(str(line))
@@ -445,14 +447,21 @@ class SecretNotificationsForwarder(commands.Cog):
         if isinstance(text_value, str):
             split_lines = text_value.splitlines() or [text_value]
             if include_congrats_for_match:
-                return split_lines
+                return [
+                    line
+                    for line in split_lines
+                    if not self._is_filtered_notification_header(str(line))
+                ]
             return [
                 self._strip_congrats_prefix(str(line))
                 if congrats_pattern.match(str(line))
                 else line
                 for line in split_lines
+                if not self._is_filtered_notification_header(str(line))
             ]
         text_line = str(text_value)
+        if self._is_filtered_notification_header(text_line):
+            return []
         if not include_congrats_for_match and congrats_pattern.match(text_line):
             return [self._strip_congrats_prefix(text_line)]
         return [text_line]
