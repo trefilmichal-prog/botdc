@@ -1563,7 +1563,7 @@ class ClanPanelCog(commands.Cog):
         view = discord.ui.LayoutView(timeout=None)
         message_key = "ticket_reminder_manual_done" if sent else "ticket_reminder_manual_none"
         view.add_item(discord.ui.TextDisplay(content=_t(lang, message_key).format(count=sent)))
-        await interaction.edit_original_response(content="", view=view)
+        await interaction.edit_original_response(view=view)
 
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.guild_only()
@@ -1868,13 +1868,17 @@ class ClanPanelCog(commands.Cog):
                     clan_value = topic_clan
 
                 if not applicant_id:
-                    await interaction.edit_original_response(content=_t(lang, "cant_get_applicant"))
+                    await interaction.edit_original_response(
+                        view=_simple_text_view(_t(lang, "cant_get_applicant"))
+                    )
                     return
 
                 try:
                     applicant = guild.get_member(applicant_id) or await guild.fetch_member(applicant_id)
                 except discord.NotFound:
-                    await interaction.edit_original_response(content=_t(lang, "applicant_left"))
+                    await interaction.edit_original_response(
+                        view=_simple_text_view(_t(lang, "applicant_left"))
+                    )
                     return
 
                 candidate_role_ids = _candidate_member_role_ids_for_clan(clan_value, guild.id)
@@ -1945,7 +1949,9 @@ class ClanPanelCog(commands.Cog):
                         pass
 
                 response_lines = [_t(lang, "kick_done"), role_info, ticket_info]
-                await interaction.edit_original_response(content="\n".join(response_lines))
+                await interaction.edit_original_response(
+                    view=_simple_text_view("\n".join(response_lines))
+                )
                 return
 
             if action == "delete":
@@ -1965,10 +1971,14 @@ class ClanPanelCog(commands.Cog):
                     await ticket_channel.delete(reason=f"Clan ticket deleted by {clicker}")
                     deleted_ok = True
                 except discord.Forbidden:
-                    await interaction.edit_original_response(content=_t(lang, "delete_no_perms"))
+                    await interaction.edit_original_response(
+                        view=_simple_text_view(_t(lang, "delete_no_perms"))
+                    )
                     return
                 except discord.HTTPException as e:
-                    await interaction.edit_original_response(content=f"{_t(lang, 'delete_api_err')} {e}")
+                    await interaction.edit_original_response(
+                        view=_simple_text_view(f"{_t(lang, 'delete_api_err')} {e}")
+                    )
                     return
 
                 if deleted_ok:
