@@ -67,6 +67,18 @@ if UPDATER_CA_BUNDLE:
         )
         UPDATER_CA_BUNDLE = None
 
+if not UPDATER_CA_BUNDLE:
+    certifi_spec = importlib.util.find_spec("certifi")
+    if certifi_spec is not None:
+        certifi = importlib.import_module("certifi")
+        certifi_path = certifi.where()
+        if os.path.isfile(certifi_path) and os.access(certifi_path, os.R_OK):
+            UPDATER_CA_BUNDLE = certifi_path
+        else:
+            logger.warning("certifi CA bundle path is not readable: %s", certifi_path)
+    else:
+        logger.warning("certifi package not available for UPDATER_CA_BUNDLE fallback.")
+
 # Přehled času – cílová místnost a výchozí americká oblast
 TIME_STATUS_CHANNEL_ID = 1445973251019898961
 TIME_STATUS_STATE_NAME = os.getenv("TIME_STATUS_STATE_NAME", "New York")
