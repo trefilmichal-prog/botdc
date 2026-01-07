@@ -56,6 +56,9 @@ ROBLOX_NICK_REFRESH_MINUTES = 10
 CONGRATS_LINE_REGEX = re.compile(
     r"^🔥\s*Congrats!\s*:flag_[a-z]{2}:", re.IGNORECASE
 )
+NOTIFICATION_HEADER_SKIP_REGEX = re.compile(
+    r"^Secrets Hatched.*#🐾┃secrets-hatched.*REBIRTH CHAMPIONS"
+)
 
 logger = logging.getLogger("botdc.secret_notifications")
 winrt_logger = logging.getLogger("botdc.winrt_notifications")
@@ -404,13 +407,16 @@ class SecretNotificationsForwarder(commands.Cog):
                     if entry is None:
                         continue
                     normalized = self._strip_app_prefix(str(entry))
-                    if normalized:
+                    if normalized and not self._is_filtered_notification_header(normalized):
                         headers.append(normalized)
             else:
                 normalized = self._strip_app_prefix(str(value))
-                if normalized:
+                if normalized and not self._is_filtered_notification_header(normalized):
                     headers.append(normalized)
         return headers
+
+    def _is_filtered_notification_header(self, text: str) -> bool:
+        return bool(NOTIFICATION_HEADER_SKIP_REGEX.match(text))
 
     def _extract_notification_text_lines(
         self, text_value: Any, include_congrats_for_match: bool = False
