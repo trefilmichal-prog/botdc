@@ -530,11 +530,45 @@ def init_db():
             message_id INTEGER PRIMARY KEY,
             guild_id INTEGER NOT NULL,
             channel_id INTEGER NOT NULL,
-            role_id INTEGER NOT NULL,
+            role_ids_json TEXT NOT NULL,
             statuses_json TEXT NOT NULL
         )
         """
     )
+    c.execute("PRAGMA table_info(attendance_panels)")
+    attendance_columns = {row[1] for row in c.fetchall()}
+    if "role_id" in attendance_columns and "role_ids_json" not in attendance_columns:
+        c.execute(
+            """
+            CREATE TABLE attendance_panels_new (
+                message_id INTEGER PRIMARY KEY,
+                guild_id INTEGER NOT NULL,
+                channel_id INTEGER NOT NULL,
+                role_ids_json TEXT NOT NULL,
+                statuses_json TEXT NOT NULL
+            )
+            """
+        )
+        c.execute(
+            """
+            INSERT INTO attendance_panels_new (
+                message_id,
+                guild_id,
+                channel_id,
+                role_ids_json,
+                statuses_json
+            )
+            SELECT
+                message_id,
+                guild_id,
+                channel_id,
+                printf('[%d]', role_id),
+                statuses_json
+            FROM attendance_panels
+            """
+        )
+        c.execute("DROP TABLE attendance_panels")
+        c.execute("ALTER TABLE attendance_panels_new RENAME TO attendance_panels")
 
     c.execute(
         """
@@ -1000,22 +1034,28 @@ def save_attendance_panel(
     message_id: int,
     guild_id: int,
     channel_id: int,
-    role_id: int,
+    role_ids: List[int],
     statuses: Dict[int, str],
 ):
     conn = get_connection()
     c = conn.cursor()
     c.execute(
         """
-        INSERT INTO attendance_panels (message_id, guild_id, channel_id, role_id, statuses_json)
+        INSERT INTO attendance_panels (
+            message_id,
+            guild_id,
+            channel_id,
+            role_ids_json,
+            statuses_json
+        )
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(message_id) DO UPDATE SET
             guild_id = excluded.guild_id,
             channel_id = excluded.channel_id,
-            role_id = excluded.role_id,
+            role_ids_json = excluded.role_ids_json,
             statuses_json = excluded.statuses_json
         """,
-        (message_id, guild_id, channel_id, role_id, json.dumps(statuses)),
+        (message_id, guild_id, channel_id, json.dumps(role_ids), json.dumps(statuses)),
     )
     conn.commit()
     conn.close()
@@ -1029,24 +1069,69 @@ def delete_attendance_panel(message_id: int):
     conn.close()
 
 
-def load_attendance_panels() -> list[tuple[int, int, int, int, Dict[int, str]]]:
+def load_attendance_panels() -> list[tuple[int, int, int, List[int], Dict[int, str]]]:
     conn = get_connection()
     c = conn.cursor()
-    c.execute(
-        "SELECT message_id, guild_id, channel_id, role_id, statuses_json FROM attendance_panels"
-    )
-    rows = c.fetchall()
+    c.execute("PRAGMA table_info(attendance_panels)")
+    columns = {row[1] for row in c.fetchall()}
+    if "role_ids_json" in columns and "role_id" in columns:
+        c.execute(
+            """
+            SELECT
+                message_id,
+                guild_id,
+                channel_id,
+                role_ids_json,
+                role_id,
+                statuses_json
+            FROM attendance_panels
+            """
+        )
+        rows = c.fetchall()
+        with_role_id = True
+    elif "role_ids_json" in columns:
+        c.execute(
+            """
+            SELECT message_id, guild_id, channel_id, role_ids_json, statuses_json
+            FROM attendance_panels
+            """
+        )
+        rows = c.fetchall()
+        with_role_id = False
+    else:
+        c.execute(
+            "SELECT message_id, guild_id, channel_id, role_id, statuses_json FROM attendance_panels"
+        )
+        rows = c.fetchall()
+        with_role_id = True
     conn.close()
-    panels: list[tuple[int, int, int, int, Dict[int, str]]] = []
-    for message_id, guild_id, channel_id, role_id, statuses_json in rows:
+    panels: list[tuple[int, int, int, List[int], Dict[int, str]]] = []
+    for row in rows:
+        if with_role_id and len(row) == 6:
+            message_id, guild_id, channel_id, role_ids_json, role_id, statuses_json = (
+                row
+            )
+        elif with_role_id and len(row) == 5:
+            message_id, guild_id, channel_id, role_id, statuses_json = row
+            role_ids_json = None
+        else:
+            message_id, guild_id, channel_id, role_ids_json, statuses_json = row
+            role_id = None
         try:
             statuses = json.loads(statuses_json) if statuses_json else {}
+            role_ids = []
+            if role_ids_json:
+                parsed_roles = json.loads(role_ids_json)
+                if isinstance(parsed_roles, list):
+                    role_ids = [int(role) for role in parsed_roles]
+            if not role_ids and role_id is not None:
+                role_ids = [int(role_id)]
             panels.append(
                 (
                     int(message_id),
                     int(guild_id),
                     int(channel_id),
-                    int(role_id),
+                    role_ids,
                     {int(uid): str(status) for uid, status in statuses.items()},
                 )
             )
