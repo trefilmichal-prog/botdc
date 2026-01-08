@@ -334,7 +334,13 @@ class SecretNotificationsForwarder(commands.Cog):
             )
 
             text_lines = (text_line or "").splitlines() or [""]
-            stripped_lines = [self._strip_app_prefix(line) for line in text_lines]
+            stripped_lines = [
+                stripped
+                for line in text_lines
+                if not self._is_filtered_notification_header(
+                    stripped := self._strip_app_prefix(line)
+                )
+            ]
             if include_congrats_for_match:
                 return stripped_lines
             return [
