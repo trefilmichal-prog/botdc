@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional
@@ -416,7 +417,8 @@ class SecretNotificationsForwarder(commands.Cog):
         return headers
 
     def _is_filtered_notification_header(self, text: str) -> bool:
-        return bool(NOTIFICATION_HEADER_SKIP_REGEX.search(text))
+        normalized = self._strip_control_and_bidi(text)
+        return bool(NOTIFICATION_HEADER_SKIP_REGEX.search(normalized))
 
     def _extract_notification_text_lines(
         self, text_value: Any, include_congrats_for_match: bool = False
@@ -512,6 +514,7 @@ class SecretNotificationsForwarder(commands.Cog):
             text = self._strip_app_prefix(str(value))
         except Exception:
             return "\u200b"
+        text = self._strip_control_and_bidi(text)
         if text.strip() == "":
             return "\u200b"
         return text
@@ -522,8 +525,25 @@ class SecretNotificationsForwarder(commands.Cog):
         stripped = text.lstrip()
         if stripped.startswith("[APP]"):
             without_prefix = stripped[len("[APP]") :].lstrip()
-            return without_prefix
-        return text
+            return self._strip_control_and_bidi(without_prefix)
+        return self._strip_control_and_bidi(text)
+
+    def _strip_control_and_bidi(self, text: str) -> str:
+        if not text:
+            return text
+        cleaned_chars = []
+        for char in text:
+            codepoint = ord(char)
+            if unicodedata.category(char) == "Cf":
+                continue
+            if 0x202A <= codepoint <= 0x202E:
+                continue
+            if 0x2066 <= codepoint <= 0x2069:
+                continue
+            if codepoint in (0x200E, 0x200F):
+                continue
+            cleaned_chars.append(char)
+        return "".join(cleaned_chars)
 
     def _normalize_name(self, text: str) -> str:
         return normalize_clan_member_name(text)
