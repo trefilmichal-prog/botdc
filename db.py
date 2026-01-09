@@ -535,6 +535,16 @@ def init_db():
         )
         """
     )
+
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS attendance_setup_panels (
+            message_id INTEGER PRIMARY KEY,
+            guild_id INTEGER NOT NULL,
+            channel_id INTEGER NOT NULL
+        )
+        """
+    )
     c.execute("PRAGMA table_info(attendance_panels)")
     attendance_columns = {row[1] for row in c.fetchall()}
     if "role_id" in attendance_columns and "role_ids_json" not in attendance_columns:
@@ -1139,6 +1149,46 @@ def load_attendance_panels() -> list[tuple[int, int, int, List[int], Dict[int, s
             continue
 
     return panels
+
+
+def save_attendance_setup_panel(message_id: int, guild_id: int, channel_id: int) -> None:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO attendance_setup_panels (
+            message_id,
+            guild_id,
+            channel_id
+        )
+        VALUES (?, ?, ?)
+        ON CONFLICT(message_id) DO UPDATE SET
+            guild_id = excluded.guild_id,
+            channel_id = excluded.channel_id
+        """,
+        (message_id, guild_id, channel_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_attendance_setup_panel(message_id: int) -> None:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM attendance_setup_panels WHERE message_id = ?", (message_id,))
+    conn.commit()
+    conn.close()
+
+
+def load_attendance_setup_panels() -> list[tuple[int, int, int]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "SELECT message_id, guild_id, channel_id FROM attendance_setup_panels"
+    )
+    rows = c.fetchall()
+    conn.close()
+    return [(int(row[0]), int(row[1]), int(row[2])) for row in rows]
 
 
 # ---------- PROPHECY LOGS ----------
