@@ -8,7 +8,14 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import SETUP_PANEL_ROLE_ID
-from db import delete_attendance_panel, load_attendance_panels, save_attendance_panel
+from db import (
+    delete_attendance_panel,
+    delete_attendance_setup_panel,
+    load_attendance_panels,
+    load_attendance_setup_panels,
+    save_attendance_panel,
+    save_attendance_setup_panel,
+)
 
 
 class AttendanceStatus:
@@ -268,7 +275,7 @@ class AttendancePanelView(discord.ui.LayoutView):
 
 class SetupReadyPanelView(discord.ui.LayoutView):
     def __init__(self, cog: "AttendanceCog", guild: discord.Guild):
-        super().__init__(timeout=300)
+        super().__init__(timeout=None)
         self.cog = cog
         self.guild_id = guild.id
         self.selected_role_ids: List[int] = []
@@ -288,6 +295,7 @@ class SetupReadyPanelView(discord.ui.LayoutView):
             min_values=1,
             max_values=max_values,
             options=options,
+            custom_id="attendance_setup_role_select",
         )
         self.role_select.callback = self.on_select
 
@@ -372,13 +380,16 @@ class AttendanceCog(commands.Cog, name="Attendance"):
         self.bot = bot
         self.sessions: Dict[int, AttendanceSession] = {}
         self._restored = False
+        self._setup_restored = False
 
     async def cog_load(self):
         await self.restore_panels()
+        await self.restore_setup_panels()
 
     @commands.Cog.listener()
     async def on_ready(self):
         await self.restore_panels()
+        await self.restore_setup_panels()
 
     @staticmethod
     def collect_members(roles: List[discord.Role]) -> List[discord.Member]:
@@ -551,6 +562,31 @@ class AttendanceCog(commands.Cog, name="Attendance"):
             except (discord.Forbidden, discord.HTTPException):
                 delete_attendance_panel(message_id)
 
+    async def restore_setup_panels(self) -> None:
+        if self._setup_restored:
+            return
+
+        self._setup_restored = True
+        for message_id, guild_id, channel_id in load_attendance_setup_panels():
+            guild = self.bot.get_guild(guild_id)
+            if guild is None:
+                delete_attendance_setup_panel(message_id)
+                continue
+
+            channel = guild.get_channel(channel_id)
+            if not isinstance(channel, discord.TextChannel):
+                delete_attendance_setup_panel(message_id)
+                continue
+
+            try:
+                await channel.fetch_message(message_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                delete_attendance_setup_panel(message_id)
+                continue
+
+            view = SetupReadyPanelView(self, guild)
+            self.bot.add_view(view, message_id=message_id)
+
     @app_commands.command(
         name="setup_ready_panel",
         description="Vytvoří docházkový panel pro vybrané role.",
@@ -568,9 +604,12 @@ class AttendanceCog(commands.Cog, name="Attendance"):
             return
 
         view = SetupReadyPanelView(self, interaction.guild)
-        await interaction.followup.send(
+        message = await interaction.followup.send(
             content="Vyber role, pro které chceš vytvořit docházkový panel.",
             view=view,
+        )
+        save_attendance_setup_panel(
+            message.id, interaction.guild.id, interaction.channel.id
         )
 
     @setup_ready_panel.error
