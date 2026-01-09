@@ -541,10 +541,28 @@ def init_db():
         CREATE TABLE IF NOT EXISTS attendance_setup_panels (
             message_id INTEGER PRIMARY KEY,
             guild_id INTEGER NOT NULL,
-            channel_id INTEGER NOT NULL
+            channel_id INTEGER NOT NULL,
+            selected_role_ids_json TEXT,
+            page_index INTEGER NOT NULL DEFAULT 0
         )
         """
     )
+    c.execute("PRAGMA table_info(attendance_setup_panels)")
+    setup_columns = {row[1] for row in c.fetchall()}
+    if "selected_role_ids_json" not in setup_columns:
+        try:
+            c.execute(
+                "ALTER TABLE attendance_setup_panels ADD COLUMN selected_role_ids_json TEXT"
+            )
+        except sqlite3.OperationalError:
+            pass
+    if "page_index" not in setup_columns:
+        try:
+            c.execute(
+                "ALTER TABLE attendance_setup_panels ADD COLUMN page_index INTEGER NOT NULL DEFAULT 0"
+            )
+        except sqlite3.OperationalError:
+            pass
     c.execute("PRAGMA table_info(attendance_panels)")
     attendance_columns = {row[1] for row in c.fetchall()}
     if "role_id" in attendance_columns and "role_ids_json" not in attendance_columns:
@@ -1151,7 +1169,14 @@ def load_attendance_panels() -> list[tuple[int, int, int, List[int], Dict[int, s
     return panels
 
 
-def save_attendance_setup_panel(message_id: int, guild_id: int, channel_id: int) -> None:
+def save_attendance_setup_panel(
+    message_id: int,
+    guild_id: int,
+    channel_id: int,
+    selected_role_ids: list[int] | None = None,
+    page_index: int = 0,
+) -> None:
+    selected_role_ids_json = json.dumps(selected_role_ids or [])
     conn = get_connection()
     c = conn.cursor()
     c.execute(
@@ -1159,14 +1184,18 @@ def save_attendance_setup_panel(message_id: int, guild_id: int, channel_id: int)
         INSERT INTO attendance_setup_panels (
             message_id,
             guild_id,
-            channel_id
+            channel_id,
+            selected_role_ids_json,
+            page_index
         )
-        VALUES (?, ?, ?)
+        VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(message_id) DO UPDATE SET
             guild_id = excluded.guild_id,
-            channel_id = excluded.channel_id
+            channel_id = excluded.channel_id,
+            selected_role_ids_json = excluded.selected_role_ids_json,
+            page_index = excluded.page_index
         """,
-        (message_id, guild_id, channel_id),
+        (message_id, guild_id, channel_id, selected_role_ids_json, page_index),
     )
     conn.commit()
     conn.close()
@@ -1180,15 +1209,38 @@ def delete_attendance_setup_panel(message_id: int) -> None:
     conn.close()
 
 
-def load_attendance_setup_panels() -> list[tuple[int, int, int]]:
+def load_attendance_setup_panels() -> list[tuple[int, int, int, list[int], int]]:
     conn = get_connection()
     c = conn.cursor()
     c.execute(
-        "SELECT message_id, guild_id, channel_id FROM attendance_setup_panels"
+        """
+        SELECT message_id, guild_id, channel_id, selected_role_ids_json, page_index
+        FROM attendance_setup_panels
+        """
     )
     rows = c.fetchall()
     conn.close()
-    return [(int(row[0]), int(row[1]), int(row[2])) for row in rows]
+    panels = []
+    for row in rows:
+        message_id, guild_id, channel_id, selected_role_ids_json, page_index = row
+        selected_role_ids = []
+        if selected_role_ids_json:
+            try:
+                parsed_roles = json.loads(selected_role_ids_json)
+                if isinstance(parsed_roles, list):
+                    selected_role_ids = [int(role) for role in parsed_roles]
+            except json.JSONDecodeError:
+                selected_role_ids = []
+        panels.append(
+            (
+                int(message_id),
+                int(guild_id),
+                int(channel_id),
+                selected_role_ids,
+                int(page_index) if page_index is not None else 0,
+            )
+        )
+    return panels
 
 
 # ---------- PROPHECY LOGS ----------

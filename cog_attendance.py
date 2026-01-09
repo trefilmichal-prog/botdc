@@ -274,11 +274,21 @@ class AttendancePanelView(discord.ui.LayoutView):
 
 
 class SetupReadyPanelView(discord.ui.LayoutView):
-    def __init__(self, cog: "AttendanceCog", guild: discord.Guild):
+    ROLE_PAGE_SIZE = 25
+
+    def __init__(
+        self,
+        cog: "AttendanceCog",
+        guild: discord.Guild,
+        selected_role_ids: List[int] | None = None,
+        page_index: int = 0,
+    ):
         super().__init__(timeout=None)
         self.cog = cog
         self.guild_id = guild.id
-        self.selected_role_ids: List[int] = []
+        self.selected_role_ids = selected_role_ids or []
+        self.page_index = page_index
+        self.page_role_ids: List[int] = []
 
         self.summary = discord.ui.Container(
             discord.ui.TextDisplay(content="## Nastavení docházkového panelu"),
@@ -289,15 +299,31 @@ class SetupReadyPanelView(discord.ui.LayoutView):
         )
 
         options = self._build_role_options(guild)
-        max_values = min(25, len(options))
+        max_values = min(self.ROLE_PAGE_SIZE, len(options))
         self.role_select = discord.ui.Select(
-            placeholder="Zvol role",
-            min_values=1,
+            placeholder=self._build_placeholder(guild),
+            min_values=0,
             max_values=max_values,
             options=options,
             custom_id="attendance_setup_role_select",
         )
         self.role_select.callback = self.on_select
+
+        self.prev_button = discord.ui.Button(
+            label="Předchozí stránka",
+            style=discord.ButtonStyle.secondary,
+            custom_id="attendance_setup_prev_page",
+            disabled=True,
+        )
+        self.prev_button.callback = self.on_prev_page
+
+        self.next_button = discord.ui.Button(
+            label="Další stránka",
+            style=discord.ButtonStyle.secondary,
+            custom_id="attendance_setup_next_page",
+            disabled=True,
+        )
+        self.next_button.callback = self.on_next_page
 
         self.confirm_button = discord.ui.Button(
             label="Vytvořit panel",
@@ -310,31 +336,75 @@ class SetupReadyPanelView(discord.ui.LayoutView):
         self.add_item(self.summary)
         self.add_item(discord.ui.Separator())
         self.add_item(discord.ui.ActionRow(self.role_select))
+        self.add_item(discord.ui.ActionRow(self.prev_button, self.next_button))
         self.add_item(discord.ui.ActionRow(self.confirm_button))
+        self._sync_role_page(guild)
+        self._sync_selection_summary(guild)
 
-    def _build_role_options(self, guild: discord.Guild) -> List[discord.SelectOption]:
+    def _available_roles(self, guild: discord.Guild) -> List[discord.Role]:
         roles = [role for role in guild.roles if not role.is_default()]
         roles.sort(key=lambda r: r.position, reverse=True)
+        return roles
+
+    def _build_placeholder(self, guild: discord.Guild) -> str:
+        total_pages = self._total_pages(guild)
+        if total_pages <= 1:
+            return "Zvol role"
+        return f"Zvol role (strana {self.page_index + 1}/{total_pages})"
+
+    def _total_pages(self, guild: discord.Guild) -> int:
+        roles = self._available_roles(guild)
+        if not roles:
+            return 1
+        return (len(roles) + self.ROLE_PAGE_SIZE - 1) // self.ROLE_PAGE_SIZE
+
+    def _build_role_options(self, guild: discord.Guild) -> List[discord.SelectOption]:
+        roles = self._available_roles(guild)
+        total_pages = self._total_pages(guild)
+        if roles:
+            self.page_index = max(0, min(self.page_index, total_pages - 1))
+        else:
+            self.page_index = 0
+        start_index = self.page_index * self.ROLE_PAGE_SIZE
+        page_roles = roles[start_index : start_index + self.ROLE_PAGE_SIZE]
+        self.page_role_ids = [role.id for role in page_roles]
         options = [
-            discord.SelectOption(label=role.name, value=str(role.id))
-            for role in roles[:25]
+            discord.SelectOption(
+                label=role.name,
+                value=str(role.id),
+                default=role.id in self.selected_role_ids,
+            )
+            for role in page_roles
         ]
         if not options:
             options.append(
                 discord.SelectOption(
-                    label="Žádné role nejsou k dispozici", value="none"
+                    label="Žádné role nejsou k dispozici", value="none", default=True
                 )
             )
         return options
 
-    async def on_select(self, interaction: discord.Interaction) -> None:
-        if "none" in self.role_select.values:
-            self.selected_role_ids = []
-        else:
-            self.selected_role_ids = [
-                int(role_id) for role_id in self.role_select.values
-            ]
+    def _sync_role_page(self, guild: discord.Guild) -> None:
+        options = self._build_role_options(guild)
+        self.role_select.options = options
+        self.role_select.max_values = min(self.ROLE_PAGE_SIZE, len(options))
+        self.role_select.min_values = 0
+        self.role_select.placeholder = self._build_placeholder(guild)
+        no_roles = len(options) == 1 and options[0].value == "none"
+        self.role_select.disabled = no_roles
+        total_pages = self._total_pages(guild)
+        self.prev_button.disabled = self.page_index <= 0
+        self.next_button.disabled = self.page_index >= total_pages - 1
 
+    def _sync_selection_summary(self, guild: discord.Guild) -> List[discord.Role]:
+        roles = self.cog.get_roles_from_ids(guild, self.selected_role_ids)
+        self.selected_role_ids = [role.id for role in roles]
+        role_mentions = ", ".join(role.mention for role in roles) if roles else "—"
+        self.summary.children[2].content = f"Vybrané role: {role_mentions}"
+        self.confirm_button.disabled = not bool(roles)
+        return roles
+
+    async def on_select(self, interaction: discord.Interaction) -> None:
         guild = interaction.guild
         if guild is None:
             await interaction.response.send_message(
@@ -342,10 +412,81 @@ class SetupReadyPanelView(discord.ui.LayoutView):
             )
             return
 
-        roles = self.cog.get_roles_from_ids(guild, self.selected_role_ids)
-        role_mentions = ", ".join(role.mention for role in roles) if roles else "—"
-        self.summary.children[2].content = f"Vybrané role: {role_mentions}"
-        self.confirm_button.disabled = not bool(roles)
+        if "none" in self.role_select.values:
+            self.selected_role_ids = []
+        else:
+            current_page_selected = [
+                int(role_id) for role_id in self.role_select.values
+            ]
+            preserved = [
+                role_id
+                for role_id in self.selected_role_ids
+                if role_id not in self.page_role_ids
+            ]
+            self.selected_role_ids = preserved + current_page_selected
+
+        self._sync_role_page(guild)
+        self._sync_selection_summary(guild)
+        if interaction.message is not None:
+            channel_id = interaction.channel_id
+            if channel_id is None and interaction.channel is not None:
+                channel_id = interaction.channel.id
+            save_attendance_setup_panel(
+                interaction.message.id,
+                guild.id,
+                channel_id or 0,
+                self.selected_role_ids,
+                self.page_index,
+            )
+        await interaction.response.edit_message(view=self)
+
+    async def on_prev_page(self, interaction: discord.Interaction) -> None:
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message(
+                "Tento panel lze použít jen na serveru.", ephemeral=True
+            )
+            return
+
+        self.page_index = max(0, self.page_index - 1)
+        self._sync_role_page(guild)
+        self._sync_selection_summary(guild)
+        if interaction.message is not None:
+            channel_id = interaction.channel_id
+            if channel_id is None and interaction.channel is not None:
+                channel_id = interaction.channel.id
+            save_attendance_setup_panel(
+                interaction.message.id,
+                guild.id,
+                channel_id or 0,
+                self.selected_role_ids,
+                self.page_index,
+            )
+        await interaction.response.edit_message(view=self)
+
+    async def on_next_page(self, interaction: discord.Interaction) -> None:
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message(
+                "Tento panel lze použít jen na serveru.", ephemeral=True
+            )
+            return
+
+        total_pages = self._total_pages(guild)
+        self.page_index = min(total_pages - 1, self.page_index + 1)
+        self._sync_role_page(guild)
+        self._sync_selection_summary(guild)
+        if interaction.message is not None:
+            channel_id = interaction.channel_id
+            if channel_id is None and interaction.channel is not None:
+                channel_id = interaction.channel.id
+            save_attendance_setup_panel(
+                interaction.message.id,
+                guild.id,
+                channel_id or 0,
+                self.selected_role_ids,
+                self.page_index,
+            )
         await interaction.response.edit_message(view=self)
 
     async def on_confirm(self, interaction: discord.Interaction) -> None:
@@ -368,11 +509,15 @@ class SetupReadyPanelView(discord.ui.LayoutView):
         await self.cog.send_panel(interaction, roles)
 
         self.role_select.disabled = True
+        self.prev_button.disabled = True
+        self.next_button.disabled = True
         self.confirm_button.disabled = True
         role_mentions = ", ".join(role.mention for role in roles)
         self.summary.children[1].content = "Panel byl úspěšně vytvořen."
         self.summary.children[2].content = f"Role: {role_mentions}"
         await interaction.message.edit(view=self)
+        if interaction.message is not None:
+            delete_attendance_setup_panel(interaction.message.id)
 
 
 class AttendanceCog(commands.Cog, name="Attendance"):
@@ -567,7 +712,13 @@ class AttendanceCog(commands.Cog, name="Attendance"):
             return
 
         self._setup_restored = True
-        for message_id, guild_id, channel_id in load_attendance_setup_panels():
+        for (
+            message_id,
+            guild_id,
+            channel_id,
+            selected_role_ids,
+            page_index,
+        ) in load_attendance_setup_panels():
             guild = self.bot.get_guild(guild_id)
             if guild is None:
                 delete_attendance_setup_panel(message_id)
@@ -584,7 +735,12 @@ class AttendanceCog(commands.Cog, name="Attendance"):
                 delete_attendance_setup_panel(message_id)
                 continue
 
-            view = SetupReadyPanelView(self, guild)
+            view = SetupReadyPanelView(
+                self,
+                guild,
+                selected_role_ids=selected_role_ids,
+                page_index=page_index,
+            )
             self.bot.add_view(view, message_id=message_id)
 
     @app_commands.command(
