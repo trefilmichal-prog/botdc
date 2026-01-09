@@ -1181,14 +1181,15 @@ class SecretNotificationsForwarder(commands.Cog):
         return results
 
     def _record_drop_stats(self, player_ids: List[int], rarity: Optional[str]) -> None:
-        if not player_ids or rarity is None:
+        if not player_ids:
             return
+        rarity_value = rarity or "unknown"
         now = datetime.now(timezone.utc)
         date_value = now.date().isoformat()
         for player_id in player_ids:
             try:
                 increment_secret_drop_stat(date_value, int(player_id), 1)
-                add_secret_drop_event(now, int(player_id), rarity)
+                add_secret_drop_event(now, int(player_id), rarity_value)
             except Exception:
                 logger.exception("Uložení denní statistiky dropu selhalo.")
 
@@ -1408,6 +1409,9 @@ class SecretNotificationsForwarder(commands.Cog):
         total_secret = sum(
             breakdown.get(user_id, {}).get("secret", 0) for user_id in members
         )
+        total_unknown = sum(
+            breakdown.get(user_id, {}).get("unknown", 0) for user_id in members
+        )
         container.add_item(discord.ui.TextDisplay(content="### 📊 Souhrn"))
         container.add_item(
             discord.ui.TextDisplay(
@@ -1423,7 +1427,8 @@ class SecretNotificationsForwarder(commands.Cog):
                     "🧮 **Celkový souhrn:** "
                     f"Su `{total_supreme}`  •  "
                     f"Divine `{total_divine}`  •  "
-                    f"Secret `{total_secret}`"
+                    f"Secret `{total_secret}`  •  "
+                    f"Unknown `{total_unknown}`"
                 )
             )
         )
@@ -1529,11 +1534,13 @@ class SecretNotificationsForwarder(commands.Cog):
                 supreme = counts.get("supreme", 0)
                 divine = counts.get("divine", 0)
                 secret = counts.get("secret", 0)
+                unknown = counts.get("unknown", 0)
                 lines.append(
                     (
                         f"{prefix} **{entry.get('name', user_id)}** — "
                         f"**{totals.get(user_id, 0)}**"
                         f"  •  `Su` {supreme}  •  `D` {divine}  •  `Se` {secret}"
+                        f"  •  `Unk` {unknown}"
                     )
                 )
             for chunk in self._chunk_lines(lines, max_len=1800):
