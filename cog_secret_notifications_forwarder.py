@@ -266,6 +266,7 @@ class SecretNotificationsForwarder(commands.Cog):
     async def refresh_clan_member_cache(self):
         try:
             await self._refresh_clan_member_cache()
+            await self.refresh_dropstats_panels()
         except Exception:
             logger.exception("Neočekávaná chyba při obnově cache hráčů.")
 
@@ -274,6 +275,7 @@ class SecretNotificationsForwarder(commands.Cog):
         await self.bot.wait_until_ready()
         logger.info("Startuji smyčku pro obnovu cache hráčů v clanu.")
         await self._refresh_clan_member_cache()
+        await self.refresh_dropstats_panels()
 
     async def _get_channel(self) -> Optional[discord.abc.Messageable]:
         try:
