@@ -136,22 +136,22 @@ class AttendancePanelView(discord.ui.LayoutView):
     ) -> None:
         role_mentions = ", ".join(role.mention for role in roles) if roles else "—"
         self.summary.children[2].content = f"Role: {role_mentions}"
-        self.ready_display.content = (
-            "🟢 Připraveno:\n" + "\n".join(f"🟢 {m.display_name}" for m in ready)
-            if ready
-            else "🟢 Připraveno: —"
+        self.ready_display.content = self._format_members(ready, "🟢", "Připraveno")
+        self.not_ready_display.content = self._format_members(
+            not_ready, "🔴", "Nepřijde"
         )
-        self.not_ready_display.content = (
-            "🔴 Nepřijde:\n" + "\n".join(f"🔴 {m.display_name}" for m in not_ready)
-            if not_ready
-            else "🔴 Nepřijde: —"
-        )
-        self.waiting_display.content = (
-            "🟡 Čekáme:\n" + "\n".join(f"🟡 {m.display_name}" for m in waiting)
-            if waiting
-            else "🟡 Čekáme: —"
-        )
+        self.waiting_display.content = self._format_members(waiting, "🟡", "Čekáme")
         self.total_display.content = f"👥 Celkem: {total}"
+
+    @staticmethod
+    def _format_members(
+        members: List[discord.Member], emoji: str, label: str
+    ) -> str:
+        if not members:
+            return f"{emoji} {label}: —"
+        return f"{emoji} {label}:\n" + "\n".join(
+            f"{emoji} {member.display_name}" for member in members
+        )
 
     async def _update_status(
         self, interaction: discord.Interaction, status: str | None
@@ -204,10 +204,7 @@ class AttendancePanelView(discord.ui.LayoutView):
             session.statuses,
         )
 
-        content = self.cog.build_panel_content(
-            roles, ready, not_ready, waiting, len(members)
-        )
-        await interaction.response.edit_message(content=content, view=self)
+        await interaction.response.edit_message(content="", view=self)
 
     async def mark_ready(
         self, interaction: discord.Interaction, button: discord.ui.Button | None = None
@@ -267,10 +264,7 @@ class AttendancePanelView(discord.ui.LayoutView):
             session.statuses,
         )
 
-        content = self.cog.build_panel_content(
-            roles, ready, not_ready, waiting, len(members)
-        )
-        await interaction.response.edit_message(content=content, view=self)
+        await interaction.response.edit_message(content="", view=self)
 
 
 class SetupReadyPanelView(discord.ui.LayoutView):
@@ -575,30 +569,6 @@ class AttendanceCog(commands.Cog, name="Attendance"):
 
         return ready, not_ready, waiting, members
 
-    @staticmethod
-    def build_panel_content(
-        roles: List[discord.Role],
-        ready: List[discord.Member],
-        not_ready: List[discord.Member],
-        waiting: List[discord.Member],
-        total: int,
-    ) -> str:
-        def format_members(items: List[discord.Member], emoji: str) -> str:
-            if not items:
-                return "—"
-            return "\n".join(f"{emoji} {member.display_name}" for member in items)
-
-        role_mentions = ", ".join(role.mention for role in roles) if roles else "—"
-
-        return (
-            f"🎯 Docházkový panel pro {role_mentions}\n"
-            "Vyber svůj status pomocí tlačítek.\n\n"
-            f"🟢 Připraveno ({len(ready)}):\n{format_members(ready, '🟢')}\n\n"
-            f"🔴 Nepřijde ({len(not_ready)}):\n{format_members(not_ready, '🔴')}\n\n"
-            f"🟡 Čekáme ({len(waiting)}):\n{format_members(waiting, '🟡')}\n\n"
-            f"Celkem členů: {total}"
-        )
-
     def deactivate_session(self, message_id: int) -> None:
         self.sessions.pop(message_id, None)
         delete_attendance_panel(message_id)
@@ -631,12 +601,8 @@ class AttendanceCog(commands.Cog, name="Attendance"):
         ready, not_ready, waiting, members = self.split_members(roles, session)
         view = self.build_view(session_id=None, role_ids=session.role_ids)
         view.update_displays(roles, ready, not_ready, waiting, len(members))
-        content = self.build_panel_content(
-            roles, ready, not_ready, waiting, len(members)
-        )
-
         message = await interaction.followup.send(
-            content=content,
+            content="",
             view=view,
             allowed_mentions=discord.AllowedMentions(roles=roles),
         )
@@ -693,17 +659,13 @@ class AttendanceCog(commands.Cog, name="Attendance"):
             )
 
             ready, not_ready, waiting, members = self.split_members(roles, session)
-            content = self.build_panel_content(
-                roles, ready, not_ready, waiting, len(members)
-            )
-
             view = self.build_view(message_id, session.role_ids)
             view.update_displays(roles, ready, not_ready, waiting, len(members))
             self.sessions[message_id] = session
 
             self.bot.add_view(view, message_id=message_id)
             try:
-                await message.edit(content=content, view=view)
+                await message.edit(content="", view=view)
             except (discord.Forbidden, discord.HTTPException):
                 delete_attendance_panel(message_id)
 
@@ -730,7 +692,7 @@ class AttendanceCog(commands.Cog, name="Attendance"):
                 continue
 
             try:
-                await channel.fetch_message(message_id)
+                message = await channel.fetch_message(message_id)
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                 delete_attendance_setup_panel(message_id)
                 continue
@@ -742,6 +704,10 @@ class AttendanceCog(commands.Cog, name="Attendance"):
                 page_index=page_index,
             )
             self.bot.add_view(view, message_id=message_id)
+            try:
+                await message.edit(content="", view=view)
+            except (discord.Forbidden, discord.HTTPException):
+                delete_attendance_setup_panel(message_id)
 
     @app_commands.command(
         name="setup_ready_panel",
@@ -760,10 +726,7 @@ class AttendanceCog(commands.Cog, name="Attendance"):
             return
 
         view = SetupReadyPanelView(self, interaction.guild)
-        message = await interaction.followup.send(
-            content="Vyber role, pro které chceš vytvořit docházkový panel.",
-            view=view,
-        )
+        message = await interaction.followup.send(content="", view=view)
         save_attendance_setup_panel(
             message.id, interaction.guild.id, interaction.channel.id
         )
