@@ -20,6 +20,7 @@ from config import (
     SETUP_MANAGER_ROLE_ID,
     WINRT_LOG_PATH,
 )
+from cog_clan import CLAN_MEMBER_ROLE_IDS as CLAN_MEMBER_ROLE_IDS_BY_KEY
 from db import (
     add_dropstats_panel,
     add_secret_drop_event,
@@ -30,6 +31,7 @@ from db import (
     get_secret_notifications_role_ids,
     get_windows_notifications,
     increment_secret_drop_stat,
+    list_clan_definitions,
     normalize_clan_member_name,
     remove_dropstats_panel,
     reset_secret_drop_stats,
@@ -778,6 +780,8 @@ class SecretNotificationsForwarder(commands.Cog):
                             roblox_nick_checked_at = entry.get(
                                 "roblox_nick_checked_at"
                             )
+                            clan_key = entry.get("clan_key")
+                            clan_display = entry.get("clan_display")
                         else:
                             member_id = entry
                             display_name = name
@@ -785,6 +789,8 @@ class SecretNotificationsForwarder(commands.Cog):
                             roblox_nick = None
                             roblox_nick_updated_at = None
                             roblox_nick_checked_at = None
+                            clan_key = None
+                            clan_display = None
                         if isinstance(member_id, (int, str)):
                             migrated_cache_entry = {
                                 "id": int(member_id),
@@ -804,6 +810,12 @@ class SecretNotificationsForwarder(commands.Cog):
                                 migrated_cache_entry["roblox_nick_checked_at"] = str(
                                     roblox_nick_checked_at
                                 )
+                            migrated_cache_entry["clan_key"] = (
+                                str(clan_key) if clan_key else None
+                            )
+                            migrated_cache_entry["clan_display"] = (
+                                str(clan_display) if clan_display else None
+                            )
                             migrated_cache[normalized] = migrated_cache_entry
                     self._clan_member_cache = migrated_cache
             updated_raw = data.get(SETTINGS_KEY_CLAN_MEMBER_CACHE_UPDATED)
@@ -866,6 +878,42 @@ class SecretNotificationsForwarder(commands.Cog):
         if guild is None:
             logger.warning("Nelze načíst guild z kanálu %s.", CHANNEL_ID)
             return
+        role_to_clan: dict[int, dict[str, Optional[str]]] = {}
+        try:
+            clan_definitions = list_clan_definitions(guild.id)
+        except Exception:
+            logger.exception("Načtení definic clanů z DB selhalo.")
+            clan_definitions = []
+        for definition in clan_definitions:
+            clan_key = definition.get("clan_key")
+            clan_display = definition.get("display_name") or clan_key
+            for key in (
+                "accept_role_id",
+                "accept_role_id_cz",
+                "accept_role_id_en",
+            ):
+                role_id = definition.get(key)
+                if not role_id:
+                    continue
+                role_to_clan.setdefault(
+                    int(role_id),
+                    {
+                        "clan_key": str(clan_key) if clan_key else None,
+                        "clan_display": str(clan_display)
+                        if clan_display
+                        else None,
+                    },
+                )
+        for clan_key, role_id in CLAN_MEMBER_ROLE_IDS_BY_KEY.items():
+            if not role_id:
+                continue
+            role_to_clan.setdefault(
+                int(role_id),
+                {
+                    "clan_key": str(clan_key),
+                    "clan_display": str(clan_key).upper(),
+                },
+            )
         existing_by_id: dict[int, dict[str, Any]] = {}
         for entry in self._clan_member_cache.values():
             member_id = entry.get("id")
@@ -880,9 +928,19 @@ class SecretNotificationsForwarder(commands.Cog):
             for member in role.members:
                 candidate_username = str(member.display_name)
                 existing_entry = existing_by_id.get(member.id)
+                clan_key = None
+                clan_display = None
+                for member_role in member.roles:
+                    clan_info = role_to_clan.get(member_role.id)
+                    if clan_info:
+                        clan_key = clan_info.get("clan_key")
+                        clan_display = clan_info.get("clan_display")
+                        break
                 entry: dict[str, Any] = {
                     "id": member.id,
                     "name": str(member.display_name),
+                    "clan_key": clan_key,
+                    "clan_display": clan_display,
                 }
                 if existing_entry:
                     if existing_entry.get("roblox_username"):
@@ -1340,10 +1398,6 @@ class SecretNotificationsForwarder(commands.Cog):
         totals = {
             user_id: sum(counts.values()) for user_id, counts in breakdown.items()
         }
-        sorted_members = sorted(
-            members.items(),
-            key=lambda item: (-totals.get(item[0], 0), item[1].lower()),
-        )
         total_drops = sum(totals.get(user_id, 0) for user_id in members)
         total_supreme = sum(
             breakdown.get(user_id, {}).get("supreme", 0) for user_id in members
@@ -1374,27 +1428,74 @@ class SecretNotificationsForwarder(commands.Cog):
             )
         )
         container.add_item(discord.ui.Separator())
-        container.add_item(discord.ui.TextDisplay(content="### 🥇 Žebříček hráčů"))
+        clan_groups: dict[str, dict[str, Any]] = {}
+        for user_id, entry in members.items():
+            clan_key = entry.get("clan_key")
+            clan_display = entry.get("clan_display") or (
+                str(clan_key).upper() if clan_key else "Nezařazeno"
+            )
+            group_key = str(clan_key) if clan_key else "unassigned"
+            group = clan_groups.setdefault(
+                group_key,
+                {
+                    "display": clan_display,
+                    "members": [],
+                },
+            )
+            group["members"].append((user_id, entry))
 
-        medal_emojis = ["🥇", "🥈", "🥉"]
-        lines = []
-        for idx, (user_id, _) in enumerate(sorted_members, start=1):
-            prefix = medal_emojis[idx - 1] if idx <= 3 else f"`#{idx}`"
-            counts = breakdown.get(user_id, {})
-            supreme = counts.get("supreme", 0)
-            divine = counts.get("divine", 0)
-            secret = counts.get("secret", 0)
-            lines.append(
-                (
-                    f"{prefix} **{members[user_id]}** — **{totals.get(user_id, 0)}**"
-                    f"  •  `Su` {supreme}  •  `D` {divine}  •  `Se` {secret}"
+        def clan_sort_key(item: tuple[str, dict[str, Any]]) -> tuple[int, str]:
+            display = str(item[1].get("display") or "").lower()
+            return (1 if display == "nezařazeno" else 0, display)
+
+        for _, clan_group in sorted(clan_groups.items(), key=clan_sort_key):
+            clan_members = clan_group["members"]
+            clan_members_sorted = sorted(
+                clan_members,
+                key=lambda item: (
+                    -totals.get(item[0], 0),
+                    item[1].get("name", "").lower(),
+                ),
+            )
+            clan_total_drops = sum(
+                totals.get(member_id, 0) for member_id, _ in clan_members
+            )
+            container.add_item(
+                discord.ui.TextDisplay(
+                    content=f"### 🛡️ {clan_group['display']}"
                 )
             )
-        for chunk in self._chunk_lines(lines, max_len=1800):
-            container.add_item(discord.ui.TextDisplay(content=chunk))
+            container.add_item(
+                discord.ui.TextDisplay(
+                    content=(
+                        f"👥 **Členů:** `{len(clan_members)}`  •  "
+                        f"🎁 **Dropů:** `{clan_total_drops}`"
+                    )
+                )
+            )
+            container.add_item(discord.ui.TextDisplay(content="#### 🥇 Žebříček členů"))
+            medal_emojis = ["🥇", "🥈", "🥉"]
+            lines = []
+            for idx, (user_id, entry) in enumerate(
+                clan_members_sorted, start=1
+            ):
+                prefix = medal_emojis[idx - 1] if idx <= 3 else f"`#{idx}`"
+                counts = breakdown.get(user_id, {})
+                supreme = counts.get("supreme", 0)
+                divine = counts.get("divine", 0)
+                secret = counts.get("secret", 0)
+                lines.append(
+                    (
+                        f"{prefix} **{entry.get('name', user_id)}** — "
+                        f"**{totals.get(user_id, 0)}**"
+                        f"  •  `Su` {supreme}  •  `D` {divine}  •  `Se` {secret}"
+                    )
+                )
+            for chunk in self._chunk_lines(lines, max_len=1800):
+                container.add_item(discord.ui.TextDisplay(content=chunk))
+            container.add_item(discord.ui.Separator())
 
         updated_at = int(datetime.now(timezone.utc).timestamp())
-        container.add_item(discord.ui.Separator())
         container.add_item(
             discord.ui.TextDisplay(content=f"🕒 Aktualizováno: <t:{updated_at}:R>")
         )
@@ -1463,13 +1564,20 @@ class SecretNotificationsForwarder(commands.Cog):
             logger.exception("Načtení statistiky dropu selhalo.")
             return {}
 
-    def _get_clan_member_entries(self) -> dict[int, str]:
-        members: dict[int, str] = {}
+    def _get_clan_member_entries(self) -> dict[int, dict[str, Optional[str]]]:
+        members: dict[int, dict[str, Optional[str]]] = {}
         for entry in self._clan_member_cache.values():
             member_id = entry.get("id")
             name = entry.get("name") or str(member_id)
             if isinstance(member_id, int):
-                members.setdefault(member_id, str(name))
+                members.setdefault(
+                    member_id,
+                    {
+                        "name": str(name),
+                        "clan_key": entry.get("clan_key"),
+                        "clan_display": entry.get("clan_display"),
+                    },
+                )
         return members
 
     def _chunk_lines(self, lines: List[str], max_len: int = 3500) -> List[str]:
