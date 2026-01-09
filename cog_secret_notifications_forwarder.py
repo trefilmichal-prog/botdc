@@ -1429,11 +1429,39 @@ class SecretNotificationsForwarder(commands.Cog):
         )
         container.add_item(discord.ui.Separator())
         clan_groups: dict[str, dict[str, Any]] = {}
+        clan_sort_index: dict[str, int] | None = None
+        clan_display_override: dict[str, str] = {}
+        channel = self.bot.get_channel(CHANNEL_ID)
+        guild = getattr(channel, "guild", None)
+        if guild is not None:
+            try:
+                clan_definitions = list_clan_definitions(guild.id)
+            except Exception:
+                logger.exception("Načtení definic clanů pro dropstats selhalo.")
+                clan_definitions = []
+            if clan_definitions:
+                clan_sort_index = {}
+                for index, definition in enumerate(clan_definitions):
+                    clan_key = definition.get("clan_key")
+                    if not clan_key:
+                        continue
+                    clan_key_str = str(clan_key)
+                    clan_sort_index[clan_key_str] = index
+                    clan_display = definition.get("display_name") or clan_key
+                    if clan_display:
+                        clan_display_override[clan_key_str] = str(clan_display)
         for user_id, entry in members.items():
             clan_key = entry.get("clan_key")
-            clan_display = entry.get("clan_display") or (
-                str(clan_key).upper() if clan_key else "Nezařazeno"
+            clan_key_str = str(clan_key) if clan_key else None
+            clan_display = (
+                clan_display_override.get(clan_key_str)
+                if clan_key_str
+                else None
             )
+            if not clan_display:
+                clan_display = entry.get("clan_display") or (
+                    str(clan_key).upper() if clan_key else "Nezařazeno"
+                )
             group_key = str(clan_key) if clan_key else "unassigned"
             group = clan_groups.setdefault(
                 group_key,
@@ -1444,9 +1472,27 @@ class SecretNotificationsForwarder(commands.Cog):
             )
             group["members"].append((user_id, entry))
 
-        def clan_sort_key(item: tuple[str, dict[str, Any]]) -> tuple[int, str]:
-            display = str(item[1].get("display") or "").lower()
-            return (1 if display == "nezařazeno" else 0, display)
+        if clan_sort_index is not None:
+            fallback_index = len(clan_sort_index)
+
+            def clan_sort_key(
+                item: tuple[str, dict[str, Any]]
+            ) -> tuple[int, int, str]:
+                group_key, group = item
+                display = str(group.get("display") or "").lower()
+                if group_key == "unassigned":
+                    return (1, fallback_index + 1, display)
+                return (
+                    0,
+                    clan_sort_index.get(group_key, fallback_index),
+                    display,
+                )
+
+        else:
+
+            def clan_sort_key(item: tuple[str, dict[str, Any]]) -> tuple[int, str]:
+                display = str(item[1].get("display") or "").lower()
+                return (1 if display == "nezařazeno" else 0, display)
 
         for _, clan_group in sorted(clan_groups.items(), key=clan_sort_key):
             clan_members = clan_group["members"]
