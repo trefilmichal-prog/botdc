@@ -522,8 +522,7 @@ class AttendanceCog(commands.Cog, name="Attendance"):
         self._setup_restored = False
 
     async def cog_load(self):
-        await self.restore_panels()
-        await self.restore_setup_panels()
+        return
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -619,10 +618,11 @@ class AttendanceCog(commands.Cog, name="Attendance"):
         )
 
     async def restore_panels(self):
+        if not self.bot.is_ready():
+            return
         if self._restored:
             return
 
-        self._restored = True
         for (
             message_id,
             guild_id,
@@ -669,11 +669,14 @@ class AttendanceCog(commands.Cog, name="Attendance"):
             except (discord.Forbidden, discord.HTTPException):
                 delete_attendance_panel(message_id)
 
+        self._restored = True
+
     async def restore_setup_panels(self) -> None:
+        if not self.bot.is_ready():
+            return
         if self._setup_restored:
             return
 
-        self._setup_restored = True
         for (
             message_id,
             guild_id,
@@ -708,6 +711,8 @@ class AttendanceCog(commands.Cog, name="Attendance"):
                 await message.edit(content="", view=view)
             except (discord.Forbidden, discord.HTTPException):
                 delete_attendance_setup_panel(message_id)
+
+        self._setup_restored = True
 
     @app_commands.command(
         name="setup_ready_panel",
