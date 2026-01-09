@@ -1519,7 +1519,6 @@ class SecretNotificationsForwarder(commands.Cog):
                     )
                 )
             )
-            container.add_item(discord.ui.TextDisplay(content="#### 🥇 Žebříček členů"))
             medal_emojis = ["🥇", "🥈", "🥉"]
             lines = []
             for idx, (user_id, entry) in enumerate(
