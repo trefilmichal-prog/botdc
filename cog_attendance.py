@@ -281,14 +281,14 @@ class SetupReadyPanelView(discord.ui.LayoutView):
             discord.ui.TextDisplay(content="Vybrané role: —"),
         )
 
+        options = self._build_role_options(guild)
+        max_values = min(25, len(options))
         self.role_select = discord.ui.Select(
             placeholder="Zvol role",
             min_values=1,
-            max_values=1,
-            options=self._build_role_options(guild),
+            max_values=max_values,
+            options=options,
         )
-        if len(self.role_select.options) > 1:
-            self.role_select.max_values = min(25, len(self.role_select.options))
         self.role_select.callback = self.on_select
 
         self.confirm_button = discord.ui.Button(
