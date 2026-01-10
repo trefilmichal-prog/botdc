@@ -455,6 +455,15 @@ def init_db():
 
     c.execute(
         """
+        CREATE TABLE IF NOT EXISTS dropstats_panel_state (
+            message_id INTEGER PRIMARY KEY,
+            selected_clan_key TEXT
+        )
+        """
+    )
+
+    c.execute(
+        """
         CREATE TABLE IF NOT EXISTS sp_panels (
             message_id INTEGER PRIMARY KEY,
             guild_id INTEGER NOT NULL,
@@ -1669,6 +1678,7 @@ def remove_dropstats_panel(message_id: int):
     conn = get_connection()
     c = conn.cursor()
     c.execute("DELETE FROM dropstats_panels WHERE message_id = ?", (message_id,))
+    c.execute("DELETE FROM dropstats_panel_state WHERE message_id = ?", (message_id,))
     conn.commit()
     conn.close()
 
@@ -1680,6 +1690,36 @@ def get_all_dropstats_panels() -> list[tuple[int, int, int]]:
     rows = c.fetchall()
     conn.close()
     return [(int(g), int(ch), int(msg)) for g, ch, msg in rows]
+
+
+def set_dropstats_panel_state(
+    message_id: int, selected_clan_key: Optional[str]
+) -> None:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO dropstats_panel_state (message_id, selected_clan_key)
+        VALUES (?, ?)
+        ON CONFLICT(message_id) DO UPDATE
+        SET selected_clan_key = excluded.selected_clan_key
+        """,
+        (message_id, selected_clan_key),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_dropstats_panel_state(message_id: int) -> Optional[str]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "SELECT selected_clan_key FROM dropstats_panel_state WHERE message_id = ?",
+        (message_id,),
+    )
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
 
 
 # ---------- SP PANELY ----------
