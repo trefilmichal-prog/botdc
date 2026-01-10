@@ -1425,9 +1425,6 @@ class SecretNotificationsForwarder(commands.Cog):
         total_mysterious = sum(
             breakdown.get(user_id, {}).get("mysterious", 0) for user_id in members
         )
-        total_unknown = sum(
-            breakdown.get(user_id, {}).get("unknown", 0) for user_id in members
-        )
         summary_container.add_item(discord.ui.TextDisplay(content="### 📊 Souhrn"))
         summary_container.add_item(
             discord.ui.TextDisplay(
@@ -1442,11 +1439,10 @@ class SecretNotificationsForwarder(commands.Cog):
                 content=(
                     "🧮 **Celkový souhrn:** "
                     f"Su `{total_supreme}`  •  "
-                    f"Divine `{total_divine}`  •  "
-                    f"Aura `{total_aura}`  •  "
-                    f"Mysterious `{total_mysterious}`  •  "
-                    f"Secret `{total_secret}`  •  "
-                    f"Unknown `{total_unknown}`"
+                    f"My `{total_mysterious}`  •  "
+                    f"D `{total_divine}`  •  "
+                    f"Se `{total_secret}`  •  "
+                    f"Au `{total_aura}`"
                 )
             )
         )
@@ -1611,13 +1607,12 @@ class SecretNotificationsForwarder(commands.Cog):
                 aura = counts.get("aura", 0)
                 mysterious = counts.get("mysterious", 0)
                 secret = counts.get("secret", 0)
-                unknown = counts.get("unknown", 0)
                 lines.append(
                     (
                         f"{prefix} **{entry.get('name', user_id)}** — "
                         f"**{totals.get(user_id, 0)}**"
-                        f"  •  `Su` {supreme}  •  `D` {divine}  •  `Au` {aura}"
-                        f"  •  `My` {mysterious}  •  `Se` {secret}  •  `Unk` {unknown}"
+                        f"  •  `Su` {supreme}  •  `My` {mysterious}  •  `D` {divine}"
+                        f"  •  `Se` {secret}  •  `Au` {aura}"
                     )
                 )
             for chunk in self._chunk_lines(lines, max_len=1800):
