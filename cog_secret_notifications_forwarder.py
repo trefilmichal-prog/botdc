@@ -1511,17 +1511,37 @@ class SecretNotificationsForwarder(commands.Cog):
         sorted_clans = sorted(clan_groups.items(), key=clan_sort_key)
         clans_to_render = sorted_clans
         clan_container = discord.ui.Container()
-        max_items_per_container = 20
+        max_message_length = 4000
+        safe_message_length = 3800
+        current_message_length = 0
         container_item_count = 0
 
-        def add_clan_item(item: discord.ui.Item) -> None:
-            nonlocal clan_container, container_item_count
-            if container_item_count >= max_items_per_container:
+        def _estimate_item_length(item: discord.ui.Item) -> int:
+            if isinstance(item, discord.ui.TextDisplay):
+                return len(item.content or "")
+            return 0
+
+        def _start_new_container() -> None:
+            nonlocal clan_container, current_message_length, container_item_count
+            if container_item_count:
                 view.add_item(clan_container)
-                clan_container = discord.ui.Container()
-                container_item_count = 0
+            clan_container = discord.ui.Container()
+            current_message_length = 0
+            container_item_count = 0
+
+        def add_clan_item(item: discord.ui.Item) -> None:
+            nonlocal current_message_length, container_item_count
+            item_length = _estimate_item_length(item)
+            if (
+                container_item_count
+                and current_message_length + item_length > safe_message_length
+            ):
+                _start_new_container()
             clan_container.add_item(item)
             container_item_count += 1
+            current_message_length += item_length
+            if current_message_length > max_message_length:
+                _start_new_container()
 
         for _, clan_group in clans_to_render:
             clan_members = clan_group["members"]
@@ -1584,7 +1604,8 @@ class SecretNotificationsForwarder(commands.Cog):
         add_clan_item(
             discord.ui.TextDisplay(content=f"🕒 Aktualizováno: <t:{updated_at}:R>")
         )
-        view.add_item(clan_container)
+        if container_item_count:
+            view.add_item(clan_container)
         return view
 
     def _build_cached_names_view(self) -> discord.ui.LayoutView:
