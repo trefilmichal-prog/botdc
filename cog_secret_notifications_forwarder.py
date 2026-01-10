@@ -1419,6 +1419,9 @@ class SecretNotificationsForwarder(commands.Cog):
         total_secret = sum(
             breakdown.get(user_id, {}).get("secret", 0) for user_id in members
         )
+        total_aura = sum(
+            breakdown.get(user_id, {}).get("aura", 0) for user_id in members
+        )
         total_unknown = sum(
             breakdown.get(user_id, {}).get("unknown", 0) for user_id in members
         )
@@ -1437,6 +1440,7 @@ class SecretNotificationsForwarder(commands.Cog):
                     "🧮 **Celkový souhrn:** "
                     f"Su `{total_supreme}`  •  "
                     f"Divine `{total_divine}`  •  "
+                    f"Aura `{total_aura}`  •  "
                     f"Secret `{total_secret}`  •  "
                     f"Unknown `{total_unknown}`"
                 )
@@ -1600,14 +1604,15 @@ class SecretNotificationsForwarder(commands.Cog):
                 counts = breakdown.get(user_id, {})
                 supreme = counts.get("supreme", 0)
                 divine = counts.get("divine", 0)
+                aura = counts.get("aura", 0)
                 secret = counts.get("secret", 0)
                 unknown = counts.get("unknown", 0)
                 lines.append(
                     (
                         f"{prefix} **{entry.get('name', user_id)}** — "
                         f"**{totals.get(user_id, 0)}**"
-                        f"  •  `Su` {supreme}  •  `D` {divine}  •  `Se` {secret}"
-                        f"  •  `Unk` {unknown}"
+                        f"  •  `Su` {supreme}  •  `D` {divine}  •  `Au` {aura}"
+                        f"  •  `Se` {secret}  •  `Unk` {unknown}"
                     )
                 )
             for chunk in self._chunk_lines(lines, max_len=1800):
@@ -1747,7 +1752,7 @@ class SecretNotificationsForwarder(commands.Cog):
         if not text_line:
             return None
         lowered = text_line.lower()
-        for rarity in ("secret", "divine", "supreme"):
+        for rarity in ("secret", "divine", "supreme", "aura"):
             if re.search(rf"\b{re.escape(rarity)}\b", lowered):
                 return rarity
         return None
