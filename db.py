@@ -237,6 +237,8 @@ def init_db():
             operation TEXT NOT NULL,
             payload TEXT NOT NULL,
             priority INTEGER NOT NULL DEFAULT 10,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            next_retry_at TEXT,
             status TEXT NOT NULL DEFAULT 'pending',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
@@ -298,6 +300,16 @@ def init_db():
         c.execute(
             "ALTER TABLE discord_write_queue ADD COLUMN priority INTEGER NOT NULL DEFAULT 10"
         )
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute(
+            "ALTER TABLE discord_write_queue ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0"
+        )
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute("ALTER TABLE discord_write_queue ADD COLUMN next_retry_at TEXT")
     except sqlite3.OperationalError:
         pass
     c.execute(
@@ -2897,8 +2909,17 @@ def enqueue_discord_write(operation: str, payload: Dict[str, Any], priority: int
     payload_json = json.dumps(payload, ensure_ascii=False)
     c.execute(
         """
-        INSERT INTO discord_write_queue (operation, payload, priority, status, created_at, updated_at)
-        VALUES (?, ?, ?, 'pending', ?, ?)
+        INSERT INTO discord_write_queue (
+            operation,
+            payload,
+            priority,
+            attempts,
+            next_retry_at,
+            status,
+            created_at,
+            updated_at
+        )
+        VALUES (?, ?, ?, 0, NULL, 'pending', ?, ?)
         """,
         (operation, payload_json, priority, now, now),
     )
@@ -2913,7 +2934,7 @@ def fetch_pending_discord_writes(limit: int = 100) -> List[Dict[str, Any]]:
     c = conn.cursor()
     c.execute(
         """
-        SELECT id, operation, payload, priority
+        SELECT id, operation, payload, priority, attempts, next_retry_at
         FROM discord_write_queue
         WHERE status = 'pending'
         ORDER BY id ASC
@@ -2929,6 +2950,8 @@ def fetch_pending_discord_writes(limit: int = 100) -> List[Dict[str, Any]]:
             "operation": row[1],
             "payload": row[2],
             "priority": row[3],
+            "attempts": row[4],
+            "next_retry_at": row[5],
         }
         for row in rows
     ]
@@ -2961,6 +2984,22 @@ def mark_discord_write_failed(write_id: int, error: str):
         WHERE id = ?
         """,
         (now, error, write_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def mark_discord_write_retry(write_id: int, attempts: int, next_retry_at: str | None):
+    conn = get_connection()
+    c = conn.cursor()
+    now = datetime.utcnow().isoformat()
+    c.execute(
+        """
+        UPDATE discord_write_queue
+        SET attempts = ?, next_retry_at = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (attempts, next_retry_at, now, write_id),
     )
     conn.commit()
     conn.close()

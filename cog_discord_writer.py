@@ -8,7 +8,7 @@ import re
 import string
 import random
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional
 
 import discord
@@ -28,6 +28,7 @@ from db import (
     fetch_pending_discord_writes,
     mark_discord_write_done,
     mark_discord_write_failed,
+    mark_discord_write_retry,
     normalize_clan_member_name,
 )
 
@@ -40,6 +41,7 @@ class WriteRequest:
     db_id: int | None
     priority: int
     attempts: int = 0
+    next_retry_at: datetime | None = None
 
 
 class WritePriority:
@@ -531,6 +533,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         )
         self._queue_counter = itertools.count()
         self._worker_task: asyncio.Task | None = None
+        self._scheduled_tasks: set[asyncio.Task] = set()
         self._last_write_at: float | None = None
         self._blocked_until: float | None = None
         self._max_backoff_seconds = 30.0
@@ -573,6 +576,12 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             self._worker_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._worker_task
+        for task in list(self._scheduled_tasks):
+            task.cancel()
+        if self._scheduled_tasks:
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.gather(*self._scheduled_tasks, return_exceptions=True)
+        self._scheduled_tasks.clear()
         self._restore_methods()
 
     def _patch_methods(self):
@@ -911,7 +920,12 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                 future=None,
                 db_id=item["id"],
                 priority=WritePriority.normalize(item.get("priority")),
+                attempts=int(item.get("attempts") or 0),
+                next_retry_at=self._parse_next_retry_at(item.get("next_retry_at")),
             )
+            if await self._maybe_schedule_future_request(request):
+                count += 1
+                continue
             await self._queue.put((request.priority, next(self._queue_counter), request))
             count += 1
         self.logger.info("Obnoveno %d pending Discord write záznamů.", count)
@@ -919,6 +933,8 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
     async def _worker_loop(self):
         while True:
             _priority, _order, request = await self._queue.get()
+            if await self._maybe_schedule_future_request(request):
+                continue
             await self._respect_rate_limit()
             try:
                 result = await self._execute_request(request)
@@ -930,12 +946,19 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                     blocked_until = now + delay
                     if self._blocked_until is None or blocked_until > self._blocked_until:
                         self._blocked_until = blocked_until
+                    next_retry_at = datetime.utcnow() + timedelta(seconds=delay)
                     self.logger.warning(
                         "Rate limit hit, čekám %.2fs před opakováním.", delay
                     )
-                    await asyncio.sleep(delay)
                     request.attempts += 1
-                    await self._queue.put((request.priority, next(self._queue_counter), request))
+                    request.next_retry_at = next_retry_at
+                    if request.persist and request.db_id is not None:
+                        mark_discord_write_retry(
+                            request.db_id,
+                            request.attempts,
+                            next_retry_at.isoformat(),
+                        )
+                    await self._schedule_request(request, delay)
                     continue
                 self._mark_failed(request, exc)
                 continue
@@ -960,6 +983,41 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             wait_for = max(wait_for, self._blocked_until - now)
         if wait_for > 0:
             await asyncio.sleep(wait_for)
+
+    def _parse_next_retry_at(self, value: str | None) -> datetime | None:
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            self.logger.warning("Neplatné next_retry_at: %s", value)
+            return None
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        return parsed
+
+    async def _maybe_schedule_future_request(self, request: WriteRequest) -> bool:
+        if request.next_retry_at is None:
+            return False
+        delay = (request.next_retry_at - datetime.utcnow()).total_seconds()
+        if delay <= 0:
+            request.next_retry_at = None
+            return False
+        await self._schedule_request(request, delay)
+        return True
+
+    async def _schedule_request(self, request: WriteRequest, delay: float) -> None:
+        async def _delayed_put():
+            try:
+                await asyncio.sleep(delay)
+            except asyncio.CancelledError:
+                return
+            request.next_retry_at = None
+            await self._queue.put((request.priority, next(self._queue_counter), request))
+
+        task = asyncio.create_task(_delayed_put())
+        self._scheduled_tasks.add(task)
+        task.add_done_callback(lambda done_task: self._scheduled_tasks.discard(done_task))
 
     def _compute_backoff_delay(self, request: WriteRequest, retry_after: float | None) -> float:
         base_delay = float(retry_after) if retry_after is not None else self._min_interval_seconds
