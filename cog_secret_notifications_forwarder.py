@@ -1197,23 +1197,43 @@ class SecretNotificationsForwarder(commands.Cog):
                 logger.exception("Uložení denní statistiky dropu selhalo.")
 
     async def dropstats_leaderboard(self, interaction: discord.Interaction):
-        view = self._build_dropstats_view()
+        views = self._build_dropstats_views()
+        if not views:
+            view = self._build_notice_view("⚠️ Dropstats nejsou dostupné.")
+            await interaction.response.send_message(
+                view=view,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            return
         await interaction.response.send_message(
-            view=view,
+            view=views[0],
             allowed_mentions=discord.AllowedMentions.none(),
         )
+        for extra_view in views[1:]:
+            await interaction.followup.send(
+                view=extra_view,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
 
     @app_commands.checks.has_permissions(manage_channels=True)
     @app_commands.describe(channel="Kanál, kam se má dropstats panel poslat.")
     async def dropstats_setup(
         self, interaction: discord.Interaction, channel: discord.TextChannel
     ):
-        view = self._build_dropstats_view()
-        message = await channel.send(
-            view=view, allowed_mentions=discord.AllowedMentions.none()
-        )
+        views = self._build_dropstats_views()
+        if not views:
+            view = self._build_notice_view("⚠️ Dropstats není možné vytvořit.")
+            await interaction.response.send_message(view=view, ephemeral=True)
+            return
+        messages: list[discord.Message] = []
+        for view in views:
+            message = await channel.send(
+                view=view, allowed_mentions=discord.AllowedMentions.none()
+            )
+            messages.append(message)
         if interaction.guild:
-            add_dropstats_panel(interaction.guild.id, channel.id, message.id)
+            for message in messages:
+                add_dropstats_panel(interaction.guild.id, channel.id, message.id)
         await interaction.response.send_message(
             f"Dropstats panel byl odeslán do kanálu #{channel.name}.", ephemeral=True
         )
@@ -1372,7 +1392,29 @@ class SecretNotificationsForwarder(commands.Cog):
         view.add_item(container)
         return view
 
-    def _build_dropstats_view(self) -> discord.ui.LayoutView:
+    def _build_dropstats_views(self) -> list[discord.ui.LayoutView]:
+        members = self._get_clan_member_entries()
+        breakdown = self._get_drop_breakdown_safe()
+        totals = {
+            user_id: sum(counts.values()) for user_id, counts in breakdown.items()
+        }
+        summary_view = self._build_dropstats_summary_view(members, totals, breakdown)
+        if not members:
+            return [summary_view]
+        clan_groups, clan_sort_index = self._build_dropstats_clan_groups(members)
+        sorted_clans = self._sort_dropstats_clans(clan_groups, clan_sort_index)
+        clan_views = [
+            self._build_dropstats_clan_view(clan_group, totals, breakdown)
+            for _, clan_group in sorted_clans
+        ]
+        return [summary_view, *clan_views]
+
+    def _build_dropstats_summary_view(
+        self,
+        members: dict[int, dict[str, Optional[str]]],
+        totals: dict[int, int],
+        breakdown: dict[int, dict[str, int]],
+    ) -> discord.ui.LayoutView:
         view = discord.ui.LayoutView(timeout=None)
         summary_container = discord.ui.Container()
         summary_container.add_item(
@@ -1387,8 +1429,6 @@ class SecretNotificationsForwarder(commands.Cog):
             )
         )
         summary_container.add_item(discord.ui.Separator())
-
-        members = self._get_clan_member_entries()
         if not members:
             summary_container.add_item(
                 discord.ui.TextDisplay(
@@ -1397,11 +1437,6 @@ class SecretNotificationsForwarder(commands.Cog):
             )
             view.add_item(summary_container)
             return view
-
-        breakdown = self._get_drop_breakdown_safe()
-        totals = {
-            user_id: sum(counts.values()) for user_id, counts in breakdown.items()
-        }
         total_drops = sum(totals.get(user_id, 0) for user_id in members)
         total_supreme = sum(
             breakdown.get(user_id, {}).get("supreme", 0) for user_id in members
@@ -1439,9 +1474,16 @@ class SecretNotificationsForwarder(commands.Cog):
                 )
             )
         )
+        updated_at = int(datetime.now(timezone.utc).timestamp())
+        summary_container.add_item(
+            discord.ui.TextDisplay(content=f"🕒 Aktualizováno: <t:{updated_at}:R>")
+        )
         view.add_item(summary_container)
-        view.add_item(discord.ui.Separator())
+        return view
 
+    def _build_dropstats_clan_groups(
+        self, members: dict[int, dict[str, Optional[str]]]
+    ) -> tuple[dict[str, dict[str, Any]], dict[str, int] | None]:
         clan_groups: dict[str, dict[str, Any]] = {}
         clan_sort_index: dict[str, int] | None = None
         clan_display_override: dict[str, str] = {}
@@ -1485,7 +1527,13 @@ class SecretNotificationsForwarder(commands.Cog):
                 },
             )
             group["members"].append((user_id, entry))
+        return clan_groups, clan_sort_index
 
+    def _sort_dropstats_clans(
+        self,
+        clan_groups: dict[str, dict[str, Any]],
+        clan_sort_index: dict[str, int] | None,
+    ) -> list[tuple[str, dict[str, Any]]]:
         if clan_sort_index is not None:
             fallback_index = len(clan_sort_index)
 
@@ -1508,104 +1556,74 @@ class SecretNotificationsForwarder(commands.Cog):
                 display = str(item[1].get("display") or "").lower()
                 return (1 if display == "nezařazeno" else 0, display)
 
-        sorted_clans = sorted(clan_groups.items(), key=clan_sort_key)
-        clans_to_render = sorted_clans
-        clan_container = discord.ui.Container()
-        max_message_length = 4000
-        safe_message_length = 3800
-        current_message_length = 0
-        container_item_count = 0
+        return sorted(clan_groups.items(), key=clan_sort_key)
 
-        def _estimate_item_length(item: discord.ui.Item) -> int:
-            if isinstance(item, discord.ui.TextDisplay):
-                return len(item.content or "")
-            return 0
-
-        def _start_new_container() -> None:
-            nonlocal clan_container, current_message_length, container_item_count
-            if container_item_count:
-                view.add_item(clan_container)
-            clan_container = discord.ui.Container()
-            current_message_length = 0
-            container_item_count = 0
-
-        def add_clan_item(item: discord.ui.Item) -> None:
-            nonlocal current_message_length, container_item_count
-            item_length = _estimate_item_length(item)
-            if (
-                container_item_count
-                and current_message_length + item_length > safe_message_length
-            ):
-                _start_new_container()
-            clan_container.add_item(item)
-            container_item_count += 1
-            current_message_length += item_length
-            if current_message_length > max_message_length:
-                _start_new_container()
-
-        for _, clan_group in clans_to_render:
-            clan_members = clan_group["members"]
-            clan_members_sorted = sorted(
-                clan_members,
-                key=lambda item: (
-                    -totals.get(item[0], 0),
-                    item[1].get("name", "").lower(),
-                ),
-            )
-            clan_total_drops = sum(
-                totals.get(member_id, 0) for member_id, _ in clan_members
-            )
-            add_clan_item(
-                discord.ui.TextDisplay(
-                    content=f"### 🛡️ {clan_group['display']}"
+    def _build_dropstats_clan_view(
+        self,
+        clan_group: dict[str, Any],
+        totals: dict[int, int],
+        breakdown: dict[int, dict[str, int]],
+    ) -> discord.ui.LayoutView:
+        view = discord.ui.LayoutView(timeout=None)
+        container = discord.ui.Container()
+        clan_members = clan_group["members"]
+        clan_members_sorted = sorted(
+            clan_members,
+            key=lambda item: (
+                -totals.get(item[0], 0),
+                item[1].get("name", "").lower(),
+            ),
+        )
+        clan_total_drops = sum(
+            totals.get(member_id, 0) for member_id, _ in clan_members
+        )
+        container.add_item(
+            discord.ui.TextDisplay(content=f"### 🛡️ {clan_group['display']}")
+        )
+        container.add_item(
+            discord.ui.TextDisplay(
+                content=(
+                    f"👥 **Členů:** `{len(clan_members)}`  •  "
+                    f"🎁 **Dropů:** `{clan_total_drops}`"
                 )
             )
-            add_clan_item(
+        )
+        medal_emojis = ["🥇", "🥈", "🥉"]
+        lines = []
+        limited_members = clan_members_sorted[:DROPSTATS_MAX_MEMBERS_PER_CLAN]
+        for idx, (user_id, entry) in enumerate(limited_members, start=1):
+            prefix = medal_emojis[idx - 1] if idx <= 3 else f"`#{idx}`"
+            counts = breakdown.get(user_id, {})
+            supreme = counts.get("supreme", 0)
+            divine = counts.get("divine", 0)
+            aura = counts.get("aura", 0)
+            mysterious = counts.get("mysterious", 0)
+            secret = counts.get("secret", 0)
+            lines.append(
+                (
+                    f"{prefix} **{entry.get('name', user_id)}** — "
+                    f"**{totals.get(user_id, 0)}**"
+                    f"  •  `Su` {supreme}  •  `D` {divine}  •  `Au` {aura}"
+                    f"  •  `My` {mysterious}  •  `Se` {secret}"
+                )
+            )
+        for chunk in self._chunk_lines(lines, max_len=3800):
+            container.add_item(discord.ui.TextDisplay(content=chunk))
+        if len(clan_members_sorted) > DROPSTATS_MAX_MEMBERS_PER_CLAN:
+            container.add_item(
                 discord.ui.TextDisplay(
                     content=(
-                        f"👥 **Členů:** `{len(clan_members)}`  •  "
-                        f"🎁 **Dropů:** `{clan_total_drops}`"
+                        f"ℹ️ Zobrazuji top {DROPSTATS_MAX_MEMBERS_PER_CLAN} členů. "
+                        "Zbytek není v přehledu zobrazen."
                     )
                 )
             )
-            medal_emojis = ["🥇", "🥈", "🥉"]
-            lines = []
-            limited_members = clan_members_sorted[:DROPSTATS_MAX_MEMBERS_PER_CLAN]
-            for idx, (user_id, entry) in enumerate(limited_members, start=1):
-                prefix = medal_emojis[idx - 1] if idx <= 3 else f"`#{idx}`"
-                counts = breakdown.get(user_id, {})
-                supreme = counts.get("supreme", 0)
-                divine = counts.get("divine", 0)
-                aura = counts.get("aura", 0)
-                mysterious = counts.get("mysterious", 0)
-                secret = counts.get("secret", 0)
-                lines.append(
-                    (
-                        f"{prefix} **{entry.get('name', user_id)}** — "
-                        f"**{totals.get(user_id, 0)}**"
-                        f"  •  `Su` {supreme}  •  `D` {divine}  •  `Au` {aura}"
-                        f"  •  `My` {mysterious}  •  `Se` {secret}"
-                    )
-                )
-            for chunk in self._chunk_lines(lines, max_len=1800):
-                add_clan_item(discord.ui.TextDisplay(content=chunk))
-            if len(clan_members_sorted) > DROPSTATS_MAX_MEMBERS_PER_CLAN:
-                add_clan_item(
-                    discord.ui.TextDisplay(
-                        content=(
-                            f"ℹ️ Zobrazuji top {DROPSTATS_MAX_MEMBERS_PER_CLAN} členů. "
-                            "Zbytek není v přehledu zobrazen."
-                        )
-                    )
-                )
-            add_clan_item(discord.ui.Separator())
-
+        container.add_item(discord.ui.Separator())
         updated_at = int(datetime.now(timezone.utc).timestamp())
-        add_clan_item(
+        container.add_item(
             discord.ui.TextDisplay(content=f"🕒 Aktualizováno: <t:{updated_at}:R>")
         )
-        if container_item_count:
-            view.add_item(clan_container)
+        view.add_item(container)
         return view
 
     def _build_cached_names_view(self) -> discord.ui.LayoutView:
@@ -1691,6 +1709,16 @@ class SecretNotificationsForwarder(commands.Cog):
         current: List[str] = []
         current_len = 0
         for line in lines:
+            if len(line) > max_len:
+                if current:
+                    chunks.append("\n".join(current))
+                    current = []
+                    current_len = 0
+                start = 0
+                while start < len(line):
+                    chunks.append(line[start : start + max_len])
+                    start += max_len
+                continue
             addition = len(line) + (1 if current else 0)
             if current and current_len + addition > max_len:
                 chunks.append("\n".join(current))
@@ -1721,30 +1749,74 @@ class SecretNotificationsForwarder(commands.Cog):
         if not panels:
             return
 
+        panels_by_channel: dict[tuple[int, int], list[int]] = {}
         for guild_id, channel_id, message_id in panels:
+            panels_by_channel.setdefault((guild_id, channel_id), []).append(
+                message_id
+            )
+
+        for (guild_id, channel_id), message_ids in panels_by_channel.items():
             guild = self.bot.get_guild(guild_id)
             if guild is None:
-                remove_dropstats_panel(message_id)
+                for message_id in message_ids:
+                    remove_dropstats_panel(message_id)
                 continue
 
             channel = guild.get_channel(channel_id)
             if not isinstance(channel, discord.TextChannel):
-                remove_dropstats_panel(message_id)
+                for message_id in message_ids:
+                    remove_dropstats_panel(message_id)
                 continue
 
-            try:
-                msg = await channel.fetch_message(message_id)
-            except discord.NotFound:
+            message_ids_sorted = sorted(message_ids)
+            views = self._build_dropstats_views()
+            for index, view in enumerate(views):
+                if index < len(message_ids_sorted):
+                    message_id = message_ids_sorted[index]
+                    try:
+                        msg = await channel.fetch_message(message_id)
+                    except discord.NotFound:
+                        remove_dropstats_panel(message_id)
+                        try:
+                            msg = await channel.send(
+                                view=view,
+                                allowed_mentions=discord.AllowedMentions.none(),
+                            )
+                        except discord.HTTPException:
+                            continue
+                        add_dropstats_panel(guild_id, channel_id, msg.id)
+                        await asyncio.sleep(0.25)
+                        continue
+                    except discord.HTTPException:
+                        continue
+                    try:
+                        await msg.edit(
+                            view=view,
+                            allowed_mentions=discord.AllowedMentions.none(),
+                        )
+                        await asyncio.sleep(0.25)
+                    except discord.HTTPException:
+                        continue
+                else:
+                    try:
+                        msg = await channel.send(
+                            view=view,
+                            allowed_mentions=discord.AllowedMentions.none(),
+                        )
+                    except discord.HTTPException:
+                        continue
+                    add_dropstats_panel(guild_id, channel_id, msg.id)
+                    await asyncio.sleep(0.25)
+            for message_id in message_ids_sorted[len(views) :]:
+                try:
+                    msg = await channel.fetch_message(message_id)
+                except discord.NotFound:
+                    remove_dropstats_panel(message_id)
+                    continue
+                except discord.HTTPException:
+                    continue
+                try:
+                    await msg.delete()
+                except discord.HTTPException:
+                    continue
                 remove_dropstats_panel(message_id)
-                continue
-            except discord.HTTPException:
-                continue
-
-            try:
-                view = self._build_dropstats_view()
-                await msg.edit(
-                    view=view, allowed_mentions=discord.AllowedMentions.none()
-                )
-                await asyncio.sleep(0.25)
-            except discord.HTTPException:
-                continue
