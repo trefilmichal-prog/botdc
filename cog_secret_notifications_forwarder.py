@@ -149,11 +149,13 @@ class SecretNotificationsForwarder(commands.Cog):
         self.poll_notifications.start()
         self.log_notification_stats.start()
         self.refresh_clan_member_cache.start()
+        self.refresh_dropstats_task.start()
 
     def cog_unload(self):
         self.poll_notifications.cancel()
         self.log_notification_stats.cancel()
         self.refresh_clan_member_cache.cancel()
+        self.refresh_dropstats_task.cancel()
         self.bot.tree.remove_command("dropstats", type=discord.AppCommandType.chat_input)
         self.bot.tree.remove_command("secret", type=discord.AppCommandType.chat_input)
 
@@ -277,6 +279,18 @@ class SecretNotificationsForwarder(commands.Cog):
         await self.bot.wait_until_ready()
         logger.info("Startuji smyčku pro obnovu cache hráčů v clanu.")
         await self._refresh_clan_member_cache()
+        await self.refresh_dropstats_panels()
+
+    @tasks.loop(minutes=5)
+    async def refresh_dropstats_task(self) -> None:
+        try:
+            await self.refresh_dropstats_panels()
+        except Exception:
+            logger.exception("Neočekávaná chyba při refreshi dropstats panelů.")
+
+    @refresh_dropstats_task.before_loop
+    async def before_refresh_dropstats_task(self) -> None:
+        await self.bot.wait_until_ready()
         await self.refresh_dropstats_panels()
 
     async def _get_channel(self) -> Optional[discord.abc.Messageable]:
