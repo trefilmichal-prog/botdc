@@ -1485,10 +1485,10 @@ class SecretNotificationsForwarder(commands.Cog):
                 content=(
                     "🧮 **Celkový souhrn:** "
                     f"Su `{total_supreme}`  •  "
-                    f"Divine `{total_divine}`  •  "
-                    f"Aura `{total_aura}`  •  "
                     f"Mysterious `{total_mysterious}`  •  "
-                    f"Secret `{total_secret}`"
+                    f"Divine `{total_divine}`  •  "
+                    f"Secret `{total_secret}`  •  "
+                    f"Aura `{total_aura}`"
                 )
             )
         )
@@ -1621,8 +1621,8 @@ class SecretNotificationsForwarder(commands.Cog):
                 (
                     f"{prefix} **{entry.get('name', user_id)}** — "
                     f"**{totals.get(user_id, 0)}**"
-                    f"  •  `Su` {supreme}  •  `D` {divine}  •  `Au` {aura}"
-                    f"  •  `My` {mysterious}  •  `Se` {secret}"
+                    f"  •  `Su` {supreme}  •  `My` {mysterious}  •  `D` {divine}"
+                    f"  •  `Se` {secret}  •  `Au` {aura}"
                 )
             )
         for chunk in self._chunk_lines(lines, max_len=3800):
