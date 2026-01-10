@@ -27,6 +27,7 @@ from db import (
     clan_member_nick_exists,
     delete_discord_rate_limit_bucket,
     fetch_discord_rate_limit_buckets,
+    fetch_discord_write_state,
     enqueue_discord_write,
     prune_discord_rate_limit_buckets,
     fetch_pending_discord_writes,
@@ -34,6 +35,8 @@ from db import (
     mark_discord_write_failed,
     mark_discord_write_retry,
     normalize_clan_member_name,
+    update_discord_write_blocked_until,
+    update_discord_write_last_write_at,
     upsert_discord_rate_limit_bucket,
 )
 
@@ -569,6 +572,10 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
 
     async def cog_load(self):
         try:
+            self._restore_rate_limit_state()
+        except Exception:  # noqa: BLE001
+            self.logger.exception("Obnova Discord rate limit stavu selhala.")
+        try:
             await self._restore_pending()
         except Exception:  # noqa: BLE001
             self.logger.exception("Obnova pending Discord write fronty selhala.")
@@ -954,10 +961,11 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                 if exc.status == 429:
                     retry_after = getattr(exc, "retry_after", None)
                     delay = self._compute_backoff_delay(request, retry_after)
-                    now = time.time()
+                    now = datetime.utcnow().timestamp()
                     blocked_until = now + delay
                     if self._blocked_until is None or blocked_until > self._blocked_until:
                         self._blocked_until = blocked_until
+                        update_discord_write_blocked_until(blocked_until)
                     if bucket_key is not None:
                         self._set_rate_limit_bucket(bucket_key, blocked_until)
                     next_retry_at = datetime.utcnow() + timedelta(seconds=delay)
@@ -980,14 +988,15 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                 self._mark_failed(request, exc)
                 continue
 
-            self._last_write_at = time.time()
+            self._last_write_at = datetime.utcnow().timestamp()
+            update_discord_write_last_write_at(self._last_write_at)
             if request.persist and request.db_id is not None:
                 mark_discord_write_done(request.db_id)
             if request.future and not request.future.done():
                 request.future.set_result(result)
 
     async def _respect_rate_limit(self, bucket_key: str | None = None):
-        now = time.time()
+        now = datetime.utcnow().timestamp()
         wait_for = 0.0
         if self._last_write_at is not None:
             wait_for = max(
@@ -1005,6 +1014,17 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                     wait_for = max(wait_for, bucket_until - now)
         if wait_for > 0:
             await asyncio.sleep(wait_for)
+
+    def _restore_rate_limit_state(self) -> None:
+        now = datetime.utcnow().timestamp()
+        state = fetch_discord_write_state()
+        blocked_until = state.get("blocked_until")
+        last_write_at = state.get("last_write_at")
+        if blocked_until is not None and blocked_until > now:
+            self._blocked_until = blocked_until
+        else:
+            self._blocked_until = None
+        self._last_write_at = last_write_at
 
     def _restore_rate_limit_buckets(self) -> None:
         now = time.time()

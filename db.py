@@ -256,6 +256,16 @@ def init_db():
         """
     )
 
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS discord_write_state (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            blocked_until REAL,
+            last_write_at REAL
+        )
+        """
+    )
+
     # Roblox sledování aktivity
     c.execute(
         """
@@ -3079,6 +3089,57 @@ def prune_discord_rate_limit_buckets(cutoff: float) -> int:
     conn.commit()
     conn.close()
     return int(deleted)
+
+
+def fetch_discord_write_state() -> Dict[str, float | None]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT blocked_until, last_write_at
+        FROM discord_write_state
+        WHERE id = 1
+        """
+    )
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return {"blocked_until": None, "last_write_at": None}
+    blocked_until = float(row[0]) if row[0] is not None else None
+    last_write_at = float(row[1]) if row[1] is not None else None
+    return {"blocked_until": blocked_until, "last_write_at": last_write_at}
+
+
+def update_discord_write_blocked_until(blocked_until: float | None) -> None:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO discord_write_state (id, blocked_until, last_write_at)
+        VALUES (1, ?, NULL)
+        ON CONFLICT(id)
+        DO UPDATE SET blocked_until = excluded.blocked_until
+        """,
+        (blocked_until,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_discord_write_last_write_at(last_write_at: float | None) -> None:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO discord_write_state (id, blocked_until, last_write_at)
+        VALUES (1, NULL, ?)
+        ON CONFLICT(id)
+        DO UPDATE SET last_write_at = excluded.last_write_at
+        """,
+        (last_write_at,),
+    )
+    conn.commit()
+    conn.close()
 
 
 def add_windows_notification(payload: Dict[str, Any]) -> None:
