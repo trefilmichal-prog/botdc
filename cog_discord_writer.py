@@ -7,6 +7,7 @@ import os
 import re
 import string
 import random
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional
@@ -24,12 +25,16 @@ from config import DISCORD_WRITE_MIN_INTERVAL_SECONDS
 # požadavky musí projít přes queue (grep: "Discord write selhal").
 from db import (
     clan_member_nick_exists,
+    delete_discord_rate_limit_bucket,
+    fetch_discord_rate_limit_buckets,
     enqueue_discord_write,
+    prune_discord_rate_limit_buckets,
     fetch_pending_discord_writes,
     mark_discord_write_done,
     mark_discord_write_failed,
     mark_discord_write_retry,
     normalize_clan_member_name,
+    upsert_discord_rate_limit_bucket,
 )
 
 @dataclass
@@ -42,6 +47,7 @@ class WriteRequest:
     priority: int
     attempts: int = 0
     next_retry_at: datetime | None = None
+    bucket_key: str | None = None
 
 
 class WritePriority:
@@ -536,6 +542,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         self._scheduled_tasks: set[asyncio.Task] = set()
         self._last_write_at: float | None = None
         self._blocked_until: float | None = None
+        self._rate_limit_buckets: dict[str, float] = {}
         self._max_backoff_seconds = 30.0
         # DISCORD_WRITE_MIN_INTERVAL_SECONDS (např. 0.1–1.0 s) určuje minimální rozestup zápisů.
         self._min_interval_seconds = DISCORD_WRITE_MIN_INTERVAL_SECONDS
@@ -565,6 +572,10 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             await self._restore_pending()
         except Exception:  # noqa: BLE001
             self.logger.exception("Obnova pending Discord write fronty selhala.")
+        try:
+            self._restore_rate_limit_buckets()
+        except Exception:  # noqa: BLE001
+            self.logger.exception("Obnova rate limit bucketů selhala.")
         try:
             self._patch_methods()
         except Exception:  # noqa: BLE001
@@ -935,17 +946,20 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             _priority, _order, request = await self._queue.get()
             if await self._maybe_schedule_future_request(request):
                 continue
-            await self._respect_rate_limit()
+            bucket_key = self._get_rate_limit_bucket_key(request)
+            await self._respect_rate_limit(bucket_key)
             try:
                 result = await self._execute_request(request)
             except discord.HTTPException as exc:
                 if exc.status == 429:
                     retry_after = getattr(exc, "retry_after", None)
                     delay = self._compute_backoff_delay(request, retry_after)
-                    now = asyncio.get_running_loop().time()
+                    now = time.time()
                     blocked_until = now + delay
                     if self._blocked_until is None or blocked_until > self._blocked_until:
                         self._blocked_until = blocked_until
+                    if bucket_key is not None:
+                        self._set_rate_limit_bucket(bucket_key, blocked_until)
                     next_retry_at = datetime.utcnow() + timedelta(seconds=delay)
                     self.logger.warning(
                         "Rate limit hit, čekám %.2fs před opakováním.", delay
@@ -966,14 +980,14 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                 self._mark_failed(request, exc)
                 continue
 
-            self._last_write_at = asyncio.get_running_loop().time()
+            self._last_write_at = time.time()
             if request.persist and request.db_id is not None:
                 mark_discord_write_done(request.db_id)
             if request.future and not request.future.done():
                 request.future.set_result(result)
 
-    async def _respect_rate_limit(self):
-        now = asyncio.get_running_loop().time()
+    async def _respect_rate_limit(self, bucket_key: str | None = None):
+        now = time.time()
         wait_for = 0.0
         if self._last_write_at is not None:
             wait_for = max(
@@ -981,8 +995,32 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             )
         if self._blocked_until is not None and self._blocked_until > now:
             wait_for = max(wait_for, self._blocked_until - now)
+        if bucket_key is not None:
+            bucket_until = self._rate_limit_buckets.get(bucket_key)
+            if bucket_until is not None:
+                if bucket_until <= now:
+                    self._rate_limit_buckets.pop(bucket_key, None)
+                    delete_discord_rate_limit_bucket(bucket_key)
+                else:
+                    wait_for = max(wait_for, bucket_until - now)
         if wait_for > 0:
             await asyncio.sleep(wait_for)
+
+    def _restore_rate_limit_buckets(self) -> None:
+        now = time.time()
+        pruned = prune_discord_rate_limit_buckets(now)
+        if pruned:
+            self.logger.info("Pročištěno %d expirovaných rate limit bucketů.", pruned)
+        self._rate_limit_buckets = fetch_discord_rate_limit_buckets(now)
+        if self._rate_limit_buckets:
+            self.logger.info(
+                "Obnoveno %d rate limit bucketů.",
+                len(self._rate_limit_buckets),
+            )
+
+    def _set_rate_limit_bucket(self, bucket_key: str, blocked_until: float) -> None:
+        self._rate_limit_buckets[bucket_key] = blocked_until
+        upsert_discord_rate_limit_bucket(bucket_key, blocked_until)
 
     def _parse_next_retry_at(self, value: str | None) -> datetime | None:
         if not value:
@@ -1034,6 +1072,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             request.future.set_exception(exc)
 
     async def _execute_request(self, request: WriteRequest):
+        self._get_rate_limit_bucket_key(request)
         op = request.operation
         payload = self._deserialize_payload(request.payload)
         if op == "send_message":
@@ -1075,6 +1114,33 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         if op == "set_permissions":
             return await self._op_set_permissions(payload)
         raise ValueError(f"Neznámá operace: {op}")
+
+    def _get_rate_limit_bucket_key(self, request: WriteRequest) -> str | None:
+        if request.bucket_key is not None:
+            return request.bucket_key
+        payload = request.payload or {}
+        channel_id = payload.get("channel_id")
+        if channel_id is None and payload.get("target_type") == "channel":
+            channel_id = payload.get("target_id")
+        if channel_id is None:
+            interaction = payload.get("interaction")
+            channel_id = getattr(interaction, "channel_id", None)
+        message_id = payload.get("message_id")
+        webhook_id = payload.get("webhook_id")
+        if webhook_id is None:
+            webhook = payload.get("webhook")
+            webhook_id = getattr(webhook, "id", None)
+        identifiers = [
+            ("channel_id", channel_id),
+            ("webhook_id", webhook_id),
+            ("message_id", message_id),
+        ]
+        key_parts = [request.operation]
+        for name, value in identifiers:
+            if value is not None:
+                key_parts.append(f"{name}:{value}")
+        request.bucket_key = "|".join(key_parts)
+        return request.bucket_key
 
     async def _op_send_message(self, payload: dict[str, Any]):
         try:

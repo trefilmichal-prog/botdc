@@ -247,6 +247,15 @@ def init_db():
         """
     )
 
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS discord_rate_limit_buckets (
+            bucket_key TEXT PRIMARY KEY,
+            blocked_until REAL NOT NULL
+        )
+        """
+    )
+
     # Roblox sledování aktivity
     c.execute(
         """
@@ -3014,6 +3023,62 @@ def clear_pending_discord_writes() -> int:
     conn.commit()
     conn.close()
     return int(count)
+
+
+def fetch_discord_rate_limit_buckets(min_blocked_until: float) -> Dict[str, float]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT bucket_key, blocked_until
+        FROM discord_rate_limit_buckets
+        WHERE blocked_until > ?
+        """,
+        (min_blocked_until,),
+    )
+    rows = c.fetchall()
+    conn.close()
+    return {str(row[0]): float(row[1]) for row in rows}
+
+
+def upsert_discord_rate_limit_bucket(bucket_key: str, blocked_until: float) -> None:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO discord_rate_limit_buckets (bucket_key, blocked_until)
+        VALUES (?, ?)
+        ON CONFLICT(bucket_key)
+        DO UPDATE SET blocked_until = excluded.blocked_until
+        """,
+        (bucket_key, blocked_until),
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_discord_rate_limit_bucket(bucket_key: str) -> None:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "DELETE FROM discord_rate_limit_buckets WHERE bucket_key = ?",
+        (bucket_key,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def prune_discord_rate_limit_buckets(cutoff: float) -> int:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "DELETE FROM discord_rate_limit_buckets WHERE blocked_until <= ?",
+        (cutoff,),
+    )
+    deleted = c.rowcount
+    conn.commit()
+    conn.close()
+    return int(deleted)
 
 
 def add_windows_notification(payload: Dict[str, Any]) -> None:
