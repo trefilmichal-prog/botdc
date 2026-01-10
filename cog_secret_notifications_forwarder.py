@@ -27,7 +27,6 @@ from db import (
     delete_windows_notifications,
     get_all_dropstats_panels,
     get_connection,
-    get_dropstats_panel_state,
     get_secret_drop_breakdown_all_time,
     get_secret_notifications_role_ids,
     get_windows_notifications,
@@ -36,7 +35,6 @@ from db import (
     normalize_clan_member_name,
     remove_dropstats_panel,
     reset_secret_drop_stats,
-    set_dropstats_panel_state,
     set_secret_notifications_role_ids,
 )
 
@@ -64,8 +62,6 @@ CONGRATS_LINE_REGEX = re.compile(
 NOTIFICATION_HEADER_SKIP_REGEX = re.compile(
     r"Secrets Hatched.*#🐾┃secrets-hatched.*REBIRTH CHAMPIONS"
 )
-DROPSTATS_CLAN_ALL_VALUE = "__all__"
-DROPSTATS_MAX_CLANS_PER_VIEW = 2
 DROPSTATS_MAX_MEMBERS_PER_CLAN = 15
 
 logger = logging.getLogger("botdc.secret_notifications")
@@ -1218,7 +1214,6 @@ class SecretNotificationsForwarder(commands.Cog):
         )
         if interaction.guild:
             add_dropstats_panel(interaction.guild.id, channel.id, message.id)
-            set_dropstats_panel_state(message.id, DROPSTATS_CLAN_ALL_VALUE)
         await interaction.response.send_message(
             f"Dropstats panel byl odeslán do kanálu #{channel.name}.", ephemeral=True
         )
@@ -1377,9 +1372,7 @@ class SecretNotificationsForwarder(commands.Cog):
         view.add_item(container)
         return view
 
-    def _build_dropstats_view(
-        self, selected_clan_key: Optional[str] = None
-    ) -> discord.ui.LayoutView:
+    def _build_dropstats_view(self) -> discord.ui.LayoutView:
         view = discord.ui.LayoutView(timeout=None)
         summary_container = discord.ui.Container()
         summary_container.add_item(
@@ -1516,60 +1509,19 @@ class SecretNotificationsForwarder(commands.Cog):
                 return (1 if display == "nezařazeno" else 0, display)
 
         sorted_clans = sorted(clan_groups.items(), key=clan_sort_key)
-        selected_value = selected_clan_key or DROPSTATS_CLAN_ALL_VALUE
-        if (
-            selected_value != DROPSTATS_CLAN_ALL_VALUE
-            and selected_value not in clan_groups
-        ):
-            selected_value = DROPSTATS_CLAN_ALL_VALUE
-
-        select_options = [
-            discord.SelectOption(
-                label="Souhrn clanů (omezený počet)",
-                value=DROPSTATS_CLAN_ALL_VALUE,
-                default=selected_value == DROPSTATS_CLAN_ALL_VALUE,
-            )
-        ]
-        max_clan_options = 24
-        for group_key, clan_group in sorted_clans[:max_clan_options]:
-            label = str(clan_group.get("display") or group_key)
-            select_options.append(
-                discord.SelectOption(
-                    label=label[:100],
-                    value=group_key,
-                    default=selected_value == group_key,
-                )
-            )
-
-        clan_select = discord.ui.Select(
-            placeholder="Vyber clan pro detail",
-            min_values=1,
-            max_values=1,
-            options=select_options,
-            custom_id="dropstats_clan_select",
-        )
-        clan_select.callback = self._handle_dropstats_clan_select
-        view.add_item(discord.ui.ActionRow(clan_select))
-
+        clans_to_render = sorted_clans
         clan_container = discord.ui.Container()
-        clans_to_render: list[tuple[str, dict[str, Any]]]
-        if selected_value == DROPSTATS_CLAN_ALL_VALUE:
-            clans_to_render = sorted_clans[:DROPSTATS_MAX_CLANS_PER_VIEW]
-            if len(sorted_clans) > DROPSTATS_MAX_CLANS_PER_VIEW:
-                clan_container.add_item(
-                    discord.ui.TextDisplay(
-                        content=(
-                            f"ℹ️ Zobrazuji pouze {DROPSTATS_MAX_CLANS_PER_VIEW} clanů. "
-                            "Další clany najdeš po přepnutí v menu."
-                        )
-                    )
-                )
-        else:
-            clans_to_render = [
-                clan_item
-                for clan_item in sorted_clans
-                if clan_item[0] == selected_value
-            ]
+        max_items_per_container = 20
+        container_item_count = 0
+
+        def add_clan_item(item: discord.ui.Item) -> None:
+            nonlocal clan_container, container_item_count
+            if container_item_count >= max_items_per_container:
+                view.add_item(clan_container)
+                clan_container = discord.ui.Container()
+                container_item_count = 0
+            clan_container.add_item(item)
+            container_item_count += 1
 
         for _, clan_group in clans_to_render:
             clan_members = clan_group["members"]
@@ -1583,12 +1535,12 @@ class SecretNotificationsForwarder(commands.Cog):
             clan_total_drops = sum(
                 totals.get(member_id, 0) for member_id, _ in clan_members
             )
-            clan_container.add_item(
+            add_clan_item(
                 discord.ui.TextDisplay(
                     content=f"### 🛡️ {clan_group['display']}"
                 )
             )
-            clan_container.add_item(
+            add_clan_item(
                 discord.ui.TextDisplay(
                     content=(
                         f"👥 **Členů:** `{len(clan_members)}`  •  "
@@ -1616,20 +1568,20 @@ class SecretNotificationsForwarder(commands.Cog):
                     )
                 )
             for chunk in self._chunk_lines(lines, max_len=1800):
-                clan_container.add_item(discord.ui.TextDisplay(content=chunk))
+                add_clan_item(discord.ui.TextDisplay(content=chunk))
             if len(clan_members_sorted) > DROPSTATS_MAX_MEMBERS_PER_CLAN:
-                clan_container.add_item(
+                add_clan_item(
                     discord.ui.TextDisplay(
                         content=(
                             f"ℹ️ Zobrazuji top {DROPSTATS_MAX_MEMBERS_PER_CLAN} členů. "
-                            "Zbytek je k dispozici po přepnutí clanu/stránky."
+                            "Zbytek není v přehledu zobrazen."
                         )
                     )
                 )
-            clan_container.add_item(discord.ui.Separator())
+            add_clan_item(discord.ui.Separator())
 
         updated_at = int(datetime.now(timezone.utc).timestamp())
-        clan_container.add_item(
+        add_clan_item(
             discord.ui.TextDisplay(content=f"🕒 Aktualizováno: <t:{updated_at}:R>")
         )
         view.add_item(clan_container)
@@ -1689,24 +1641,6 @@ class SecretNotificationsForwarder(commands.Cog):
             container.add_item(discord.ui.TextDisplay(content=chunk))
         view.add_item(container)
         return view
-
-    async def _handle_dropstats_clan_select(
-        self, interaction: discord.Interaction
-    ) -> None:
-        selected_value = DROPSTATS_CLAN_ALL_VALUE
-        if isinstance(interaction.data, dict):
-            values = interaction.data.get("values")
-            if isinstance(values, list) and values:
-                selected_value = str(values[0])
-
-        message = interaction.message
-        if message is not None:
-            set_dropstats_panel_state(message.id, selected_value)
-
-        view = self._build_dropstats_view(selected_clan_key=selected_value)
-        await interaction.response.edit_message(
-            view=view, allowed_mentions=discord.AllowedMentions.none()
-        )
 
     def _get_drop_breakdown_safe(self) -> dict[int, dict[str, int]]:
         try:
@@ -1786,10 +1720,7 @@ class SecretNotificationsForwarder(commands.Cog):
                 continue
 
             try:
-                selected_clan_key = get_dropstats_panel_state(message_id)
-                view = self._build_dropstats_view(
-                    selected_clan_key=selected_clan_key
-                )
+                view = self._build_dropstats_view()
                 await msg.edit(
                     view=view, allowed_mentions=discord.AllowedMentions.none()
                 )
