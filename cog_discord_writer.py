@@ -480,6 +480,33 @@ async def _patched_interaction_edit(response: discord.InteractionResponse, *args
         return await original(response, *args, **kwargs)
 
 
+async def _patched_interaction_edit_original(
+    interaction: discord.Interaction, *args, **kwargs
+):
+    try:
+        if interaction.client is None:
+            raise RuntimeError("Interakce nemá klienta.")
+        writer = get_writer(interaction.client)
+        return await writer.edit_original_response(interaction, *args, **kwargs)
+    except discord.NotFound as exc:
+        if getattr(exc, "code", None) == 10062:
+            logging.getLogger("botdc.discord_write").info(
+                "Interaction vypršela (Unknown interaction) při edit_original_response."
+            )
+            return None
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální edit_original_response pro Interaction.", exc_info=exc
+        )
+        original = getattr(
+            discord.Interaction, "__discord_write_original_edit_original_response__", None
+        )
+        if original is None:
+            raise
+        return await original(interaction, *args, **kwargs)
+
+
 async def _patched_interaction_modal(response: discord.InteractionResponse, *args, **kwargs):
     interaction = getattr(response, "_parent", None)
     try:
@@ -566,6 +593,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         self._original_interaction_send: Optional[Callable[..., Any]] = None
         self._original_interaction_defer: Optional[Callable[..., Any]] = None
         self._original_interaction_edit: Optional[Callable[..., Any]] = None
+        self._original_interaction_edit_original: Optional[Callable[..., Any]] = None
         self._original_interaction_modal: Optional[Callable[..., Any]] = None
         self._original_webhook_send: Optional[Callable[..., Any]] = None
         self._original_followup_send: Optional[Callable[..., Any]] = None
@@ -799,6 +827,18 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                 )
                 discord.InteractionResponse.edit_message = _patched_interaction_edit
                 patched_targets.append("InteractionResponse.edit_message")
+        self._original_interaction_edit_original = getattr(
+            discord.Interaction, "edit_original_response", None
+        )
+        if self._original_interaction_edit_original is not None:
+            if apply_patches:
+                setattr(
+                    discord.Interaction,
+                    "__discord_write_original_edit_original_response__",
+                    self._original_interaction_edit_original,
+                )
+                discord.Interaction.edit_original_response = _patched_interaction_edit_original
+                patched_targets.append("Interaction.edit_original_response")
         self._original_interaction_modal = getattr(discord.InteractionResponse, "send_modal", None)
         if self._original_interaction_modal is not None:
             if apply_patches:
@@ -903,6 +943,11 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             and discord.InteractionResponse.edit_message is _patched_interaction_edit
         ):
             discord.InteractionResponse.edit_message = self._original_interaction_edit
+        if (
+            self._original_interaction_edit_original
+            and discord.Interaction.edit_original_response is _patched_interaction_edit_original
+        ):
+            discord.Interaction.edit_original_response = self._original_interaction_edit_original
         if (
             self._original_interaction_modal
             and discord.InteractionResponse.send_modal is _patched_interaction_modal
@@ -1125,6 +1170,8 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             return await self._op_interaction_followup(payload)
         if op == "interaction_edit":
             return await self._op_interaction_edit(payload)
+        if op == "interaction_edit_original":
+            return await self._op_interaction_edit_original(payload)
         if op == "interaction_defer":
             return await self._op_interaction_defer(payload)
         if op == "interaction_modal":
@@ -1357,6 +1404,27 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             **payload["kwargs"],
         )
 
+    async def _op_interaction_edit_original(self, payload: dict[str, Any]):
+        interaction = payload["interaction"]
+        if self._original_interaction_edit_original is None:
+            raise RuntimeError("Interaction.edit_original_response není dostupné.")
+        if "kwargs" in payload:
+            self._sanitize_view_kwargs(payload["kwargs"])
+            self._sanitize_components_v2_kwargs(payload["kwargs"])
+        try:
+            return await self._original_interaction_edit_original(
+                interaction,
+                *payload.get("args", ()),
+                **payload["kwargs"],
+            )
+        except discord.NotFound as exc:
+            if getattr(exc, "code", None) == 10062:
+                self.logger.info(
+                    "Interaction vypršela (Unknown interaction) při edit_original_response."
+                )
+                return None
+            raise
+
     async def _op_interaction_defer(self, payload: dict[str, Any]):
         interaction = payload["interaction"]
         if self._original_interaction_defer is None:
@@ -1544,6 +1612,21 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         self._sanitize_view_kwargs(kwargs)
         payload = {"interaction": interaction, "args": args, "kwargs": kwargs}
         return await self._enqueue("interaction_edit", payload, persist=False)
+
+    async def edit_original_response(
+        self, interaction: discord.Interaction, *args, **kwargs
+    ):
+        self._sanitize_view_kwargs(kwargs)
+        payload = {
+            "interaction": interaction,
+            "args": args,
+            "kwargs": kwargs,
+            "channel_id": interaction.channel_id,
+        }
+        message = getattr(interaction, "message", None)
+        if message is not None:
+            payload["message_id"] = message.id
+        return await self._enqueue("interaction_edit_original", payload, persist=False)
 
     async def defer_interaction(self, interaction: discord.Interaction, *args, **kwargs):
         payload = {"interaction": interaction, "args": args, "kwargs": kwargs}
