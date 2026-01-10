@@ -446,12 +446,46 @@ def init_db():
     c.execute(
         """
         CREATE TABLE IF NOT EXISTS dropstats_panels (
-            message_id INTEGER PRIMARY KEY,
             guild_id INTEGER NOT NULL,
-            channel_id INTEGER NOT NULL
+            channel_id INTEGER NOT NULL,
+            message_ids TEXT NOT NULL,
+            PRIMARY KEY (guild_id, channel_id)
         )
         """
     )
+
+    dropstats_columns = c.execute("PRAGMA table_info(dropstats_panels)").fetchall()
+    dropstats_column_names = {row[1] for row in dropstats_columns}
+    if dropstats_column_names and "message_ids" not in dropstats_column_names:
+        c.execute(
+            """
+            CREATE TABLE dropstats_panels_new (
+                guild_id INTEGER NOT NULL,
+                channel_id INTEGER NOT NULL,
+                message_ids TEXT NOT NULL,
+                PRIMARY KEY (guild_id, channel_id)
+            )
+            """
+        )
+        if {"guild_id", "channel_id", "message_id"}.issubset(dropstats_column_names):
+            rows = c.execute(
+                "SELECT guild_id, channel_id, message_id FROM dropstats_panels"
+            ).fetchall()
+            grouped: dict[tuple[int, int], list[int]] = {}
+            for guild_id, channel_id, message_id in rows:
+                grouped.setdefault(
+                    (int(guild_id), int(channel_id)), []
+                ).append(int(message_id))
+            for (guild_id, channel_id), message_ids in grouped.items():
+                c.execute(
+                    """
+                    INSERT INTO dropstats_panels_new (guild_id, channel_id, message_ids)
+                    VALUES (?, ?, ?)
+                    """,
+                    (guild_id, channel_id, json.dumps(sorted(message_ids))),
+                )
+        c.execute("DROP TABLE dropstats_panels")
+        c.execute("ALTER TABLE dropstats_panels_new RENAME TO dropstats_panels")
 
     c.execute(
         """
@@ -1657,39 +1691,91 @@ def get_all_leaderboard_panels() -> list[tuple[int, int, int]]:
 
 # ---------- DROPSTATS PANELY ----------
 
-def add_dropstats_panel(guild_id: int, channel_id: int, message_id: int):
+def _normalize_message_ids(message_ids: List[int]) -> List[int]:
+    return [int(message_id) for message_id in message_ids if message_id]
+
+
+def set_dropstats_panel_message_ids(
+    guild_id: int, channel_id: int, message_ids: List[int]
+) -> None:
+    normalized_ids = _normalize_message_ids(message_ids)
     conn = get_connection()
     c = conn.cursor()
     c.execute(
         """
-        INSERT INTO dropstats_panels (message_id, guild_id, channel_id)
+        INSERT INTO dropstats_panels (guild_id, channel_id, message_ids)
         VALUES (?, ?, ?)
-        ON CONFLICT(message_id) DO UPDATE SET
-            guild_id = excluded.guild_id,
-            channel_id = excluded.channel_id
+        ON CONFLICT(guild_id, channel_id) DO UPDATE SET
+            message_ids = excluded.message_ids
         """,
-        (message_id, guild_id, channel_id),
+        (guild_id, channel_id, json.dumps(normalized_ids)),
     )
     conn.commit()
     conn.close()
 
 
-def remove_dropstats_panel(message_id: int):
+def remove_dropstats_panel(guild_id: int, channel_id: int) -> None:
     conn = get_connection()
     c = conn.cursor()
-    c.execute("DELETE FROM dropstats_panels WHERE message_id = ?", (message_id,))
-    c.execute("DELETE FROM dropstats_panel_state WHERE message_id = ?", (message_id,))
+    c.execute(
+        "SELECT message_ids FROM dropstats_panels WHERE guild_id = ? AND channel_id = ?",
+        (guild_id, channel_id),
+    )
+    row = c.fetchone()
+    if row:
+        message_ids = _decode_message_ids(row[0])
+        _delete_dropstats_panel_states(c, message_ids)
+    c.execute(
+        "DELETE FROM dropstats_panels WHERE guild_id = ? AND channel_id = ?",
+        (guild_id, channel_id),
+    )
     conn.commit()
     conn.close()
 
 
-def get_all_dropstats_panels() -> list[tuple[int, int, int]]:
+def get_all_dropstats_panels() -> list[tuple[int, int, list[int]]]:
     conn = get_connection()
     c = conn.cursor()
-    c.execute("SELECT guild_id, channel_id, message_id FROM dropstats_panels")
+    c.execute("SELECT guild_id, channel_id, message_ids FROM dropstats_panels")
     rows = c.fetchall()
     conn.close()
-    return [(int(g), int(ch), int(msg)) for g, ch, msg in rows]
+    return [
+        (int(g), int(ch), _decode_message_ids(message_ids))
+        for g, ch, message_ids in rows
+    ]
+
+
+def delete_dropstats_panel_states(message_ids: List[int]) -> None:
+    normalized = _normalize_message_ids(message_ids)
+    if not normalized:
+        return
+    conn = get_connection()
+    c = conn.cursor()
+    _delete_dropstats_panel_states(c, normalized)
+    conn.commit()
+    conn.close()
+
+
+def _delete_dropstats_panel_states(
+    cursor: sqlite3.Cursor, message_ids: List[int]
+) -> None:
+    placeholders = ", ".join("?" for _ in message_ids)
+    cursor.execute(
+        f"DELETE FROM dropstats_panel_state WHERE message_id IN ({placeholders})",
+        message_ids,
+    )
+
+
+def _decode_message_ids(raw_value: Optional[str]) -> List[int]:
+    if not raw_value:
+        return []
+    try:
+        parsed = json.loads(raw_value)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return _normalize_message_ids(parsed)
 
 
 def set_dropstats_panel_state(

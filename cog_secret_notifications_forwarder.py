@@ -22,9 +22,9 @@ from config import (
 )
 from cog_clan import CLAN_MEMBER_ROLE_IDS as CLAN_MEMBER_ROLE_IDS_BY_KEY
 from db import (
-    add_dropstats_panel,
     add_secret_drop_event,
     delete_windows_notifications,
+    delete_dropstats_panel_states,
     get_all_dropstats_panels,
     get_connection,
     get_secret_drop_breakdown_all_time,
@@ -35,6 +35,7 @@ from db import (
     normalize_clan_member_name,
     remove_dropstats_panel,
     reset_secret_drop_stats,
+    set_dropstats_panel_message_ids,
     set_secret_notifications_role_ids,
 )
 
@@ -1232,8 +1233,11 @@ class SecretNotificationsForwarder(commands.Cog):
             )
             messages.append(message)
         if interaction.guild:
-            for message in messages:
-                add_dropstats_panel(interaction.guild.id, channel.id, message.id)
+            set_dropstats_panel_message_ids(
+                interaction.guild.id,
+                channel.id,
+                [message.id for message in messages],
+            )
         await interaction.response.send_message(
             f"Dropstats panel byl odeslán do kanálu #{channel.name}.", ephemeral=True
         )
@@ -1749,34 +1753,27 @@ class SecretNotificationsForwarder(commands.Cog):
         if not panels:
             return
 
-        panels_by_channel: dict[tuple[int, int], list[int]] = {}
-        for guild_id, channel_id, message_id in panels:
-            panels_by_channel.setdefault((guild_id, channel_id), []).append(
-                message_id
-            )
-
-        for (guild_id, channel_id), message_ids in panels_by_channel.items():
+        for guild_id, channel_id, stored_message_ids in panels:
             guild = self.bot.get_guild(guild_id)
             if guild is None:
-                for message_id in message_ids:
-                    remove_dropstats_panel(message_id)
+                remove_dropstats_panel(guild_id, channel_id)
                 continue
 
             channel = guild.get_channel(channel_id)
             if not isinstance(channel, discord.TextChannel):
-                for message_id in message_ids:
-                    remove_dropstats_panel(message_id)
+                remove_dropstats_panel(guild_id, channel_id)
                 continue
 
-            message_ids_sorted = sorted(message_ids)
+            message_ids = list(stored_message_ids)
+            removed_message_ids: list[int] = []
             views = self._build_dropstats_views()
             for index, view in enumerate(views):
-                if index < len(message_ids_sorted):
-                    message_id = message_ids_sorted[index]
+                if index < len(message_ids):
+                    message_id = message_ids[index]
                     try:
                         msg = await channel.fetch_message(message_id)
                     except discord.NotFound:
-                        remove_dropstats_panel(message_id)
+                        removed_message_ids.append(message_id)
                         try:
                             msg = await channel.send(
                                 view=view,
@@ -1784,7 +1781,7 @@ class SecretNotificationsForwarder(commands.Cog):
                             )
                         except discord.HTTPException:
                             continue
-                        add_dropstats_panel(guild_id, channel_id, msg.id)
+                        message_ids[index] = msg.id
                         await asyncio.sleep(0.25)
                         continue
                     except discord.HTTPException:
@@ -1805,18 +1802,29 @@ class SecretNotificationsForwarder(commands.Cog):
                         )
                     except discord.HTTPException:
                         continue
-                    add_dropstats_panel(guild_id, channel_id, msg.id)
+                    message_ids.append(msg.id)
                     await asyncio.sleep(0.25)
-            for message_id in message_ids_sorted[len(views) :]:
+            extra_message_ids = message_ids[len(views) :]
+            kept_message_ids: list[int] = []
+            for message_id in extra_message_ids:
                 try:
                     msg = await channel.fetch_message(message_id)
                 except discord.NotFound:
-                    remove_dropstats_panel(message_id)
+                    removed_message_ids.append(message_id)
                     continue
                 except discord.HTTPException:
+                    kept_message_ids.append(message_id)
                     continue
                 try:
                     await msg.delete()
                 except discord.HTTPException:
+                    kept_message_ids.append(message_id)
                     continue
-                remove_dropstats_panel(message_id)
+                removed_message_ids.append(message_id)
+            message_ids = message_ids[: len(views)] + kept_message_ids
+            if removed_message_ids:
+                delete_dropstats_panel_states(removed_message_ids)
+            if message_ids != stored_message_ids:
+                set_dropstats_panel_message_ids(
+                    guild_id, channel_id, message_ids
+                )
