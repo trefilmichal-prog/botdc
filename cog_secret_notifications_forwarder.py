@@ -1422,6 +1422,9 @@ class SecretNotificationsForwarder(commands.Cog):
         total_aura = sum(
             breakdown.get(user_id, {}).get("aura", 0) for user_id in members
         )
+        total_mysterious = sum(
+            breakdown.get(user_id, {}).get("mysterious", 0) for user_id in members
+        )
         total_unknown = sum(
             breakdown.get(user_id, {}).get("unknown", 0) for user_id in members
         )
@@ -1441,6 +1444,7 @@ class SecretNotificationsForwarder(commands.Cog):
                     f"Su `{total_supreme}`  •  "
                     f"Divine `{total_divine}`  •  "
                     f"Aura `{total_aura}`  •  "
+                    f"Mysterious `{total_mysterious}`  •  "
                     f"Secret `{total_secret}`  •  "
                     f"Unknown `{total_unknown}`"
                 )
@@ -1605,6 +1609,7 @@ class SecretNotificationsForwarder(commands.Cog):
                 supreme = counts.get("supreme", 0)
                 divine = counts.get("divine", 0)
                 aura = counts.get("aura", 0)
+                mysterious = counts.get("mysterious", 0)
                 secret = counts.get("secret", 0)
                 unknown = counts.get("unknown", 0)
                 lines.append(
@@ -1612,7 +1617,7 @@ class SecretNotificationsForwarder(commands.Cog):
                         f"{prefix} **{entry.get('name', user_id)}** — "
                         f"**{totals.get(user_id, 0)}**"
                         f"  •  `Su` {supreme}  •  `D` {divine}  •  `Au` {aura}"
-                        f"  •  `Se` {secret}  •  `Unk` {unknown}"
+                        f"  •  `My` {mysterious}  •  `Se` {secret}  •  `Unk` {unknown}"
                     )
                 )
             for chunk in self._chunk_lines(lines, max_len=1800):
@@ -1752,7 +1757,7 @@ class SecretNotificationsForwarder(commands.Cog):
         if not text_line:
             return None
         lowered = text_line.lower()
-        for rarity in ("secret", "divine", "supreme", "aura"):
+        for rarity in ("secret", "mysterious", "divine", "supreme", "aura"):
             if re.search(rf"\b{re.escape(rarity)}\b", lowered):
                 return rarity
         return None
