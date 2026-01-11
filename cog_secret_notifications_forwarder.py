@@ -94,6 +94,8 @@ class SecretNotificationsForwarder(commands.Cog):
         self._clan_member_cache_updated_at: Optional[datetime] = None
         self._received_notifications_count = 0
         self._last_processed_notification_id: Optional[int] = None
+        self._dropstats_refresh_lock = asyncio.Lock()
+        self._dropstats_refresh_pending = False
         self._secret_role_ids = self._load_secret_role_ids()
         self._load_cached_players_from_db()
         self._load_last_processed_notification_id()
@@ -1770,6 +1772,18 @@ class SecretNotificationsForwarder(commands.Cog):
         return None
 
     async def refresh_dropstats_panels(self) -> None:
+        if self._dropstats_refresh_lock.locked():
+            self._dropstats_refresh_pending = True
+            return
+        async with self._dropstats_refresh_lock:
+            while True:
+                self._dropstats_refresh_pending = False
+                await self._refresh_dropstats_panels_inner()
+                if not self._dropstats_refresh_pending:
+                    break
+                await asyncio.sleep(1.0)
+
+    async def _refresh_dropstats_panels_inner(self) -> None:
         try:
             panels = get_all_dropstats_panels()
         except Exception:
