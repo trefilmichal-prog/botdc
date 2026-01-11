@@ -1661,8 +1661,10 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         bucket_id = headers.get("X-Ratelimit-Bucket")
         remaining_raw = headers.get("X-Ratelimit-Remaining")
         reset_after_raw = headers.get("X-Ratelimit-Reset-After")
+        reset_raw = headers.get("X-Ratelimit-Reset")
         remaining = None
         reset_after = None
+        reset = None
         if remaining_raw is not None:
             try:
                 remaining = int(remaining_raw)
@@ -1673,6 +1675,13 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                 reset_after = float(reset_after_raw)
             except (TypeError, ValueError):
                 reset_after = None
+        if reset_raw is not None:
+            try:
+                reset = float(reset_raw)
+            except (TypeError, ValueError):
+                reset = None
+        if reset_after is None and reset is not None:
+            reset_after = max(0.0, reset - time.time())
         if bucket_key is not None and bucket_id:
             self._rate_limit_bucket_map[bucket_key] = bucket_id
         if reset_after is None:
