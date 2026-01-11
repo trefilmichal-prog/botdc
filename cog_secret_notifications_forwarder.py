@@ -1246,16 +1246,19 @@ class SecretNotificationsForwarder(commands.Cog):
             await interaction.response.send_message(view=view, ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
+        writer = get_writer(interaction.client)
         messages: list[discord.Message] = []
         for view in views:
             try:
-                message = await channel.send(
-                    view=view, allowed_mentions=discord.AllowedMentions.none()
+                message = await writer.send_message(
+                    channel,
+                    view=view,
+                    allowed_mentions=discord.AllowedMentions.none(),
                 )
                 messages.append(message)
             except discord.HTTPException:
                 logger.exception(
-                    "Odeslání dropstats panelu selhalo (channel=%s).",
+                    "Odeslání dropstats panelu přes writer queue selhalo (channel=%s).",
                     channel.id,
                 )
             await asyncio.sleep(0.25)
@@ -1265,8 +1268,10 @@ class SecretNotificationsForwarder(commands.Cog):
                 channel.id,
                 [message.id for message in messages],
             )
-        await interaction.followup.send(
-            f"Dropstats panel byl odeslán do kanálu #{channel.name}.", ephemeral=True
+        await writer.send_interaction_followup(
+            interaction,
+            content=f"Dropstats panel byl odeslán do kanálu #{channel.name}.",
+            ephemeral=True,
         )
 
     @app_commands.checks.has_permissions(manage_channels=True)
@@ -1792,6 +1797,7 @@ class SecretNotificationsForwarder(commands.Cog):
         if not panels:
             return
 
+        writer = get_writer(self.bot)
         for guild_id, channel_id, stored_message_ids in panels:
             guild = self.bot.get_guild(guild_id)
             if guild is None:
@@ -1814,11 +1820,18 @@ class SecretNotificationsForwarder(commands.Cog):
                     except discord.NotFound:
                         removed_message_ids.append(message_id)
                         try:
-                            msg = await channel.send(
+                            msg = await writer.send_message(
+                                channel,
                                 view=view,
                                 allowed_mentions=discord.AllowedMentions.none(),
                             )
                         except discord.HTTPException:
+                            logger.exception(
+                                "Odeslání dropstats panelu přes writer queue selhalo "
+                                "(guild=%s, channel=%s).",
+                                guild_id,
+                                channel_id,
+                            )
                             continue
                         message_ids[index] = msg.id
                         await asyncio.sleep(0.25)
@@ -1826,20 +1839,35 @@ class SecretNotificationsForwarder(commands.Cog):
                     except discord.HTTPException:
                         continue
                     try:
-                        await msg.edit(
+                        await writer.edit_message(
+                            msg,
                             view=view,
                             allowed_mentions=discord.AllowedMentions.none(),
                         )
                         await asyncio.sleep(0.25)
                     except discord.HTTPException:
+                        logger.exception(
+                            "Úprava dropstats panelu přes writer queue selhala "
+                            "(guild=%s, channel=%s, message=%s).",
+                            guild_id,
+                            channel_id,
+                            message_id,
+                        )
                         continue
                 else:
                     try:
-                        msg = await channel.send(
+                        msg = await writer.send_message(
+                            channel,
                             view=view,
                             allowed_mentions=discord.AllowedMentions.none(),
                         )
                     except discord.HTTPException:
+                        logger.exception(
+                            "Odeslání dropstats panelu přes writer queue selhalo "
+                            "(guild=%s, channel=%s).",
+                            guild_id,
+                            channel_id,
+                        )
                         continue
                     message_ids.append(msg.id)
                     await asyncio.sleep(0.25)
@@ -1855,8 +1883,15 @@ class SecretNotificationsForwarder(commands.Cog):
                     kept_message_ids.append(message_id)
                     continue
                 try:
-                    await msg.delete()
+                    await writer.delete_message(msg)
                 except discord.HTTPException:
+                    logger.exception(
+                        "Smazání dropstats panelu přes writer queue selhalo "
+                        "(guild=%s, channel=%s, message=%s).",
+                        guild_id,
+                        channel_id,
+                        message_id,
+                    )
                     kept_message_ids.append(message_id)
                     continue
                 removed_message_ids.append(message_id)
