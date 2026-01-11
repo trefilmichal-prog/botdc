@@ -644,7 +644,7 @@ async def _swap_review_role_visibility(
     old_role_id = _review_role_id_for_clan(old_clan, guild_id)
     new_role_id = _review_role_id_for_clan(new_clan, guild_id)
 
-    if old_role_id and old_role_id != new_role_id:
+    if old_role_id:
         old_role = channel.guild.get_role(old_role_id)
         if old_role:
             await _retry_rate_limited(
