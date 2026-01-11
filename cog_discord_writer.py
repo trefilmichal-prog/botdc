@@ -33,6 +33,7 @@ from config import (
 from db import (
     clan_member_nick_exists,
     delete_discord_rate_limit_bucket,
+    fetch_discord_rate_limit_bucket_map,
     fetch_discord_rate_limit_buckets,
     fetch_discord_write_state,
     enqueue_discord_write,
@@ -45,6 +46,7 @@ from db import (
     update_discord_write_blocked_until,
     update_discord_write_last_write_at,
     upsert_discord_rate_limit_bucket,
+    upsert_discord_rate_limit_bucket_map,
 )
 
 _DISCORD_WRITE_CONTEXT: contextvars.ContextVar[dict[str, Any] | None] = (
@@ -1669,6 +1671,12 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         if pruned:
             self.logger.info("Pročištěno %d expirovaných rate limit bucketů.", pruned)
         self._rate_limit_buckets = fetch_discord_rate_limit_buckets(now)
+        self._rate_limit_bucket_map = fetch_discord_rate_limit_bucket_map()
+        if self._rate_limit_bucket_map:
+            self.logger.info(
+                "Obnoveno %d mapovaných rate limit bucketů.",
+                len(self._rate_limit_bucket_map),
+            )
         if self._rate_limit_buckets:
             self.logger.info(
                 "Obnoveno %d rate limit bucketů.",
@@ -1716,6 +1724,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         if bucket_key is not None and bucket_id:
             self._rate_limit_bucket_map[bucket_key] = bucket_id
             self._warmup_buckets.pop(bucket_key, None)
+            upsert_discord_rate_limit_bucket_map(bucket_key, bucket_id)
         if reset_after is None:
             if force_block and fallback_blocked_until is not None:
                 target_key = bucket_id or bucket_key

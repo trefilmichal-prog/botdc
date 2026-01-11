@@ -258,6 +258,15 @@ def init_db():
 
     c.execute(
         """
+        CREATE TABLE IF NOT EXISTS discord_rate_limit_bucket_map (
+            bucket_key TEXT PRIMARY KEY,
+            bucket_id TEXT NOT NULL
+        )
+        """
+    )
+
+    c.execute(
+        """
         CREATE TABLE IF NOT EXISTS discord_write_state (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             blocked_until REAL,
@@ -3089,6 +3098,36 @@ def prune_discord_rate_limit_buckets(cutoff: float) -> int:
     conn.commit()
     conn.close()
     return int(deleted)
+
+
+def fetch_discord_rate_limit_bucket_map() -> Dict[str, str]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT bucket_key, bucket_id
+        FROM discord_rate_limit_bucket_map
+        """
+    )
+    rows = c.fetchall()
+    conn.close()
+    return {str(row[0]): str(row[1]) for row in rows}
+
+
+def upsert_discord_rate_limit_bucket_map(bucket_key: str, bucket_id: str) -> None:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO discord_rate_limit_bucket_map (bucket_key, bucket_id)
+        VALUES (?, ?)
+        ON CONFLICT(bucket_key)
+        DO UPDATE SET bucket_id = excluded.bucket_id
+        """,
+        (bucket_key, bucket_id),
+    )
+    conn.commit()
+    conn.close()
 
 
 def fetch_discord_write_state() -> Dict[str, float | None]:
