@@ -15,6 +15,7 @@ from config import (
     GIVEAWAY_PING_ROLE_ID,
     SETUP_MANAGER_ROLE_ID,
 )
+from cog_discord_writer import get_writer
 from db import (
     delete_giveaway_state,
     get_active_giveaway,
@@ -193,7 +194,8 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
             view = GiveawayView(self, state)
             self.bot.add_view(view, message_id=message_id)
             try:
-                await message.edit(view=view)
+                writer = get_writer(self.bot)
+                await writer.edit_message(message, view=view)
             except discord.HTTPException as exc:
                 if exc.code == 50035 and "content" in (exc.text or ""):
                     await self._recreate_giveaway_message(channel, state, message_id, message)
@@ -234,7 +236,8 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
         view = GiveawayView(self, state)
         try:
             self.bot.add_view(view, message_id=message.id)
-            await message.edit(view=view)
+            writer = get_writer(self.bot)
+            await writer.edit_message(message, view=view)
             self.bot.loop.create_task(self.schedule_giveaway_auto_end(message.id))
             return state, message
         except discord.HTTPException as exc:
@@ -264,7 +267,8 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
 
         try:
             if old_message is not None:
-                await old_message.delete()
+                writer = get_writer(self.bot)
+                await writer.delete_message(old_message)
         except (discord.HTTPException, discord.Forbidden, discord.NotFound):
             pass
 
@@ -372,7 +376,8 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                 summary_text=summary,
                 ended=True,
             )
-            await message.edit(view=result_view)
+            writer = get_writer(self.bot)
+            await writer.edit_message(message, view=result_view)
 
             delete_giveaway_state(message.id)
             self.active_giveaways.pop(message.id, None)
@@ -386,7 +391,8 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
             status_text="Status: Losuji výherce...",
             summary_text=_format_giveaway_content(state) + "\n\n🎲 Losuji výherce...",
         )
-        await message.edit(view=rolling_view)
+        writer = get_writer(self.bot)
+        await writer.edit_message(message, view=rolling_view)
         await asyncio.sleep(0.8)
 
         gtype: GiveawayType = state["type"]
@@ -438,7 +444,8 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
                     summary_text=summary,
                     ended=True,
                 )
-                await message.edit(view=result_view)
+                writer = get_writer(self.bot)
+                await writer.edit_message(message, view=result_view)
                 delete_giveaway_state(message.id)
                 self.active_giveaways.pop(message.id, None)
                 return
@@ -470,7 +477,8 @@ class GiveawayCog(commands.Cog, name="GiveawayCog"):
             ended=True,
         )
 
-        await message.edit(view=result_view)
+        writer = get_writer(self.bot)
+        await writer.edit_message(message, view=result_view)
 
         for uid in winners_ids:
             user = self.bot.get_user(uid)

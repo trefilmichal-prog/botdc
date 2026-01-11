@@ -7,6 +7,7 @@ from discord.ext import commands
 from discord import app_commands
 
 from config import SETUP_MANAGER_ROLE_ID
+from cog_discord_writer import get_writer
 from db import (
     create_shop_item,
     create_shop_purchase,
@@ -457,7 +458,8 @@ class PurchaseQuantityModal(discord.ui.Modal):
         if message and view:
             if remaining_stock <= 0:
                 try:
-                    await message.delete()
+                    writer = get_writer(interaction.client)
+                    await writer.delete_message(message)
                 except discord.Forbidden:
                     view = self.cog._build_shop_item_view(
                         title,
@@ -467,7 +469,10 @@ class PurchaseQuantityModal(discord.ui.Modal):
                         seller_id,
                         item_id=self.item_id,
                     )
-                    await message.edit(content="", embeds=[], view=view)
+                    writer = get_writer(interaction.client)
+                    await writer.edit_message(
+                        message, content="", embeds=[], view=view
+                    )
             else:
                 view = self.cog._build_shop_item_view(
                     title,
@@ -477,7 +482,8 @@ class PurchaseQuantityModal(discord.ui.Modal):
                     seller_id,
                     item_id=self.item_id,
                 )
-                await message.edit(content="", embeds=[], view=view)
+                writer = get_writer(interaction.client)
+                await writer.edit_message(message, content="", embeds=[], view=view)
 
         await interaction.response.send_message(
             f"Koupil jsi **{quantity}× {title}** za **{total_price}** coinů.",
