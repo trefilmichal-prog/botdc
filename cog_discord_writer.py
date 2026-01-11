@@ -271,6 +271,76 @@ async def _patched_message_delete(message: discord.Message, *args, **kwargs):
         return await original(message, *args, **kwargs)
 
 
+async def _patched_message_add_reaction(message: discord.Message, *args, **kwargs):
+    try:
+        writer = get_writer(_get_client_from_state(message))
+        return await writer.add_reaction(message, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální add_reaction pro Message.", exc_info=exc
+        )
+        original = getattr(type(message), "__discord_write_original_add_reaction__", None)
+        if original is None:
+            raise
+        return await original(message, *args, **kwargs)
+
+
+async def _patched_message_remove_reaction(message: discord.Message, *args, **kwargs):
+    try:
+        writer = get_writer(_get_client_from_state(message))
+        return await writer.remove_reaction(message, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální remove_reaction pro Message.", exc_info=exc
+        )
+        original = getattr(type(message), "__discord_write_original_remove_reaction__", None)
+        if original is None:
+            raise
+        return await original(message, *args, **kwargs)
+
+
+async def _patched_message_clear_reactions(message: discord.Message, *args, **kwargs):
+    try:
+        writer = get_writer(_get_client_from_state(message))
+        return await writer.clear_reactions(message, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální clear_reactions pro Message.", exc_info=exc
+        )
+        original = getattr(type(message), "__discord_write_original_clear_reactions__", None)
+        if original is None:
+            raise
+        return await original(message, *args, **kwargs)
+
+
+async def _patched_message_pin(message: discord.Message, *args, **kwargs):
+    try:
+        writer = get_writer(_get_client_from_state(message))
+        return await writer.pin_message(message, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální pin pro Message.", exc_info=exc
+        )
+        original = getattr(type(message), "__discord_write_original_pin__", None)
+        if original is None:
+            raise
+        return await original(message, *args, **kwargs)
+
+
+async def _patched_message_unpin(message: discord.Message, *args, **kwargs):
+    try:
+        writer = get_writer(_get_client_from_state(message))
+        return await writer.unpin_message(message, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální unpin pro Message.", exc_info=exc
+        )
+        original = getattr(type(message), "__discord_write_original_unpin__", None)
+        if original is None:
+            raise
+        return await original(message, *args, **kwargs)
+
+
 async def _patched_channel_edit(channel: discord.abc.GuildChannel, *args, **kwargs):
     try:
         writer = get_writer(_get_client_from_state(channel))
@@ -294,6 +364,38 @@ async def _patched_channel_delete(channel: discord.abc.GuildChannel, *args, **kw
             "Fallback na originální delete pro kanál %s.", type(channel).__name__, exc_info=exc
         )
         original = getattr(type(channel), "__discord_write_original_delete__", None)
+        if original is None:
+            raise
+        return await original(channel, *args, **kwargs)
+
+
+async def _patched_channel_delete_messages(channel: discord.abc.GuildChannel, *args, **kwargs):
+    try:
+        writer = get_writer(_get_client_from_state(channel))
+        return await writer.delete_messages(channel, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální delete_messages pro kanál %s.",
+            type(channel).__name__,
+            exc_info=exc,
+        )
+        original = getattr(type(channel), "__discord_write_original_delete_messages__", None)
+        if original is None:
+            raise
+        return await original(channel, *args, **kwargs)
+
+
+async def _patched_channel_create_thread(
+    channel: discord.TextChannel, *args, **kwargs
+):
+    try:
+        writer = get_writer(_get_client_from_state(channel))
+        return await writer.create_thread(channel, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální create_thread pro TextChannel.", exc_info=exc
+        )
+        original = getattr(discord.TextChannel, "__discord_write_original_create_thread__", None)
         if original is None:
             raise
         return await original(channel, *args, **kwargs)
@@ -328,6 +430,84 @@ async def _patched_create_text_channel(guild: discord.Guild, *args, **kwargs):
         original = getattr(
             discord.Guild, "__discord_write_original_create_text_channel__", None
         )
+        if original is None:
+            raise
+        return await original(guild, *args, **kwargs)
+
+
+async def _patched_create_voice_channel(guild: discord.Guild, *args, **kwargs):
+    try:
+        writer = get_writer(_get_client_from_state(guild))
+        return await writer.create_voice_channel(guild, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální create_voice_channel pro Guild.", exc_info=exc
+        )
+        original = getattr(
+            discord.Guild, "__discord_write_original_create_voice_channel__", None
+        )
+        if original is None:
+            raise
+        return await original(guild, *args, **kwargs)
+
+
+async def _patched_create_category(guild: discord.Guild, *args, **kwargs):
+    try:
+        writer = get_writer(_get_client_from_state(guild))
+        return await writer.create_category(guild, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální create_category pro Guild.", exc_info=exc
+        )
+        original = getattr(
+            discord.Guild, "__discord_write_original_create_category__", None
+        )
+        if original is None:
+            raise
+        return await original(guild, *args, **kwargs)
+
+
+async def _patched_create_forum_channel(guild: discord.Guild, *args, **kwargs):
+    try:
+        writer = get_writer(_get_client_from_state(guild))
+        return await writer.create_forum_channel(guild, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální create_forum_channel pro Guild.", exc_info=exc
+        )
+        original = getattr(
+            discord.Guild, "__discord_write_original_create_forum_channel__", None
+        )
+        if original is None:
+            raise
+        return await original(guild, *args, **kwargs)
+
+
+async def _patched_create_stage_channel(guild: discord.Guild, *args, **kwargs):
+    try:
+        writer = get_writer(_get_client_from_state(guild))
+        return await writer.create_stage_channel(guild, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální create_stage_channel pro Guild.", exc_info=exc
+        )
+        original = getattr(
+            discord.Guild, "__discord_write_original_create_stage_channel__", None
+        )
+        if original is None:
+            raise
+        return await original(guild, *args, **kwargs)
+
+
+async def _patched_create_role(guild: discord.Guild, *args, **kwargs):
+    try:
+        writer = get_writer(_get_client_from_state(guild))
+        return await writer.create_role(guild, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální create_role pro Guild.", exc_info=exc
+        )
+        original = getattr(discord.Guild, "__discord_write_original_create_role__", None)
         if original is None:
             raise
         return await original(guild, *args, **kwargs)
@@ -573,6 +753,38 @@ async def _patched_webhook_send(webhook: discord.Webhook, *args, **kwargs):
         return await original(webhook, *args, **kwargs)
 
 
+async def _patched_webhook_edit(webhook: discord.Webhook, *args, **kwargs):
+    try:
+        writer = get_writer(_get_client_from_state(webhook))
+        return await writer.edit_webhook(webhook, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální edit pro webhook %s.",
+            type(webhook).__name__,
+            exc_info=exc,
+        )
+        original = getattr(type(webhook), "__discord_write_original_edit__", None)
+        if original is None:
+            raise
+        return await original(webhook, *args, **kwargs)
+
+
+async def _patched_webhook_delete(webhook: discord.Webhook, *args, **kwargs):
+    try:
+        writer = get_writer(_get_client_from_state(webhook))
+        return await writer.delete_webhook(webhook, *args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "Fallback na originální delete pro webhook %s.",
+            type(webhook).__name__,
+            exc_info=exc,
+        )
+        original = getattr(type(webhook), "__discord_write_original_delete__", None)
+        if original is None:
+            raise
+        return await original(webhook, *args, **kwargs)
+
+
 class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
     """Centralizuje běžné write operace přes queue.
 
@@ -605,7 +817,17 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         self._channel_set_permissions_originals: dict[type, Callable[..., Any]] = {}
         self._original_message_edit: Optional[Callable[..., Any]] = None
         self._original_message_delete: Optional[Callable[..., Any]] = None
+        self._original_message_add_reaction: Optional[Callable[..., Any]] = None
+        self._original_message_remove_reaction: Optional[Callable[..., Any]] = None
+        self._original_message_clear_reactions: Optional[Callable[..., Any]] = None
+        self._original_message_pin: Optional[Callable[..., Any]] = None
+        self._original_message_unpin: Optional[Callable[..., Any]] = None
         self._original_create_text_channel: Optional[Callable[..., Any]] = None
+        self._original_create_voice_channel: Optional[Callable[..., Any]] = None
+        self._original_create_category: Optional[Callable[..., Any]] = None
+        self._original_create_forum_channel: Optional[Callable[..., Any]] = None
+        self._original_create_stage_channel: Optional[Callable[..., Any]] = None
+        self._original_create_role: Optional[Callable[..., Any]] = None
         self._original_add_roles: Optional[Callable[..., Any]] = None
         self._original_remove_roles: Optional[Callable[..., Any]] = None
         self._original_ban: Optional[Callable[..., Any]] = None
@@ -618,8 +840,12 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         self._original_interaction_edit_original: Optional[Callable[..., Any]] = None
         self._original_interaction_modal: Optional[Callable[..., Any]] = None
         self._original_webhook_send: Optional[Callable[..., Any]] = None
+        self._original_webhook_edit: Optional[Callable[..., Any]] = None
+        self._original_webhook_delete: Optional[Callable[..., Any]] = None
         self._original_followup_send: Optional[Callable[..., Any]] = None
         self._original_ratelimit_update: Optional[Callable[..., Any]] = None
+        self._channel_delete_messages_originals: dict[type, Callable[..., Any]] = {}
+        self._original_channel_create_thread: Optional[Callable[..., Any]] = None
 
     async def cog_load(self):
         try:
@@ -724,6 +950,58 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                 )
                 discord.Message.delete = _patched_message_delete
                 patched_targets.append("Message.delete")
+        self._original_message_add_reaction = getattr(discord.Message, "add_reaction", None)
+        if self._original_message_add_reaction is not None:
+            if apply_patches:
+                setattr(
+                    discord.Message,
+                    "__discord_write_original_add_reaction__",
+                    self._original_message_add_reaction,
+                )
+                discord.Message.add_reaction = _patched_message_add_reaction
+                patched_targets.append("Message.add_reaction")
+        self._original_message_remove_reaction = getattr(discord.Message, "remove_reaction", None)
+        if self._original_message_remove_reaction is not None:
+            if apply_patches:
+                setattr(
+                    discord.Message,
+                    "__discord_write_original_remove_reaction__",
+                    self._original_message_remove_reaction,
+                )
+                discord.Message.remove_reaction = _patched_message_remove_reaction
+                patched_targets.append("Message.remove_reaction")
+        self._original_message_clear_reactions = getattr(
+            discord.Message, "clear_reactions", None
+        )
+        if self._original_message_clear_reactions is not None:
+            if apply_patches:
+                setattr(
+                    discord.Message,
+                    "__discord_write_original_clear_reactions__",
+                    self._original_message_clear_reactions,
+                )
+                discord.Message.clear_reactions = _patched_message_clear_reactions
+                patched_targets.append("Message.clear_reactions")
+        self._original_message_pin = getattr(discord.Message, "pin", None)
+        if self._original_message_pin is not None:
+            if apply_patches:
+                setattr(
+                    discord.Message,
+                    "__discord_write_original_pin__",
+                    self._original_message_pin,
+                )
+                discord.Message.pin = _patched_message_pin
+                patched_targets.append("Message.pin")
+        self._original_message_unpin = getattr(discord.Message, "unpin", None)
+        if self._original_message_unpin is not None:
+            if apply_patches:
+                setattr(
+                    discord.Message,
+                    "__discord_write_original_unpin__",
+                    self._original_message_unpin,
+                )
+                discord.Message.unpin = _patched_message_unpin
+                patched_targets.append("Message.unpin")
 
         # Třídy s edit/delete v discord.py 2.x (Text/Thread/Voice/Stage/Category/Forum).
         channel_classes = [
@@ -765,6 +1043,31 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                     )
                     cls.set_permissions = _patched_channel_set_permissions
                     patched_targets.append(f"{cls.__name__}.set_permissions")
+            original_delete_messages = getattr(cls, "delete_messages", None)
+            if (
+                original_delete_messages is not None
+                and cls not in self._channel_delete_messages_originals
+            ):
+                self._channel_delete_messages_originals[cls] = original_delete_messages
+                if apply_patches:
+                    setattr(
+                        cls,
+                        "__discord_write_original_delete_messages__",
+                        original_delete_messages,
+                    )
+                    cls.delete_messages = _patched_channel_delete_messages
+                    patched_targets.append(f"{cls.__name__}.delete_messages")
+
+        self._original_channel_create_thread = getattr(discord.TextChannel, "create_thread", None)
+        if self._original_channel_create_thread is not None:
+            if apply_patches:
+                setattr(
+                    discord.TextChannel,
+                    "__discord_write_original_create_thread__",
+                    self._original_channel_create_thread,
+                )
+                discord.TextChannel.create_thread = _patched_channel_create_thread
+                patched_targets.append("TextChannel.create_thread")
 
         self._original_create_text_channel = getattr(discord.Guild, "create_text_channel", None)
         if self._original_create_text_channel is not None:
@@ -776,6 +1079,60 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                 )
                 discord.Guild.create_text_channel = _patched_create_text_channel
                 patched_targets.append("Guild.create_text_channel")
+        self._original_create_voice_channel = getattr(discord.Guild, "create_voice_channel", None)
+        if self._original_create_voice_channel is not None:
+            if apply_patches:
+                setattr(
+                    discord.Guild,
+                    "__discord_write_original_create_voice_channel__",
+                    self._original_create_voice_channel,
+                )
+                discord.Guild.create_voice_channel = _patched_create_voice_channel
+                patched_targets.append("Guild.create_voice_channel")
+        self._original_create_category = getattr(discord.Guild, "create_category", None)
+        if self._original_create_category is not None:
+            if apply_patches:
+                setattr(
+                    discord.Guild,
+                    "__discord_write_original_create_category__",
+                    self._original_create_category,
+                )
+                discord.Guild.create_category = _patched_create_category
+                patched_targets.append("Guild.create_category")
+        self._original_create_forum_channel = getattr(
+            discord.Guild, "create_forum_channel", None
+        )
+        if self._original_create_forum_channel is not None:
+            if apply_patches:
+                setattr(
+                    discord.Guild,
+                    "__discord_write_original_create_forum_channel__",
+                    self._original_create_forum_channel,
+                )
+                discord.Guild.create_forum_channel = _patched_create_forum_channel
+                patched_targets.append("Guild.create_forum_channel")
+        self._original_create_stage_channel = getattr(
+            discord.Guild, "create_stage_channel", None
+        )
+        if self._original_create_stage_channel is not None:
+            if apply_patches:
+                setattr(
+                    discord.Guild,
+                    "__discord_write_original_create_stage_channel__",
+                    self._original_create_stage_channel,
+                )
+                discord.Guild.create_stage_channel = _patched_create_stage_channel
+                patched_targets.append("Guild.create_stage_channel")
+        self._original_create_role = getattr(discord.Guild, "create_role", None)
+        if self._original_create_role is not None:
+            if apply_patches:
+                setattr(
+                    discord.Guild,
+                    "__discord_write_original_create_role__",
+                    self._original_create_role,
+                )
+                discord.Guild.create_role = _patched_create_role
+                patched_targets.append("Guild.create_role")
 
         self._original_add_roles = getattr(discord.Member, "add_roles", None)
         if self._original_add_roles is not None:
@@ -886,6 +1243,24 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                 )
                 discord.Webhook.send = _patched_webhook_send
                 patched_targets.append("Webhook.send")
+        self._original_webhook_edit = getattr(discord.Webhook, "edit", None)
+        if self._original_webhook_edit is not None:
+            if apply_patches:
+                setattr(
+                    discord.Webhook, "__discord_write_original_edit__", self._original_webhook_edit
+                )
+                discord.Webhook.edit = _patched_webhook_edit
+                patched_targets.append("Webhook.edit")
+        self._original_webhook_delete = getattr(discord.Webhook, "delete", None)
+        if self._original_webhook_delete is not None:
+            if apply_patches:
+                setattr(
+                    discord.Webhook,
+                    "__discord_write_original_delete__",
+                    self._original_webhook_delete,
+                )
+                discord.Webhook.delete = _patched_webhook_delete
+                patched_targets.append("Webhook.delete")
         else:
             followup_cls = getattr(discord, "InteractionFollowup", None)
             if followup_cls is not None:
@@ -945,6 +1320,25 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             discord.Message.edit = self._original_message_edit
         if self._original_message_delete and discord.Message.delete is _patched_message_delete:
             discord.Message.delete = self._original_message_delete
+        if (
+            self._original_message_add_reaction
+            and discord.Message.add_reaction is _patched_message_add_reaction
+        ):
+            discord.Message.add_reaction = self._original_message_add_reaction
+        if (
+            self._original_message_remove_reaction
+            and discord.Message.remove_reaction is _patched_message_remove_reaction
+        ):
+            discord.Message.remove_reaction = self._original_message_remove_reaction
+        if (
+            self._original_message_clear_reactions
+            and discord.Message.clear_reactions is _patched_message_clear_reactions
+        ):
+            discord.Message.clear_reactions = self._original_message_clear_reactions
+        if self._original_message_pin and discord.Message.pin is _patched_message_pin:
+            discord.Message.pin = self._original_message_pin
+        if self._original_message_unpin and discord.Message.unpin is _patched_message_unpin:
+            discord.Message.unpin = self._original_message_unpin
 
         for cls, original in self._channel_edit_originals.items():
             if getattr(cls, "edit", None) is _patched_channel_edit:
@@ -955,15 +1349,46 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         for cls, original in self._channel_set_permissions_originals.items():
             if getattr(cls, "set_permissions", None) is _patched_channel_set_permissions:
                 cls.set_permissions = original
+        for cls, original in self._channel_delete_messages_originals.items():
+            if getattr(cls, "delete_messages", None) is _patched_channel_delete_messages:
+                cls.delete_messages = original
         self._channel_edit_originals.clear()
         self._channel_delete_originals.clear()
         self._channel_set_permissions_originals.clear()
+        self._channel_delete_messages_originals.clear()
 
         if (
             self._original_create_text_channel
             and discord.Guild.create_text_channel is _patched_create_text_channel
         ):
             discord.Guild.create_text_channel = self._original_create_text_channel
+        if (
+            self._original_create_voice_channel
+            and discord.Guild.create_voice_channel is _patched_create_voice_channel
+        ):
+            discord.Guild.create_voice_channel = self._original_create_voice_channel
+        if (
+            self._original_create_category
+            and discord.Guild.create_category is _patched_create_category
+        ):
+            discord.Guild.create_category = self._original_create_category
+        if (
+            self._original_create_forum_channel
+            and discord.Guild.create_forum_channel is _patched_create_forum_channel
+        ):
+            discord.Guild.create_forum_channel = self._original_create_forum_channel
+        if (
+            self._original_create_stage_channel
+            and discord.Guild.create_stage_channel is _patched_create_stage_channel
+        ):
+            discord.Guild.create_stage_channel = self._original_create_stage_channel
+        if self._original_create_role and discord.Guild.create_role is _patched_create_role:
+            discord.Guild.create_role = self._original_create_role
+        if (
+            self._original_channel_create_thread
+            and discord.TextChannel.create_thread is _patched_channel_create_thread
+        ):
+            discord.TextChannel.create_thread = self._original_channel_create_thread
         if self._original_add_roles and discord.Member.add_roles is _patched_member_add_roles:
             discord.Member.add_roles = self._original_add_roles
         if (
@@ -1008,6 +1433,10 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
 
         if self._original_webhook_send and discord.Webhook.send is _patched_webhook_send:
             discord.Webhook.send = self._original_webhook_send
+        if self._original_webhook_edit and discord.Webhook.edit is _patched_webhook_edit:
+            discord.Webhook.edit = self._original_webhook_edit
+        if self._original_webhook_delete and discord.Webhook.delete is _patched_webhook_delete:
+            discord.Webhook.delete = self._original_webhook_delete
         followup_cls = getattr(discord, "InteractionFollowup", None)
         if (
             followup_cls is not None
@@ -1257,12 +1686,36 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                 return await self._op_edit_message(payload)
             if op == "delete_message":
                 return await self._op_delete_message(payload)
+            if op == "add_reaction":
+                return await self._op_add_reaction(payload)
+            if op == "remove_reaction":
+                return await self._op_remove_reaction(payload)
+            if op == "clear_reactions":
+                return await self._op_clear_reactions(payload)
+            if op == "pin_message":
+                return await self._op_pin_message(payload)
+            if op == "unpin_message":
+                return await self._op_unpin_message(payload)
             if op == "edit_channel":
                 return await self._op_edit_channel(payload)
             if op == "delete_channel":
                 return await self._op_delete_channel(payload)
+            if op == "delete_messages":
+                return await self._op_delete_messages(payload)
+            if op == "create_thread":
+                return await self._op_create_thread(payload)
             if op == "create_text_channel":
                 return await self._op_create_text_channel(payload)
+            if op == "create_voice_channel":
+                return await self._op_create_voice_channel(payload)
+            if op == "create_category":
+                return await self._op_create_category(payload)
+            if op == "create_forum_channel":
+                return await self._op_create_forum_channel(payload)
+            if op == "create_stage_channel":
+                return await self._op_create_stage_channel(payload)
+            if op == "create_role":
+                return await self._op_create_role(payload)
             if op == "add_roles":
                 return await self._op_add_roles(payload)
             if op == "remove_roles":
@@ -1289,6 +1742,10 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                 return await self._op_interaction_modal(payload)
             if op == "webhook_send":
                 return await self._op_webhook_send(payload)
+            if op == "webhook_edit":
+                return await self._op_webhook_edit(payload)
+            if op == "webhook_delete":
+                return await self._op_webhook_delete(payload)
             if op == "set_permissions":
                 return await self._op_set_permissions(payload)
             raise ValueError(f"Neznámá operace: {op}")
@@ -1299,7 +1756,15 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         if request.bucket_key is not None:
             return request.bucket_key
         payload = request.payload or {}
-        if request.operation in {"edit_message", "delete_message"} and payload.get("channel_id") is None:
+        if request.operation in {
+            "edit_message",
+            "delete_message",
+            "add_reaction",
+            "remove_reaction",
+            "clear_reactions",
+            "pin_message",
+            "unpin_message",
+        } and payload.get("channel_id") is None:
             message = payload.get("message")
             if message is not None:
                 channel = getattr(message, "channel", None)
@@ -1316,19 +1781,43 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             channel_id = getattr(interaction, "channel_id", None)
         if request.operation in {"edit_message", "delete_message"} and channel_id is not None:
             payload.setdefault("channel_id", channel_id)
+        if request.operation in {
+            "add_reaction",
+            "remove_reaction",
+            "clear_reactions",
+            "pin_message",
+            "unpin_message",
+        } and channel_id is not None:
+            payload.setdefault("channel_id", channel_id)
         webhook_id = payload.get("webhook_id")
         if webhook_id is None:
             webhook = payload.get("webhook")
             webhook_id = getattr(webhook, "id", None)
         interaction = payload.get("interaction")
         interaction_id = getattr(interaction, "id", None)
+        guild_id = payload.get("guild_id")
         identifiers: list[tuple[str, Any]] = []
-        if request.operation in {"send_message", "edit_message", "delete_message"}:
+        if request.operation in {
+            "send_message",
+            "edit_message",
+            "delete_message",
+            "add_reaction",
+            "remove_reaction",
+            "clear_reactions",
+            "pin_message",
+            "unpin_message",
+            "delete_messages",
+            "create_thread",
+        }:
             if channel_id is not None:
                 identifiers.append(("channel_id", channel_id))
             elif payload.get("target_id") is not None:
                 identifiers.append(("target_id", payload.get("target_id")))
+        if request.operation.startswith("create_") and guild_id is not None:
+            identifiers.append(("guild_id", guild_id))
         if request.operation == "webhook_send" and webhook_id is not None:
+            identifiers.append(("webhook_id", webhook_id))
+        if request.operation in {"webhook_edit", "webhook_delete"} and webhook_id is not None:
             identifiers.append(("webhook_id", webhook_id))
         if request.operation.startswith("interaction") and interaction_id is not None:
             identifiers.append(("interaction_id", interaction_id))
@@ -1381,6 +1870,51 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             raise RuntimeError("Message.delete není dostupné.")
         return await self._original_message_delete(message, **payload["kwargs"])
 
+    async def _op_add_reaction(self, payload: dict[str, Any]):
+        message = await self._resolve_message(payload)
+        if message is None:
+            raise RuntimeError("Zpráva pro reakci nebyla nalezena.")
+        if self._original_message_add_reaction is None:
+            raise RuntimeError("Message.add_reaction není dostupné.")
+        return await self._original_message_add_reaction(message, payload["emoji"])
+
+    async def _op_remove_reaction(self, payload: dict[str, Any]):
+        message = await self._resolve_message(payload)
+        if message is None:
+            raise RuntimeError("Zpráva pro odebrání reakce nebyla nalezena.")
+        if self._original_message_remove_reaction is None:
+            raise RuntimeError("Message.remove_reaction není dostupné.")
+        member = await self._resolve_user(payload["user_id"])
+        if member is None:
+            raise RuntimeError("Uživatel pro odebrání reakce nebyl nalezen.")
+        return await self._original_message_remove_reaction(
+            message, payload["emoji"], member
+        )
+
+    async def _op_clear_reactions(self, payload: dict[str, Any]):
+        message = await self._resolve_message(payload)
+        if message is None:
+            raise RuntimeError("Zpráva pro čištění reakcí nebyla nalezena.")
+        if self._original_message_clear_reactions is None:
+            raise RuntimeError("Message.clear_reactions není dostupné.")
+        return await self._original_message_clear_reactions(message)
+
+    async def _op_pin_message(self, payload: dict[str, Any]):
+        message = await self._resolve_message(payload)
+        if message is None:
+            raise RuntimeError("Zpráva pro připnutí nebyla nalezena.")
+        if self._original_message_pin is None:
+            raise RuntimeError("Message.pin není dostupné.")
+        return await self._original_message_pin(message, reason=payload.get("reason"))
+
+    async def _op_unpin_message(self, payload: dict[str, Any]):
+        message = await self._resolve_message(payload)
+        if message is None:
+            raise RuntimeError("Zpráva pro odepnutí nebyla nalezena.")
+        if self._original_message_unpin is None:
+            raise RuntimeError("Message.unpin není dostupné.")
+        return await self._original_message_unpin(message, reason=payload.get("reason"))
+
     async def _op_edit_channel(self, payload: dict[str, Any]):
         channel = await self._resolve_channel(payload["channel_id"])
         if channel is None:
@@ -1423,6 +1957,37 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             raise RuntimeError("Kanál ke smazání nemá podporovaný delete.")
         return await original(channel, **payload["kwargs"])
 
+    async def _op_delete_messages(self, payload: dict[str, Any]):
+        channel = await self._resolve_channel(payload["channel_id"])
+        if channel is None:
+            raise RuntimeError("Kanál pro delete_messages nebyl nalezen.")
+        original = self._get_channel_original(
+            channel, self._channel_delete_messages_originals, "delete_messages"
+        )
+        if original is None:
+            self.logger.warning(
+                "delete_messages není podporováno pro %s.", type(channel).__name__
+            )
+            raise RuntimeError("Kanál nemá podporované delete_messages.")
+        message_ids = payload.get("message_ids") or []
+        messages = [channel.get_partial_message(message_id) for message_id in message_ids]
+        return await original(channel, messages)
+
+    async def _op_create_thread(self, payload: dict[str, Any]):
+        channel = await self._resolve_channel(payload["channel_id"])
+        if channel is None or not isinstance(channel, discord.TextChannel):
+            raise RuntimeError("TextChannel pro create_thread nebyl nalezen.")
+        if self._original_channel_create_thread is None:
+            raise RuntimeError("TextChannel.create_thread není dostupné.")
+        message_id = payload.get("message_id")
+        message = channel.get_partial_message(message_id) if message_id else None
+        return await self._original_channel_create_thread(
+            channel,
+            payload["name"],
+            message=message,
+            **payload["kwargs"],
+        )
+
     async def _op_create_text_channel(self, payload: dict[str, Any]):
         guild = self.bot.get_guild(payload["guild_id"])
         if guild is None:
@@ -1430,6 +1995,52 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         if self._original_create_text_channel is None:
             raise RuntimeError("Guild.create_text_channel není dostupné.")
         return await self._original_create_text_channel(guild, payload["name"], **payload["kwargs"])
+
+    async def _op_create_voice_channel(self, payload: dict[str, Any]):
+        guild = self.bot.get_guild(payload["guild_id"])
+        if guild is None:
+            raise RuntimeError("Guild nebyla nalezena.")
+        if self._original_create_voice_channel is None:
+            raise RuntimeError("Guild.create_voice_channel není dostupné.")
+        return await self._original_create_voice_channel(
+            guild, payload["name"], **payload["kwargs"]
+        )
+
+    async def _op_create_category(self, payload: dict[str, Any]):
+        guild = self.bot.get_guild(payload["guild_id"])
+        if guild is None:
+            raise RuntimeError("Guild nebyla nalezena.")
+        if self._original_create_category is None:
+            raise RuntimeError("Guild.create_category není dostupné.")
+        return await self._original_create_category(guild, payload["name"], **payload["kwargs"])
+
+    async def _op_create_forum_channel(self, payload: dict[str, Any]):
+        guild = self.bot.get_guild(payload["guild_id"])
+        if guild is None:
+            raise RuntimeError("Guild nebyla nalezena.")
+        if self._original_create_forum_channel is None:
+            raise RuntimeError("Guild.create_forum_channel není dostupné.")
+        return await self._original_create_forum_channel(
+            guild, payload["name"], **payload["kwargs"]
+        )
+
+    async def _op_create_stage_channel(self, payload: dict[str, Any]):
+        guild = self.bot.get_guild(payload["guild_id"])
+        if guild is None:
+            raise RuntimeError("Guild nebyla nalezena.")
+        if self._original_create_stage_channel is None:
+            raise RuntimeError("Guild.create_stage_channel není dostupné.")
+        return await self._original_create_stage_channel(
+            guild, payload["name"], **payload["kwargs"]
+        )
+
+    async def _op_create_role(self, payload: dict[str, Any]):
+        guild = self.bot.get_guild(payload["guild_id"])
+        if guild is None:
+            raise RuntimeError("Guild nebyla nalezena.")
+        if self._original_create_role is None:
+            raise RuntimeError("Guild.create_role není dostupné.")
+        return await self._original_create_role(guild, **payload["kwargs"])
 
     async def _op_add_roles(self, payload: dict[str, Any]):
         member = await self._resolve_member(payload)
@@ -1600,6 +2211,22 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             webhook, *payload.get("args", ()), **payload["kwargs"]
         )
 
+    async def _op_webhook_edit(self, payload: dict[str, Any]):
+        webhook = payload["webhook"]
+        if self._original_webhook_edit is None:
+            raise RuntimeError("Webhook.edit není dostupné v této verzi discord.py.")
+        return await self._original_webhook_edit(
+            webhook, *payload.get("args", ()), **payload["kwargs"]
+        )
+
+    async def _op_webhook_delete(self, payload: dict[str, Any]):
+        webhook = payload["webhook"]
+        if self._original_webhook_delete is None:
+            raise RuntimeError("Webhook.delete není dostupné v této verzi discord.py.")
+        return await self._original_webhook_delete(
+            webhook, *payload.get("args", ()), **payload["kwargs"]
+        )
+
     async def send_message(self, target: discord.abc.Messageable, *args, **kwargs):
         if args:
             if len(args) > 1:
@@ -1622,6 +2249,46 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         }
         return await self._enqueue("delete_message", payload, persist=True)
 
+    async def add_reaction(self, message: discord.Message, emoji):
+        payload = {
+            "channel_id": message.channel.id,
+            "message_id": message.id,
+            "emoji": self._serialize_emoji(emoji),
+        }
+        return await self._enqueue("add_reaction", payload, persist=True)
+
+    async def remove_reaction(self, message: discord.Message, emoji, member: discord.abc.User):
+        payload = {
+            "channel_id": message.channel.id,
+            "message_id": message.id,
+            "emoji": self._serialize_emoji(emoji),
+            "user_id": member.id,
+        }
+        return await self._enqueue("remove_reaction", payload, persist=True)
+
+    async def clear_reactions(self, message: discord.Message):
+        payload = {
+            "channel_id": message.channel.id,
+            "message_id": message.id,
+        }
+        return await self._enqueue("clear_reactions", payload, persist=True)
+
+    async def pin_message(self, message: discord.Message, reason: str | None = None):
+        payload = {
+            "channel_id": message.channel.id,
+            "message_id": message.id,
+            "reason": reason,
+        }
+        return await self._enqueue("pin_message", payload, persist=True)
+
+    async def unpin_message(self, message: discord.Message, reason: str | None = None):
+        payload = {
+            "channel_id": message.channel.id,
+            "message_id": message.id,
+            "reason": reason,
+        }
+        return await self._enqueue("unpin_message", payload, persist=True)
+
     async def edit_channel(self, channel: discord.abc.GuildChannel, **kwargs):
         payload = {"channel_id": channel.id, "kwargs": kwargs}
         persist = self._is_serializable(kwargs)
@@ -1631,6 +2298,18 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         payload = {"channel_id": channel.id, "kwargs": kwargs}
         persist = self._is_serializable(kwargs)
         return await self._enqueue("delete_channel", payload, persist, priority=kwargs.pop("priority", None))
+
+    async def delete_messages(
+        self, channel: discord.abc.GuildChannel, messages: list[discord.Message | int]
+    ):
+        message_ids: list[int] = []
+        for message in messages:
+            if isinstance(message, int):
+                message_ids.append(message)
+            else:
+                message_ids.append(message.id)
+        payload = {"channel_id": channel.id, "message_ids": message_ids}
+        return await self._enqueue("delete_messages", payload, persist=True)
 
     async def set_permissions(
         self,
@@ -1653,6 +2332,58 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         return await self._enqueue(
             "create_text_channel", payload, persist, priority=kwargs.pop("priority", None)
         )
+
+    async def create_voice_channel(self, guild: discord.Guild, name: str, **kwargs):
+        payload = {"guild_id": guild.id, "name": name, "kwargs": kwargs}
+        persist = self._is_serializable(kwargs)
+        return await self._enqueue(
+            "create_voice_channel", payload, persist, priority=kwargs.pop("priority", None)
+        )
+
+    async def create_category(self, guild: discord.Guild, name: str, **kwargs):
+        payload = {"guild_id": guild.id, "name": name, "kwargs": kwargs}
+        persist = self._is_serializable(kwargs)
+        return await self._enqueue(
+            "create_category", payload, persist, priority=kwargs.pop("priority", None)
+        )
+
+    async def create_forum_channel(self, guild: discord.Guild, name: str, **kwargs):
+        payload = {"guild_id": guild.id, "name": name, "kwargs": kwargs}
+        persist = self._is_serializable(kwargs)
+        return await self._enqueue(
+            "create_forum_channel", payload, persist, priority=kwargs.pop("priority", None)
+        )
+
+    async def create_stage_channel(self, guild: discord.Guild, name: str, **kwargs):
+        payload = {"guild_id": guild.id, "name": name, "kwargs": kwargs}
+        persist = self._is_serializable(kwargs)
+        return await self._enqueue(
+            "create_stage_channel", payload, persist, priority=kwargs.pop("priority", None)
+        )
+
+    async def create_role(self, guild: discord.Guild, **kwargs):
+        payload = {"guild_id": guild.id, "kwargs": kwargs}
+        persist = self._is_serializable(kwargs)
+        return await self._enqueue(
+            "create_role", payload, persist, priority=kwargs.pop("priority", None)
+        )
+
+    async def create_thread(
+        self,
+        channel: discord.TextChannel,
+        name: str,
+        message: discord.Message | None = None,
+        **kwargs,
+    ):
+        priority = kwargs.pop("priority", None)
+        payload = {
+            "channel_id": channel.id,
+            "name": name,
+            "message_id": message.id if message else None,
+            "kwargs": kwargs,
+        }
+        persist = self._is_serializable(payload)
+        return await self._enqueue("create_thread", payload, persist, priority=priority)
 
     async def add_roles(self, member: discord.Member, *roles: discord.Role, reason: str | None = None):
         payload = {
@@ -1772,6 +2503,14 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         self._sanitize_view_kwargs(kwargs)
         payload = {"webhook": webhook, "args": args, "kwargs": kwargs}
         return await self._enqueue("webhook_send", payload, persist=False)
+
+    async def edit_webhook(self, webhook: discord.Webhook, *args, **kwargs):
+        payload = {"webhook": webhook, "args": args, "kwargs": kwargs}
+        return await self._enqueue("webhook_edit", payload, persist=False)
+
+    async def delete_webhook(self, webhook: discord.Webhook, *args, **kwargs):
+        payload = {"webhook": webhook, "args": args, "kwargs": kwargs}
+        return await self._enqueue("webhook_delete", payload, persist=False)
 
     async def _enqueue(
         self,
@@ -1946,6 +2685,13 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                 return text[:limit]
             return f"{text[:limit - len(suffix)]}{suffix}"
         return text
+
+    def _serialize_emoji(self, emoji: Any) -> str:
+        if isinstance(emoji, (discord.Emoji, discord.PartialEmoji)):
+            return str(emoji)
+        if emoji is None:
+            return ""
+        return str(emoji)
 
     def _build_send_payload(self, target: discord.abc.Messageable, kwargs: dict[str, Any]):
         payload_kwargs = kwargs.copy()
