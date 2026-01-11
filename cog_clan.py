@@ -2338,6 +2338,12 @@ class ClanPanelCog(commands.Cog):
                     )
                     return
 
+                status_emoji = _status_emoji_from_name(ticket_channel.name)
+                app_record = get_clan_application_by_channel(guild.id, channel_id)
+                is_unaccepted = status_emoji == STATUS_OPEN or (
+                    app_record and app_record.get("status") == "open"
+                )
+
                 try:
                     await _swap_review_role_visibility(ticket_channel, current_clan, target_clan)
                 except discord.Forbidden:
@@ -2349,23 +2355,21 @@ class ClanPanelCog(commands.Cog):
                     )
                     return
 
-                prev_category_id = ticket_channel.category_id
-                target_category_id = _category_id_for_clan(target_clan, guild.id)
-                try:
-                    moved = await _move_ticket_to_clan_category(ticket_channel, target_clan)
-                except Exception:
-                    moved = False
-
-                if moved and target_category_id and not ONLY_PERIODIC_TICKET_REFRESH:
+                if not is_unaccepted:
+                    prev_category_id = ticket_channel.category_id
+                    target_category_id = _category_id_for_clan(target_clan, guild.id)
                     try:
-                        await _update_ticket_category_label(guild, target_category_id)
-                        if prev_category_id and prev_category_id != target_category_id:
-                            await _update_ticket_category_label(guild, prev_category_id)
+                        moved = await _move_ticket_to_clan_category(ticket_channel, target_clan)
                     except Exception:
-                        pass
+                        moved = False
 
-                status_emoji = _status_emoji_from_name(ticket_channel.name)
-                app_record = get_clan_application_by_channel(guild.id, channel_id)
+                    if moved and target_category_id and not ONLY_PERIODIC_TICKET_REFRESH:
+                        try:
+                            await _update_ticket_category_label(guild, target_category_id)
+                            if prev_category_id and prev_category_id != target_category_id:
+                                await _update_ticket_category_label(guild, prev_category_id)
+                        except Exception:
+                            pass
                 player_name = ""
                 if app_record:
                     player_name = (app_record.get("roblox_nick") or "").strip()
