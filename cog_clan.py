@@ -1058,6 +1058,11 @@ class ClanApplicationModal(discord.ui.Modal):
             except Exception:
                 pass
 
+        try:
+            set_ticket_last_move(ticket_channel.id, int(time.time()))
+        except Exception:
+            pass
+
         app_id = None
         try:
             app_id = create_clan_application(guild.id, ticket_channel.id, interaction.user.id, lang)
