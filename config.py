@@ -1,5 +1,6 @@
 import importlib
 import importlib.util
+import json
 import logging
 import os
 
@@ -173,6 +174,49 @@ ALLOWED_GUILD_ID = int(os.getenv("ALLOWED_GUILD_ID", "1440039495058854030"))
 DISCORD_WRITE_MIN_INTERVAL_SECONDS = float(
     os.getenv("DISCORD_WRITE_MIN_INTERVAL_SECONDS", "0.25")
 )
+DISCORD_WRITE_OPERATION_MIN_INTERVALS_DEFAULT = {
+    "add_reaction": 0.6,
+    "remove_reaction": 0.6,
+    "edit_member": 1.0,
+    "add_roles": 1.0,
+}
+DISCORD_WRITE_OPERATION_MIN_INTERVALS = dict(DISCORD_WRITE_OPERATION_MIN_INTERVALS_DEFAULT)
+DISCORD_WRITE_OPERATION_MIN_INTERVALS_RAW = os.getenv(
+    "DISCORD_WRITE_OPERATION_MIN_INTERVALS", ""
+).strip()
+if DISCORD_WRITE_OPERATION_MIN_INTERVALS_RAW:
+    try:
+        parsed_limits = json.loads(DISCORD_WRITE_OPERATION_MIN_INTERVALS_RAW)
+        if isinstance(parsed_limits, dict):
+            for key, value in parsed_limits.items():
+                if value is None:
+                    continue
+                try:
+                    DISCORD_WRITE_OPERATION_MIN_INTERVALS[str(key)] = float(value)
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "Neplatná hodnota DISCORD_WRITE_OPERATION_MIN_INTERVALS pro %s: %s",
+                        key,
+                        value,
+                    )
+        else:
+            logger.warning("DISCORD_WRITE_OPERATION_MIN_INTERVALS musí být JSON objekt.")
+    except json.JSONDecodeError as exc:
+        logger.warning("DISCORD_WRITE_OPERATION_MIN_INTERVALS nelze načíst: %s", exc)
+DISCORD_WRITE_WARMUP_SECONDS = float(os.getenv("DISCORD_WRITE_WARMUP_SECONDS", "1.5"))
+DISCORD_WRITE_WARMUP_OPERATIONS = {
+    "add_reaction",
+    "remove_reaction",
+    "edit_member",
+    "add_roles",
+}
+DISCORD_WRITE_WARMUP_OPERATIONS_RAW = os.getenv("DISCORD_WRITE_WARMUP_OPERATIONS", "").strip()
+if DISCORD_WRITE_WARMUP_OPERATIONS_RAW:
+    DISCORD_WRITE_WARMUP_OPERATIONS = {
+        item.strip()
+        for item in DISCORD_WRITE_WARMUP_OPERATIONS_RAW.split(",")
+        if item.strip()
+    }
 
 # CLAN – role pro přijaté členy
 CLAN_MEMBER_ROLE_ID = 1440268327892025438

@@ -17,7 +17,12 @@ from urllib.parse import urlsplit
 import discord
 from discord.ext import commands
 
-from config import DISCORD_WRITE_MIN_INTERVAL_SECONDS
+from config import (
+    DISCORD_WRITE_MIN_INTERVAL_SECONDS,
+    DISCORD_WRITE_OPERATION_MIN_INTERVALS,
+    DISCORD_WRITE_WARMUP_OPERATIONS,
+    DISCORD_WRITE_WARMUP_SECONDS,
+)
 
 # Poznámka: Patchování write metod je verzí podmíněné (discord.py 2.x),
 # protože některé API metody se v minor verzích mohou lišit nebo chybět.
@@ -842,9 +847,14 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         self._blocked_until: float | None = None
         self._rate_limit_buckets: dict[str, float] = {}
         self._rate_limit_bucket_map: dict[str, str] = {}
+        self._warmup_buckets: dict[str, float] = {}
         self._max_backoff_seconds = 30.0
         # DISCORD_WRITE_MIN_INTERVAL_SECONDS (např. 0.1–1.0 s) určuje minimální rozestup zápisů.
         self._min_interval_seconds = DISCORD_WRITE_MIN_INTERVAL_SECONDS
+        self._operation_min_intervals = DISCORD_WRITE_OPERATION_MIN_INTERVALS
+        self._warmup_operations = set(DISCORD_WRITE_WARMUP_OPERATIONS)
+        self._warmup_seconds = max(0.0, float(DISCORD_WRITE_WARMUP_SECONDS))
+        self._last_operation_write_at: dict[str, float] = {}
         self._patched = False
         self._messageable_send_originals: dict[type, Callable[..., Any]] = {}
         self._channel_edit_originals: dict[type, Callable[..., Any]] = {}
@@ -1545,7 +1555,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             if await self._maybe_schedule_future_request(request):
                 continue
             bucket_key = self._get_rate_limit_bucket_key(request)
-            await self._respect_rate_limit(bucket_key)
+            await self._respect_rate_limit(request, bucket_key)
             try:
                 result = await self._execute_request(request)
             except discord.HTTPException as exc:
@@ -1589,22 +1599,43 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                 continue
 
             self._last_write_at = datetime.utcnow().timestamp()
+            self._last_operation_write_at[request.operation] = self._last_write_at
+            if (
+                self._warmup_seconds > 0
+                and request.operation in self._warmup_operations
+                and bucket_key is not None
+                and bucket_key not in self._rate_limit_bucket_map
+            ):
+                self._warmup_buckets[bucket_key] = self._last_write_at + self._warmup_seconds
             update_discord_write_last_write_at(self._last_write_at)
             if request.persist and request.db_id is not None:
                 mark_discord_write_done(request.db_id)
             if request.future and not request.future.done():
                 request.future.set_result(result)
 
-    async def _respect_rate_limit(self, bucket_key: str | None = None):
+    async def _respect_rate_limit(self, request: WriteRequest, bucket_key: str | None = None):
         now = datetime.utcnow().timestamp()
         wait_for = 0.0
         if self._last_write_at is not None:
             wait_for = max(
                 wait_for, self._min_interval_seconds - (now - self._last_write_at)
             )
+        operation_min_interval = self._operation_min_intervals.get(request.operation)
+        if operation_min_interval:
+            last_operation_write_at = self._last_operation_write_at.get(request.operation)
+            if last_operation_write_at is not None:
+                wait_for = max(
+                    wait_for, operation_min_interval - (now - last_operation_write_at)
+                )
         if self._blocked_until is not None and self._blocked_until > now:
             wait_for = max(wait_for, self._blocked_until - now)
         if bucket_key is not None:
+            warmup_until = self._warmup_buckets.get(bucket_key)
+            if warmup_until is not None:
+                if warmup_until <= now:
+                    self._warmup_buckets.pop(bucket_key, None)
+                else:
+                    wait_for = max(wait_for, warmup_until - now)
             mapped_bucket = self._rate_limit_bucket_map.get(bucket_key)
             bucket_keys = [mapped_bucket, bucket_key] if mapped_bucket else [bucket_key]
             for key in bucket_keys:
@@ -1684,6 +1715,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             reset_after = max(0.0, reset - time.time())
         if bucket_key is not None and bucket_id:
             self._rate_limit_bucket_map[bucket_key] = bucket_id
+            self._warmup_buckets.pop(bucket_key, None)
         if reset_after is None:
             if force_block and fallback_blocked_until is not None:
                 target_key = bucket_id or bucket_key
