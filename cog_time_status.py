@@ -15,6 +15,7 @@ from config import (
     TIME_STATUS_STATE_NAME,
     TIME_STATUS_STATE_TIMEZONE,
 )
+from cog_discord_writer import get_writer
 from db import get_setting, set_setting
 
 
@@ -64,14 +65,16 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
                 "Time status zpráva %s obsahuje embed, nahrazuji novou Components V2 zprávou.",
                 message.id,
             )
-            await message.delete()
+            writer = get_writer(self.bot)
+            await writer.delete_message(message)
             message = None
 
         if message:
             payload_hash = self._hash_payload("", view)
             if self._should_skip_edit(payload_hash):
                 return
-            await message.edit(view=view)
+            writer = get_writer(self.bot)
+            await writer.edit_message(message, view=view)
             set_setting("time_status_message_id", str(message.id))
             set_setting("time_status_channel_id", str(channel.id))
             self._record_payload_state(payload_hash)

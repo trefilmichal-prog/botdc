@@ -8,6 +8,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from config import CLAN_MEMBER_ROLE_ID, SETUP_MANAGER_ROLE_ID
+from cog_discord_writer import get_writer
 from db import (
     add_clan_panel,
     add_leaderboard_panel,
@@ -207,7 +208,8 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
                 payload_hash = self._hash_payload("", view)
                 if self._should_skip_panel_edit("clan_panel", message_id, payload_hash):
                     continue
-                await msg.edit(content="", embeds=[], view=view)
+                writer = get_writer(self.bot)
+                await writer.edit_message(msg, content="", embeds=[], view=view)
                 self._record_panel_payload_state(
                     "clan_panel", message_id, payload_hash
                 )
@@ -247,7 +249,8 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
                     "leaderboard_panel", message_id, payload_hash
                 ):
                     continue
-                await msg.edit(content="", embeds=[], view=view)
+                writer = get_writer(self.bot)
+                await writer.edit_message(msg, content="", embeds=[], view=view)
                 self._record_panel_payload_state(
                     "leaderboard_panel", message_id, payload_hash
                 )

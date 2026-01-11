@@ -14,6 +14,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from config import ADMIN_TASK_DB_PATH, REBIRTH_DATA_URL, SETUP_MANAGER_ROLE_ID
+from cog_discord_writer import get_writer
 from db import (
     add_sp_panel,
     get_all_sp_panels,
@@ -292,7 +293,8 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
         if isinstance(channel, discord.TextChannel):
             try:
                 message = await channel.fetch_message(message_id)
-                await message.delete()
+                writer = get_writer(self.bot)
+                await writer.delete_message(message)
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                 pass
 
@@ -351,7 +353,8 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
             try:
                 if self._should_skip_panel_edit(message_id, payload_hash):
                     continue
-                await message.edit(content="", embeds=[], view=view)
+                writer = get_writer(self.bot)
+                await writer.edit_message(message, content="", embeds=[], view=view)
                 self._record_panel_payload_state(message_id, payload_hash)
                 await asyncio.sleep(0.25)
             except discord.HTTPException:

@@ -207,7 +207,8 @@ class WoodCog(commands.Cog, name="WoodCog"):
 
         rows = get_resources_status()
         view = self._build_panel_view(locale, rows)
-        await msg.edit(content="", embeds=[], view=view)
+        writer = get_writer(self.bot)
+        await writer.edit_message(msg, content="", embeds=[], view=view)
 
     async def _handle_setup_access_error(
         self, interaction: discord.Interaction, error: app_commands.AppCommandError

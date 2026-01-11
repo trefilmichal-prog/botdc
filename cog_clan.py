@@ -1753,7 +1753,10 @@ class ClanPanelCog(commands.Cog):
             except discord.HTTPException:
                 continue
             try:
-                await message.edit(view=self._build_panel_view(guild_id))
+                writer = get_writer(self.bot)
+                await writer.edit_message(
+                    message, view=self._build_panel_view(guild_id)
+                )
                 self.bot.add_view(self._build_panel_view(guild_id), message_id=message_id)
             except discord.HTTPException:
                 continue

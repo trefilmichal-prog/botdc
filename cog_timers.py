@@ -10,6 +10,7 @@ from discord.ext import tasks
 from discord import app_commands
 
 from config import SETUP_MANAGER_ROLE_ID
+from cog_discord_writer import get_writer
 from db import (
     get_all_timers,
     create_or_update_timer,
@@ -118,7 +119,8 @@ class TimersCog(commands.Cog, name="TimersCog"):
 
         timers = get_all_timers()
         view = build_timers_view(self, timers)
-        await msg.edit(content="", embeds=[], view=view)
+        writer = get_writer(self.bot)
+        await writer.edit_message(msg, content="", embeds=[], view=view)
 
     # ---------- SLASH ----------
 

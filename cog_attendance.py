@@ -674,7 +674,8 @@ class AttendanceCog(commands.Cog, name="Attendance"):
 
             self.bot.add_view(view, message_id=message_id)
             try:
-                await message.edit(content="", view=view)
+                writer = get_writer(self.bot)
+                await writer.edit_message(message, content="", view=view)
             except (discord.Forbidden, discord.HTTPException):
                 delete_attendance_panel(message_id)
 
@@ -717,7 +718,8 @@ class AttendanceCog(commands.Cog, name="Attendance"):
             )
             self.bot.add_view(view, message_id=message_id)
             try:
-                await message.edit(content="", view=view)
+                writer = get_writer(self.bot)
+                await writer.edit_message(message, content="", view=view)
             except (discord.Forbidden, discord.HTTPException):
                 delete_attendance_setup_panel(message_id)
 
