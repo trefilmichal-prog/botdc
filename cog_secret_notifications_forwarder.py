@@ -1243,19 +1243,27 @@ class SecretNotificationsForwarder(commands.Cog):
             view = self._build_notice_view("⚠️ Dropstats není možné vytvořit.")
             await interaction.response.send_message(view=view, ephemeral=True)
             return
+        await interaction.response.defer(ephemeral=True)
         messages: list[discord.Message] = []
         for view in views:
-            message = await channel.send(
-                view=view, allowed_mentions=discord.AllowedMentions.none()
-            )
-            messages.append(message)
+            try:
+                message = await channel.send(
+                    view=view, allowed_mentions=discord.AllowedMentions.none()
+                )
+                messages.append(message)
+            except discord.HTTPException:
+                logger.exception(
+                    "Odeslání dropstats panelu selhalo (channel=%s).",
+                    channel.id,
+                )
+            await asyncio.sleep(0.25)
         if interaction.guild:
             set_dropstats_panel_message_ids(
                 interaction.guild.id,
                 channel.id,
                 [message.id for message in messages],
             )
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"Dropstats panel byl odeslán do kanálu #{channel.name}.", ephemeral=True
         )
 
