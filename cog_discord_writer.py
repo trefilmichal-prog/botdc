@@ -1194,22 +1194,39 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         if request.bucket_key is not None:
             return request.bucket_key
         payload = request.payload or {}
+        if request.operation in {"edit_message", "delete_message"} and payload.get("channel_id") is None:
+            message = payload.get("message")
+            if message is not None:
+                channel = getattr(message, "channel", None)
+                channel_id = getattr(channel, "id", None)
+                if channel_id is not None:
+                    payload["channel_id"] = channel_id
+                if payload.get("message_id") is None:
+                    payload["message_id"] = getattr(message, "id", None)
         channel_id = payload.get("channel_id")
         if channel_id is None and payload.get("target_type") == "channel":
             channel_id = payload.get("target_id")
         if channel_id is None:
             interaction = payload.get("interaction")
             channel_id = getattr(interaction, "channel_id", None)
-        message_id = payload.get("message_id")
+        if request.operation in {"edit_message", "delete_message"} and channel_id is not None:
+            payload.setdefault("channel_id", channel_id)
         webhook_id = payload.get("webhook_id")
         if webhook_id is None:
             webhook = payload.get("webhook")
             webhook_id = getattr(webhook, "id", None)
-        identifiers = [
-            ("channel_id", channel_id),
-            ("webhook_id", webhook_id),
-            ("message_id", message_id),
-        ]
+        interaction = payload.get("interaction")
+        interaction_id = getattr(interaction, "id", None)
+        identifiers: list[tuple[str, Any]] = []
+        if request.operation in {"send_message", "edit_message", "delete_message"}:
+            if channel_id is not None:
+                identifiers.append(("channel_id", channel_id))
+            elif payload.get("target_id") is not None:
+                identifiers.append(("target_id", payload.get("target_id")))
+        if request.operation == "webhook_send" and webhook_id is not None:
+            identifiers.append(("webhook_id", webhook_id))
+        if request.operation.startswith("interaction") and interaction_id is not None:
+            identifiers.append(("interaction_id", interaction_id))
         key_parts = [request.operation]
         for name, value in identifiers:
             if value is not None:
