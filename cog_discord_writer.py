@@ -1620,6 +1620,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             wait_for = max(
                 wait_for, self._min_interval_seconds - (now - self._last_write_at)
             )
+        # Per-operation throttling podle DISCORD_WRITE_OPERATION_MIN_INTERVALS.
         operation_min_interval = self._operation_min_intervals.get(request.operation)
         if operation_min_interval:
             last_operation_write_at = self._last_operation_write_at.get(request.operation)

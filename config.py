@@ -175,6 +175,13 @@ DISCORD_WRITE_MIN_INTERVAL_SECONDS = float(
     os.getenv("DISCORD_WRITE_MIN_INTERVAL_SECONDS", "0.25")
 )
 DISCORD_WRITE_OPERATION_MIN_INTERVALS_DEFAULT = {
+    # Konzervativní doporučení dle běžných Discord limitů (1.0–1.2 s).
+    "send_message": 1.1,
+    "edit_message": 1.1,
+    "delete_message": 1.1,
+    "webhook_send": 1.1,
+    "interaction_followup": 1.1,
+    "interaction_response": 1.1,
     "add_reaction": 0.6,
     "remove_reaction": 0.6,
     "edit_member": 1.0,
