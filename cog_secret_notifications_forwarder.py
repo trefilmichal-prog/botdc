@@ -21,6 +21,7 @@ from config import (
     WINRT_LOG_PATH,
 )
 from cog_clan import CLAN_MEMBER_ROLE_IDS as CLAN_MEMBER_ROLE_IDS_BY_KEY
+from cog_discord_writer import get_writer
 from db import (
     add_secret_drop_event,
     delete_windows_notifications,
@@ -1224,8 +1225,10 @@ class SecretNotificationsForwarder(commands.Cog):
             view=views[0],
             allowed_mentions=discord.AllowedMentions.none(),
         )
+        writer = get_writer(interaction.client)
         for extra_view in views[1:]:
-            await interaction.followup.send(
+            await writer.send_interaction_followup(
+                interaction,
                 view=extra_view,
                 allowed_mentions=discord.AllowedMentions.none(),
             )

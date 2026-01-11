@@ -16,6 +16,7 @@ from config import (
     STAFF_ROLE_ID,
     TICKET_VIEWER_ROLE_ID,
 )
+from cog_discord_writer import get_writer
 from i18n import DEFAULT_LOCALE, get_interaction_locale, get_message_locale, normalize_locale, t
 from db import (
     set_setting,
@@ -218,7 +219,10 @@ class WoodCog(commands.Cog, name="WoodCog"):
         message = t("wood_setup_forbidden", locale)
 
         if interaction.response.is_done():
-            await interaction.followup.send(message, ephemeral=True)
+            writer = get_writer(interaction.client)
+            await writer.send_interaction_followup(
+                interaction, content=message, ephemeral=True
+            )
         else:
             await interaction.response.send_message(message, ephemeral=True)
 
