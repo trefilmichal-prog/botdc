@@ -1819,22 +1819,7 @@ class SecretNotificationsForwarder(commands.Cog):
                         msg = await channel.fetch_message(message_id)
                     except discord.NotFound:
                         removed_message_ids.append(message_id)
-                        try:
-                            msg = await writer.send_message(
-                                channel,
-                                view=view,
-                                allowed_mentions=discord.AllowedMentions.none(),
-                            )
-                        except discord.HTTPException:
-                            logger.exception(
-                                "Odeslání dropstats panelu přes writer queue selhalo "
-                                "(guild=%s, channel=%s).",
-                                guild_id,
-                                channel_id,
-                            )
-                            continue
-                        message_ids[index] = msg.id
-                        await asyncio.sleep(0.25)
+                        message_ids[index] = None
                         continue
                     except discord.HTTPException:
                         continue
@@ -1855,23 +1840,12 @@ class SecretNotificationsForwarder(commands.Cog):
                         )
                         continue
                 else:
-                    try:
-                        msg = await writer.send_message(
-                            channel,
-                            view=view,
-                            allowed_mentions=discord.AllowedMentions.none(),
-                        )
-                    except discord.HTTPException:
-                        logger.exception(
-                            "Odeslání dropstats panelu přes writer queue selhalo "
-                            "(guild=%s, channel=%s).",
-                            guild_id,
-                            channel_id,
-                        )
-                        continue
-                    message_ids.append(msg.id)
-                    await asyncio.sleep(0.25)
-            extra_message_ids = message_ids[len(views) :]
+                    continue
+            extra_message_ids = [
+                message_id
+                for message_id in message_ids[len(views) :]
+                if message_id is not None
+            ]
             kept_message_ids: list[int] = []
             for message_id in extra_message_ids:
                 try:
@@ -1895,10 +1869,17 @@ class SecretNotificationsForwarder(commands.Cog):
                     kept_message_ids.append(message_id)
                     continue
                 removed_message_ids.append(message_id)
-            message_ids = message_ids[: len(views)] + kept_message_ids
+            message_ids = [
+                message_id
+                for message_id in message_ids[: len(views)]
+                if message_id is not None
+            ] + kept_message_ids
             if removed_message_ids:
                 delete_dropstats_panel_states(removed_message_ids)
             if message_ids != stored_message_ids:
-                set_dropstats_panel_message_ids(
-                    guild_id, channel_id, message_ids
-                )
+                if not message_ids:
+                    remove_dropstats_panel(guild_id, channel_id)
+                else:
+                    set_dropstats_panel_message_ids(
+                        guild_id, channel_id, message_ids
+                    )
