@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import contextvars
 import json
 import itertools
 import logging
@@ -10,7 +11,7 @@ import random
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Mapping
 
 import discord
 from discord.ext import commands
@@ -39,6 +40,26 @@ from db import (
     update_discord_write_last_write_at,
     upsert_discord_rate_limit_bucket,
 )
+
+_DISCORD_WRITE_CONTEXT: contextvars.ContextVar[dict[str, Any] | None] = (
+    contextvars.ContextVar("discord_write_context", default=None)
+)
+_RATELIMIT_UPDATE_ORIGINAL: Callable[..., Any] | None = None
+_RATELIMIT_UPDATE_PATCHED = False
+
+
+def _patched_ratelimit_update(self, response, *, use_clock: bool = False) -> None:
+    if _RATELIMIT_UPDATE_ORIGINAL is None:
+        return
+    _RATELIMIT_UPDATE_ORIGINAL(self, response, use_clock=use_clock)
+    context = _DISCORD_WRITE_CONTEXT.get()
+    if not context:
+        return
+    writer = context.get("writer")
+    bucket_key = context.get("bucket_key")
+    if writer is None or not hasattr(writer, "_capture_rate_limit_headers"):
+        return
+    writer._capture_rate_limit_headers(response.headers, bucket_key, force_block=False)
 
 @dataclass
 class WriteRequest:
@@ -573,6 +594,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         self._last_write_at: float | None = None
         self._blocked_until: float | None = None
         self._rate_limit_buckets: dict[str, float] = {}
+        self._rate_limit_bucket_map: dict[str, str] = {}
         self._max_backoff_seconds = 30.0
         # DISCORD_WRITE_MIN_INTERVAL_SECONDS (např. 0.1–1.0 s) určuje minimální rozestup zápisů.
         self._min_interval_seconds = DISCORD_WRITE_MIN_INTERVAL_SECONDS
@@ -597,6 +619,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         self._original_interaction_modal: Optional[Callable[..., Any]] = None
         self._original_webhook_send: Optional[Callable[..., Any]] = None
         self._original_followup_send: Optional[Callable[..., Any]] = None
+        self._original_ratelimit_update: Optional[Callable[..., Any]] = None
 
     async def cog_load(self):
         try:
@@ -615,6 +638,10 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             self._patch_methods()
         except Exception:  # noqa: BLE001
             self.logger.exception("Patchování Discord write metod selhalo.")
+        try:
+            self._patch_ratelimit_update()
+        except Exception:  # noqa: BLE001
+            self.logger.exception("Patchování Discord rate limit update selhalo.")
         self._worker_task = asyncio.create_task(self._worker_loop())
 
     async def cog_unload(self):
@@ -629,6 +656,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                 await asyncio.gather(*self._scheduled_tasks, return_exceptions=True)
         self._scheduled_tasks.clear()
         self._restore_methods()
+        self._restore_ratelimit_update()
 
     def _patch_methods(self):
         """Globální, verzí podmíněné patchování Discord write metod."""
@@ -880,6 +908,30 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                 ", ".join(patched_targets),
             )
 
+    def _patch_ratelimit_update(self) -> None:
+        global _RATELIMIT_UPDATE_ORIGINAL, _RATELIMIT_UPDATE_PATCHED
+        if _RATELIMIT_UPDATE_PATCHED:
+            return
+        original = getattr(discord.http.Ratelimit, "update", None)
+        if original is None:
+            self.logger.warning("discord.http.Ratelimit.update není dostupné pro patch.")
+            return
+        _RATELIMIT_UPDATE_ORIGINAL = original
+        discord.http.Ratelimit.update = _patched_ratelimit_update
+        _RATELIMIT_UPDATE_PATCHED = True
+        self._original_ratelimit_update = original
+
+    def _restore_ratelimit_update(self) -> None:
+        global _RATELIMIT_UPDATE_ORIGINAL, _RATELIMIT_UPDATE_PATCHED
+        if not _RATELIMIT_UPDATE_PATCHED:
+            return
+        original = _RATELIMIT_UPDATE_ORIGINAL or self._original_ratelimit_update
+        if original is not None:
+            discord.http.Ratelimit.update = original
+        _RATELIMIT_UPDATE_ORIGINAL = None
+        _RATELIMIT_UPDATE_PATCHED = False
+        self._original_ratelimit_update = None
+
     def _restore_methods(self):
         """Vrací originální metody po globálním patchování."""
         if not self._patched:
@@ -1008,10 +1060,19 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                     delay = self._compute_backoff_delay(request, retry_after)
                     now = datetime.utcnow().timestamp()
                     blocked_until = now + delay
+                    bucket_set = False
+                    response = getattr(exc, "response", None)
+                    if response is not None:
+                        bucket_set = self._capture_rate_limit_headers(
+                            response.headers,
+                            bucket_key,
+                            force_block=True,
+                            fallback_blocked_until=blocked_until,
+                        )
                     if self._blocked_until is None or blocked_until > self._blocked_until:
                         self._blocked_until = blocked_until
                         update_discord_write_blocked_until(blocked_until)
-                    if bucket_key is not None:
+                    if bucket_key is not None and not bucket_set:
                         self._set_rate_limit_bucket(bucket_key, blocked_until)
                     next_retry_at = datetime.utcnow() + timedelta(seconds=delay)
                     self.logger.warning(
@@ -1050,11 +1111,17 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         if self._blocked_until is not None and self._blocked_until > now:
             wait_for = max(wait_for, self._blocked_until - now)
         if bucket_key is not None:
-            bucket_until = self._rate_limit_buckets.get(bucket_key)
-            if bucket_until is not None:
+            mapped_bucket = self._rate_limit_bucket_map.get(bucket_key)
+            bucket_keys = [mapped_bucket, bucket_key] if mapped_bucket else [bucket_key]
+            for key in bucket_keys:
+                if key is None:
+                    continue
+                bucket_until = self._rate_limit_buckets.get(key)
+                if bucket_until is None:
+                    continue
                 if bucket_until <= now:
-                    self._rate_limit_buckets.pop(bucket_key, None)
-                    delete_discord_rate_limit_bucket(bucket_key)
+                    self._rate_limit_buckets.pop(key, None)
+                    delete_discord_rate_limit_bucket(key)
                 else:
                     wait_for = max(wait_for, bucket_until - now)
         if wait_for > 0:
@@ -1086,6 +1153,48 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
     def _set_rate_limit_bucket(self, bucket_key: str, blocked_until: float) -> None:
         self._rate_limit_buckets[bucket_key] = blocked_until
         upsert_discord_rate_limit_bucket(bucket_key, blocked_until)
+
+    def _capture_rate_limit_headers(
+        self,
+        headers: Mapping[str, str],
+        bucket_key: str | None,
+        *,
+        force_block: bool,
+        fallback_blocked_until: float | None = None,
+    ) -> bool:
+        if not headers:
+            return False
+        bucket_id = headers.get("X-Ratelimit-Bucket")
+        remaining_raw = headers.get("X-Ratelimit-Remaining")
+        reset_after_raw = headers.get("X-Ratelimit-Reset-After")
+        remaining = None
+        reset_after = None
+        if remaining_raw is not None:
+            try:
+                remaining = int(remaining_raw)
+            except (TypeError, ValueError):
+                remaining = None
+        if reset_after_raw is not None:
+            try:
+                reset_after = float(reset_after_raw)
+            except (TypeError, ValueError):
+                reset_after = None
+        if bucket_key is not None and bucket_id:
+            self._rate_limit_bucket_map[bucket_key] = bucket_id
+        if reset_after is None:
+            if force_block and fallback_blocked_until is not None:
+                target_key = bucket_id or bucket_key
+                if target_key is not None:
+                    self._set_rate_limit_bucket(target_key, fallback_blocked_until)
+                    return True
+            return False
+        if force_block or (remaining is not None and remaining <= 0):
+            blocked_until = time.time() + max(0.0, reset_after)
+            target_key = bucket_id or bucket_key
+            if target_key is not None:
+                self._set_rate_limit_bucket(target_key, blocked_until)
+                return True
+        return False
 
     def _parse_next_retry_at(self, value: str | None) -> datetime | None:
         if not value:
@@ -1137,50 +1246,54 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             request.future.set_exception(exc)
 
     async def _execute_request(self, request: WriteRequest):
-        self._get_rate_limit_bucket_key(request)
-        op = request.operation
-        payload = self._deserialize_payload(request.payload)
-        if op == "send_message":
-            return await self._op_send_message(payload)
-        if op == "edit_message":
-            return await self._op_edit_message(payload)
-        if op == "delete_message":
-            return await self._op_delete_message(payload)
-        if op == "edit_channel":
-            return await self._op_edit_channel(payload)
-        if op == "delete_channel":
-            return await self._op_delete_channel(payload)
-        if op == "create_text_channel":
-            return await self._op_create_text_channel(payload)
-        if op == "add_roles":
-            return await self._op_add_roles(payload)
-        if op == "remove_roles":
-            return await self._op_remove_roles(payload)
-        if op == "ban_member":
-            return await self._op_ban_member(payload)
-        if op == "kick_member":
-            return await self._op_kick_member(payload)
-        if op == "timeout_member":
-            return await self._op_timeout_member(payload)
-        if op == "edit_member":
-            return await self._op_edit_member(payload)
-        if op == "interaction_response":
-            return await self._op_interaction_response(payload)
-        if op == "interaction_followup":
-            return await self._op_interaction_followup(payload)
-        if op == "interaction_edit":
-            return await self._op_interaction_edit(payload)
-        if op == "interaction_edit_original":
-            return await self._op_interaction_edit_original(payload)
-        if op == "interaction_defer":
-            return await self._op_interaction_defer(payload)
-        if op == "interaction_modal":
-            return await self._op_interaction_modal(payload)
-        if op == "webhook_send":
-            return await self._op_webhook_send(payload)
-        if op == "set_permissions":
-            return await self._op_set_permissions(payload)
-        raise ValueError(f"Neznámá operace: {op}")
+        bucket_key = self._get_rate_limit_bucket_key(request)
+        token = _DISCORD_WRITE_CONTEXT.set({"writer": self, "bucket_key": bucket_key})
+        try:
+            op = request.operation
+            payload = self._deserialize_payload(request.payload)
+            if op == "send_message":
+                return await self._op_send_message(payload)
+            if op == "edit_message":
+                return await self._op_edit_message(payload)
+            if op == "delete_message":
+                return await self._op_delete_message(payload)
+            if op == "edit_channel":
+                return await self._op_edit_channel(payload)
+            if op == "delete_channel":
+                return await self._op_delete_channel(payload)
+            if op == "create_text_channel":
+                return await self._op_create_text_channel(payload)
+            if op == "add_roles":
+                return await self._op_add_roles(payload)
+            if op == "remove_roles":
+                return await self._op_remove_roles(payload)
+            if op == "ban_member":
+                return await self._op_ban_member(payload)
+            if op == "kick_member":
+                return await self._op_kick_member(payload)
+            if op == "timeout_member":
+                return await self._op_timeout_member(payload)
+            if op == "edit_member":
+                return await self._op_edit_member(payload)
+            if op == "interaction_response":
+                return await self._op_interaction_response(payload)
+            if op == "interaction_followup":
+                return await self._op_interaction_followup(payload)
+            if op == "interaction_edit":
+                return await self._op_interaction_edit(payload)
+            if op == "interaction_edit_original":
+                return await self._op_interaction_edit_original(payload)
+            if op == "interaction_defer":
+                return await self._op_interaction_defer(payload)
+            if op == "interaction_modal":
+                return await self._op_interaction_modal(payload)
+            if op == "webhook_send":
+                return await self._op_webhook_send(payload)
+            if op == "set_permissions":
+                return await self._op_set_permissions(payload)
+            raise ValueError(f"Neznámá operace: {op}")
+        finally:
+            _DISCORD_WRITE_CONTEXT.reset(token)
 
     def _get_rate_limit_bucket_key(self, request: WriteRequest) -> str | None:
         if request.bucket_key is not None:
