@@ -180,12 +180,23 @@ DISCORD_WRITE_OPERATION_MIN_INTERVALS_DEFAULT = {
     "edit_message": 1.1,
     "delete_message": 1.1,
     "webhook_send": 1.1,
+    "webhook_edit": 1.1,
+    "webhook_delete": 1.1,
     "interaction_followup": 1.1,
     "interaction_response": 1.1,
+    "interaction_edit": 1.1,
+    "interaction_edit_original": 1.1,
+    "interaction_defer": 1.1,
+    "interaction_modal": 1.1,
     "add_reaction": 0.6,
     "remove_reaction": 0.6,
     "edit_member": 1.0,
     "add_roles": 1.0,
+    "edit_channel": 1.2,
+    "delete_channel": 1.2,
+    "delete_messages": 1.2,
+    "pin_message": 1.0,
+    "unpin_message": 1.0,
 }
 DISCORD_WRITE_OPERATION_MIN_INTERVALS = dict(DISCORD_WRITE_OPERATION_MIN_INTERVALS_DEFAULT)
 DISCORD_WRITE_OPERATION_MIN_INTERVALS_RAW = os.getenv(
