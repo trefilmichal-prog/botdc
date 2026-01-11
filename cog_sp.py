@@ -1,5 +1,7 @@
 import json
 import asyncio
+import hashlib
+import time
 import re
 import sqlite3
 import urllib.error
@@ -16,7 +18,9 @@ from db import (
     add_sp_panel,
     get_all_sp_panels,
     get_sp_panel_for_guild,
+    get_setting,
     remove_sp_panel,
+    set_setting,
 )
 
 
@@ -24,6 +28,8 @@ RebirthRow = Tuple[str, str, str, str, str]
 
 
 class RebirthPanel(commands.Cog, name="RebirthPanel"):
+    _MIN_EDIT_INTERVAL_SECONDS = 20
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.refresh_loop.start()
@@ -321,6 +327,7 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
             return
 
         view = self._build_rebirth_view()
+        payload_hash = self._hash_payload("", view)
 
         for guild_id, channel_id, message_id in panels:
             guild = self.bot.get_guild(guild_id)
@@ -342,10 +349,40 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
                 continue
 
             try:
+                if self._should_skip_panel_edit(message_id, payload_hash):
+                    continue
                 await message.edit(content="", embeds=[], view=view)
+                self._record_panel_payload_state(message_id, payload_hash)
                 await asyncio.sleep(0.25)
             except discord.HTTPException:
                 continue
+
+    def _hash_payload(self, content: str, view: discord.ui.LayoutView) -> str:
+        payload = {
+            "content": content or "",
+            "components": view.to_components(),
+        }
+        serialized = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+    def _should_skip_panel_edit(self, message_id: int, payload_hash: str) -> bool:
+        hash_key = f"sp_panel_{message_id}_last_payload_hash"
+        last_hash = get_setting(hash_key)
+        if last_hash and last_hash == payload_hash:
+            return True
+        ts_key = f"sp_panel_{message_id}_last_edit_ts"
+        last_edit_raw = get_setting(ts_key)
+        if not last_edit_raw:
+            return False
+        try:
+            last_edit = float(last_edit_raw)
+        except ValueError:
+            return False
+        return (time.time() - last_edit) < self._MIN_EDIT_INTERVAL_SECONDS
+
+    def _record_panel_payload_state(self, message_id: int, payload_hash: str) -> None:
+        set_setting(f"sp_panel_{message_id}_last_payload_hash", payload_hash)
+        set_setting(f"sp_panel_{message_id}_last_edit_ts", str(time.time()))
 
     @tasks.loop(minutes=5)
     async def refresh_loop(self):

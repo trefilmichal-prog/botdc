@@ -1,4 +1,7 @@
 import asyncio
+import hashlib
+import json
+import time
 
 import discord
 from discord import app_commands
@@ -10,14 +13,18 @@ from db import (
     add_leaderboard_panel,
     get_all_clan_panels,
     get_all_leaderboard_panels,
+    get_setting,
     get_top_users_by_stat,
     remove_clan_panel,
     remove_leaderboard_panel,
+    set_setting,
 )
 from i18n import DEFAULT_LOCALE, get_interaction_locale, t
 
 
 class LeaderboardCog(commands.Cog, name="Leaderboard"):
+    _MIN_EDIT_INTERVAL_SECONDS = 20
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.panel_refresh_loop.start()
@@ -197,7 +204,13 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
                 continue
 
             try:
+                payload_hash = self._hash_payload("", view)
+                if self._should_skip_panel_edit("clan_panel", message_id, payload_hash):
+                    continue
                 await msg.edit(content="", embeds=[], view=view)
+                self._record_panel_payload_state(
+                    "clan_panel", message_id, payload_hash
+                )
                 await asyncio.sleep(0.25)
             except discord.HTTPException:
                 continue
@@ -208,6 +221,7 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
             return
 
         view = self.build_leaderboard_view()
+        payload_hash = self._hash_payload("", view)
 
         for guild_id, channel_id, message_id in panels:
             guild = self.bot.get_guild(guild_id)
@@ -229,10 +243,48 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
                 continue
 
             try:
+                if self._should_skip_panel_edit(
+                    "leaderboard_panel", message_id, payload_hash
+                ):
+                    continue
                 await msg.edit(content="", embeds=[], view=view)
+                self._record_panel_payload_state(
+                    "leaderboard_panel", message_id, payload_hash
+                )
                 await asyncio.sleep(0.25)
             except discord.HTTPException:
                 continue
+
+    def _hash_payload(self, content: str, view: discord.ui.LayoutView) -> str:
+        payload = {
+            "content": content or "",
+            "components": view.to_components(),
+        }
+        serialized = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+    def _should_skip_panel_edit(
+        self, prefix: str, message_id: int, payload_hash: str
+    ) -> bool:
+        hash_key = f"{prefix}_{message_id}_last_payload_hash"
+        last_hash = get_setting(hash_key)
+        if last_hash and last_hash == payload_hash:
+            return True
+        ts_key = f"{prefix}_{message_id}_last_edit_ts"
+        last_edit_raw = get_setting(ts_key)
+        if not last_edit_raw:
+            return False
+        try:
+            last_edit = float(last_edit_raw)
+        except ValueError:
+            return False
+        return (time.time() - last_edit) < self._MIN_EDIT_INTERVAL_SECONDS
+
+    def _record_panel_payload_state(
+        self, prefix: str, message_id: int, payload_hash: str
+    ) -> None:
+        set_setting(f"{prefix}_{message_id}_last_payload_hash", payload_hash)
+        set_setting(f"{prefix}_{message_id}_last_edit_ts", str(time.time()))
 
     @tasks.loop(minutes=5)
     async def panel_refresh_loop(self):
@@ -250,4 +302,3 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
             await self.refresh_leaderboard_panels()
         except Exception as exc:  # pragma: no cover - defensive logging
             print(f"[panel_refresh_loop] Chyba při počáteční obnově panelů: {exc}")
-

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -16,6 +19,8 @@ from db import get_setting, set_setting
 
 
 class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
+    _MIN_EDIT_INTERVAL_SECONDS = 15
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.log = logging.getLogger(__name__)
@@ -63,13 +68,19 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
             message = None
 
         if message:
+            payload_hash = self._hash_payload("", view)
+            if self._should_skip_edit(payload_hash):
+                return
             await message.edit(view=view)
             set_setting("time_status_message_id", str(message.id))
             set_setting("time_status_channel_id", str(channel.id))
+            self._record_payload_state(payload_hash)
         else:
             message = await channel.send(view=view)
             set_setting("time_status_message_id", str(message.id))
             set_setting("time_status_channel_id", str(channel.id))
+            payload_hash = self._hash_payload("", view)
+            self._record_payload_state(payload_hash)
 
         self.message_id = message.id
 
@@ -160,6 +171,31 @@ class TimeStatusCog(commands.Cog, name="TimeStatusCog"):
             )
         )
         return view
+
+    def _hash_payload(self, content: str, view: discord.ui.LayoutView) -> str:
+        payload = {
+            "content": content or "",
+            "components": view.to_components(),
+        }
+        serialized = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+    def _should_skip_edit(self, payload_hash: str) -> bool:
+        last_hash = get_setting("time_status_last_payload_hash")
+        if last_hash and last_hash == payload_hash:
+            return True
+        last_edit_raw = get_setting("time_status_last_edit_ts")
+        if not last_edit_raw:
+            return False
+        try:
+            last_edit = float(last_edit_raw)
+        except ValueError:
+            return False
+        return (time.time() - last_edit) < self._MIN_EDIT_INTERVAL_SECONDS
+
+    def _record_payload_state(self, payload_hash: str) -> None:
+        set_setting("time_status_last_payload_hash", payload_hash)
+        set_setting("time_status_last_edit_ts", str(time.time()))
 
     def _get_cz_zone(self) -> timezone:
         zone = self._load_zone("Europe/Prague")
