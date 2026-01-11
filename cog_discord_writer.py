@@ -1879,7 +1879,6 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             webhook = payload.get("webhook")
             webhook_id = getattr(webhook, "id", None)
         interaction = payload.get("interaction")
-        interaction_id = getattr(interaction, "id", None)
         guild_id = payload.get("guild_id")
         identifiers: list[tuple[str, Any]] = []
         if request.operation in {
@@ -1904,8 +1903,18 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             identifiers.append(("webhook_id", webhook_id))
         if request.operation in {"webhook_edit", "webhook_delete"} and webhook_id is not None:
             identifiers.append(("webhook_id", webhook_id))
-        if request.operation.startswith("interaction") and interaction_id is not None:
-            identifiers.append(("interaction_id", interaction_id))
+        if request.operation.startswith("interaction"):
+            interaction_bucket_id = None
+            interaction_bucket_name = None
+            if webhook_id is not None:
+                interaction_bucket_id = webhook_id
+                interaction_bucket_name = "webhook_id"
+            else:
+                interaction_bucket_id = getattr(interaction, "application_id", None)
+                if interaction_bucket_id is not None:
+                    interaction_bucket_name = "application_id"
+            if interaction_bucket_id is not None and interaction_bucket_name is not None:
+                identifiers.append((interaction_bucket_name, interaction_bucket_id))
         key_parts = [request.operation]
         for name, value in identifiers:
             if value is not None:
