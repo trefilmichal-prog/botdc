@@ -172,7 +172,7 @@ ALLOWED_GUILD_ID = int(os.getenv("ALLOWED_GUILD_ID", "1440039495058854030"))
 
 # Discord write queue rate limit (sekundy mezi write operacemi)
 DISCORD_WRITE_MIN_INTERVAL_SECONDS = float(
-    os.getenv("DISCORD_WRITE_MIN_INTERVAL_SECONDS", "0.25")
+    os.getenv("DISCORD_WRITE_MIN_INTERVAL_SECONDS", "0.5")
 )
 DISCORD_WRITE_OPERATION_MIN_INTERVALS_DEFAULT = {
     # Konzervativní doporučení dle běžných Discord limitů (1.0–1.2 s).

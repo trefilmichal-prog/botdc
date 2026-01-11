@@ -1261,7 +1261,7 @@ class SecretNotificationsForwarder(commands.Cog):
                     "Odeslání dropstats panelu přes writer queue selhalo (channel=%s).",
                     channel.id,
                 )
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(0.5)
         if interaction.guild:
             set_dropstats_panel_message_ids(
                 interaction.guild.id,
@@ -1829,7 +1829,7 @@ class SecretNotificationsForwarder(commands.Cog):
                             view=view,
                             allowed_mentions=discord.AllowedMentions.none(),
                         )
-                        await asyncio.sleep(0.25)
+                        await asyncio.sleep(0.5)
                     except discord.HTTPException:
                         logger.exception(
                             "Úprava dropstats panelu přes writer queue selhala "
