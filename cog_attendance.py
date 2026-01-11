@@ -8,6 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import SETUP_PANEL_ROLE_ID
+from cog_discord_writer import get_writer
 from db import (
     delete_attendance_panel,
     delete_attendance_setup_panel,
@@ -488,15 +489,21 @@ class SetupReadyPanelView(discord.ui.LayoutView):
 
         guild = interaction.guild
         if guild is None or interaction.channel is None:
-            await interaction.followup.send(
-                "Tento panel lze použít jen na serveru.", ephemeral=True
+            writer = get_writer(self.cog.bot)
+            await writer.send_interaction_followup(
+                interaction,
+                content="Tento panel lze použít jen na serveru.",
+                ephemeral=True,
             )
             return
 
         roles = self.cog.get_roles_from_ids(guild, self.selected_role_ids)
         if not roles:
-            await interaction.followup.send(
-                "Žádná z vybraných rolí není dostupná.", ephemeral=True
+            writer = get_writer(self.cog.bot)
+            await writer.send_interaction_followup(
+                interaction,
+                content="Žádná z vybraných rolí není dostupná.",
+                ephemeral=True,
             )
             return
 
@@ -600,7 +607,9 @@ class AttendanceCog(commands.Cog, name="Attendance"):
         ready, not_ready, waiting, members = self.split_members(roles, session)
         view = self.build_view(session_id=None, role_ids=session.role_ids)
         view.update_displays(roles, ready, not_ready, waiting, len(members))
-        message = await interaction.followup.send(
+        writer = get_writer(self.bot)
+        message = await writer.send_interaction_followup(
+            interaction,
             content="",
             view=view,
             allowed_mentions=discord.AllowedMentions(roles=roles),
@@ -725,13 +734,19 @@ class AttendanceCog(commands.Cog, name="Attendance"):
         await interaction.response.defer(thinking=True)
 
         if interaction.guild is None or interaction.channel is None:
-            await interaction.followup.send(
-                "Tento příkaz lze použít pouze na serveru.", ephemeral=True
+            writer = get_writer(self.bot)
+            await writer.send_interaction_followup(
+                interaction,
+                content="Tento příkaz lze použít pouze na serveru.",
+                ephemeral=True,
             )
             return
 
         view = SetupReadyPanelView(self, interaction.guild)
-        message = await interaction.followup.send(content="", view=view)
+        writer = get_writer(self.bot)
+        message = await writer.send_interaction_followup(
+            interaction, content="", view=view
+        )
         save_attendance_setup_panel(
             message.id, interaction.guild.id, interaction.channel.id
         )
@@ -742,8 +757,11 @@ class AttendanceCog(commands.Cog, name="Attendance"):
     ) -> None:
         if isinstance(error, app_commands.MissingRole):
             if interaction.response.is_done():
-                await interaction.followup.send(
-                    "Na použití tohoto příkazu nemáš oprávnění.", ephemeral=True
+                writer = get_writer(self.bot)
+                await writer.send_interaction_followup(
+                    interaction,
+                    content="Na použití tohoto příkazu nemáš oprávnění.",
+                    ephemeral=True,
                 )
             else:
                 await interaction.response.send_message(

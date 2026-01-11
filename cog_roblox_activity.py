@@ -22,6 +22,7 @@ from config import (
     REBIRTH_CHAMPIONS_UNIVERSE_ID,
     ROBLOX_ACTIVITY_CHANNEL_ID,
 )
+from cog_discord_writer import get_writer
 from db import get_connection, get_setting, set_setting
 
 
@@ -1248,7 +1249,9 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             file = discord.File(buffer, filename="leaderboard.png")
             view = discord.ui.LayoutView(timeout=None)
             view.add_item(discord.ui.Container(discord.ui.TextDisplay(content=\"Leaderboard\")))
-            await interaction.followup.send(view=view, file=file, ephemeral=True)
+            await get_writer(interaction.client).send_interaction_followup(
+                interaction, view=view, file=file, ephemeral=True
+            )
         """
 
         if not leaderboard_rows:
@@ -1424,8 +1427,11 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             return
 
         await interaction.edit_original_response(content="", view=report_views[0])
+        writer = get_writer(self.bot)
         for view in report_views[1:]:
-            await interaction.followup.send(content="", view=view, ephemeral=True)
+            await writer.send_interaction_followup(
+                interaction, content="", view=view, ephemeral=True
+            )
 
     @app_commands.checks.has_permissions(administrator=True)
     async def roblox_activity_report(self, interaction: discord.Interaction):
@@ -1463,8 +1469,11 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             return
 
         await interaction.edit_original_response(content="", view=report_views[0])
+        writer = get_writer(self.bot)
         for view in report_views[1:]:
-            await interaction.followup.send(content="", view=view, ephemeral=True)
+            await writer.send_interaction_followup(
+                interaction, content="", view=view, ephemeral=True
+            )
 
     async def _build_presence_report(
         self, guild: discord.Guild, *, mention_mode: str
