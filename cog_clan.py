@@ -1223,7 +1223,7 @@ class ClanApplicationModal(discord.ui.Modal):
             allowed_mentions=discord.AllowedMentions(roles=False, users=True, everyone=False),
         )
 
-        writer = get_writer(self.bot)
+        writer = get_writer(interaction.client)
         await writer.send_interaction_followup(
             interaction,
             content="",
