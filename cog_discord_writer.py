@@ -1915,7 +1915,10 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                     interaction_bucket_name = "application_id"
             if interaction_bucket_id is not None and interaction_bucket_name is not None:
                 identifiers.append((interaction_bucket_name, interaction_bucket_id))
-        key_parts = [request.operation]
+        operation_bucket = request.operation
+        if request.operation in {"interaction_followup", "interaction_edit_original"}:
+            operation_bucket = "interaction_followup"
+        key_parts = [operation_bucket]
         for name, value in identifiers:
             if value is not None:
                 key_parts.append(f"{name}:{value}")
