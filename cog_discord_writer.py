@@ -1582,7 +1582,11 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                         self._set_rate_limit_bucket(bucket_key, blocked_until)
                     next_retry_at = datetime.utcnow() + timedelta(seconds=delay)
                     self.logger.warning(
-                        "Rate limit hit, čekám %.2fs před opakováním.", delay
+                        "Rate limit hit, čekám %.2fs před opakováním. operation=%s bucket_key=%s ids=%s",
+                        delay,
+                        request.operation,
+                        bucket_key,
+                        self._get_payload_log_identifiers(request),
                     )
                     request.attempts += 1
                     request.next_retry_at = next_retry_at
@@ -1966,6 +1970,41 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                 key_parts.append(f"{name}:{value}")
         request.bucket_key = "|".join(key_parts)
         return request.bucket_key
+
+    def _get_payload_log_identifiers(self, request: WriteRequest) -> dict[str, Any]:
+        payload = request.payload or {}
+        identifiers: dict[str, Any] = {}
+
+        def add(key: str, value: Any) -> None:
+            if value is not None:
+                identifiers[key] = value
+
+        add("channel_id", payload.get("channel_id"))
+        add("guild_id", payload.get("guild_id"))
+        add("message_id", payload.get("message_id"))
+        add("webhook_id", payload.get("webhook_id"))
+
+        if identifiers.get("webhook_id") is None:
+            webhook = payload.get("webhook")
+            add("webhook_id", getattr(webhook, "id", None))
+
+        message = payload.get("message")
+        if identifiers.get("channel_id") is None:
+            channel = getattr(message, "channel", None)
+            add("channel_id", getattr(channel, "id", None))
+        if identifiers.get("message_id") is None:
+            add("message_id", getattr(message, "id", None))
+
+        if identifiers.get("channel_id") is None and payload.get("target_type") == "channel":
+            add("channel_id", payload.get("target_id"))
+
+        interaction = payload.get("interaction")
+        if identifiers.get("channel_id") is None:
+            add("channel_id", getattr(interaction, "channel_id", None))
+        if identifiers.get("guild_id") is None:
+            add("guild_id", getattr(interaction, "guild_id", None))
+
+        return identifiers
 
     async def _op_send_message(self, payload: dict[str, Any]):
         try:
