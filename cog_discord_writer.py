@@ -12,6 +12,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional, Mapping
+from urllib.parse import urlsplit
 
 import discord
 from discord.ext import commands
@@ -46,6 +47,8 @@ _DISCORD_WRITE_CONTEXT: contextvars.ContextVar[dict[str, Any] | None] = (
 )
 _RATELIMIT_UPDATE_ORIGINAL: Callable[..., Any] | None = None
 _RATELIMIT_UPDATE_PATCHED = False
+_HTTPCLIENT_REQUEST_ORIGINAL: Callable[..., Any] | None = None
+_HTTPCLIENT_REQUEST_PATCHED = False
 
 
 def _patched_ratelimit_update(self, response, *, use_clock: bool = False) -> None:
@@ -60,6 +63,38 @@ def _patched_ratelimit_update(self, response, *, use_clock: bool = False) -> Non
     if writer is None or not hasattr(writer, "_capture_rate_limit_headers"):
         return
     writer._capture_rate_limit_headers(response.headers, bucket_key, force_block=False)
+
+
+async def _patched_httpclient_request(self, route, *args, **kwargs):
+    if _HTTPCLIENT_REQUEST_ORIGINAL is None:
+        raise RuntimeError("Originální HTTPClient.request není dostupné.")
+    method = getattr(route, "method", None)
+    if isinstance(method, str):
+        method = method.upper()
+    if method == "GET":
+        return await _HTTPCLIENT_REQUEST_ORIGINAL(self, route, *args, **kwargs)
+    context = _DISCORD_WRITE_CONTEXT.get()
+    if context and context.get("bypass_http_request"):
+        return await _HTTPCLIENT_REQUEST_ORIGINAL(self, route, *args, **kwargs)
+    try:
+        writer = get_writer(_get_client_from_state(self))
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("botdc.discord_write").warning(
+            "HTTPClient.request běží mimo Discord writer; přímý write request.",
+            exc_info=exc,
+        )
+        return await _HTTPCLIENT_REQUEST_ORIGINAL(self, route, *args, **kwargs)
+    if method is None:
+        return await _HTTPCLIENT_REQUEST_ORIGINAL(self, route, *args, **kwargs)
+    if method in {"POST", "PATCH", "PUT", "DELETE"}:
+        mapped = writer._map_http_route_to_operation(route, method, kwargs)
+        if mapped is not None:
+            operation, payload, persist = mapped
+            return await writer._enqueue(operation, payload, persist)
+        payload = writer._build_http_request_payload(route, method, kwargs)
+        persist = writer._is_serializable(payload)
+        return await writer._enqueue("http_request", payload, persist)
+    return await _HTTPCLIENT_REQUEST_ORIGINAL(self, route, *args, **kwargs)
 
 @dataclass
 class WriteRequest:
@@ -844,6 +879,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         self._original_webhook_delete: Optional[Callable[..., Any]] = None
         self._original_followup_send: Optional[Callable[..., Any]] = None
         self._original_ratelimit_update: Optional[Callable[..., Any]] = None
+        self._original_http_request: Optional[Callable[..., Any]] = None
         self._channel_delete_messages_originals: dict[type, Callable[..., Any]] = {}
         self._original_channel_create_thread: Optional[Callable[..., Any]] = None
 
@@ -868,6 +904,10 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             self._patch_ratelimit_update()
         except Exception:  # noqa: BLE001
             self.logger.exception("Patchování Discord rate limit update selhalo.")
+        try:
+            self._patch_http_request()
+        except Exception:  # noqa: BLE001
+            self.logger.exception("Patchování Discord HTTPClient.request selhalo.")
         self._worker_task = asyncio.create_task(self._worker_loop())
 
     async def cog_unload(self):
@@ -883,6 +923,7 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         self._scheduled_tasks.clear()
         self._restore_methods()
         self._restore_ratelimit_update()
+        self._restore_http_request()
 
     def _patch_methods(self):
         """Globální, verzí podmíněné patchování Discord write metod."""
@@ -1307,6 +1348,30 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         _RATELIMIT_UPDATE_PATCHED = False
         self._original_ratelimit_update = None
 
+    def _patch_http_request(self) -> None:
+        global _HTTPCLIENT_REQUEST_ORIGINAL, _HTTPCLIENT_REQUEST_PATCHED
+        if _HTTPCLIENT_REQUEST_PATCHED:
+            return
+        original = getattr(discord.http.HTTPClient, "request", None)
+        if original is None:
+            self.logger.warning("discord.http.HTTPClient.request není dostupné pro patch.")
+            return
+        _HTTPCLIENT_REQUEST_ORIGINAL = original
+        discord.http.HTTPClient.request = _patched_httpclient_request
+        _HTTPCLIENT_REQUEST_PATCHED = True
+        self._original_http_request = original
+
+    def _restore_http_request(self) -> None:
+        global _HTTPCLIENT_REQUEST_ORIGINAL, _HTTPCLIENT_REQUEST_PATCHED
+        if not _HTTPCLIENT_REQUEST_PATCHED:
+            return
+        original = _HTTPCLIENT_REQUEST_ORIGINAL or self._original_http_request
+        if original is not None:
+            discord.http.HTTPClient.request = original
+        _HTTPCLIENT_REQUEST_ORIGINAL = None
+        _HTTPCLIENT_REQUEST_PATCHED = False
+        self._original_http_request = None
+
     def _restore_methods(self):
         """Vrací originální metody po globálním patchování."""
         if not self._patched:
@@ -1676,7 +1741,9 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
 
     async def _execute_request(self, request: WriteRequest):
         bucket_key = self._get_rate_limit_bucket_key(request)
-        token = _DISCORD_WRITE_CONTEXT.set({"writer": self, "bucket_key": bucket_key})
+        token = _DISCORD_WRITE_CONTEXT.set(
+            {"writer": self, "bucket_key": bucket_key, "bypass_http_request": True}
+        )
         try:
             op = request.operation
             payload = self._deserialize_payload(request.payload)
@@ -1748,6 +1815,8 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                 return await self._op_webhook_delete(payload)
             if op == "set_permissions":
                 return await self._op_set_permissions(payload)
+            if op == "http_request":
+                return await self._op_http_request(payload)
             raise ValueError(f"Neznámá operace: {op}")
         finally:
             _DISCORD_WRITE_CONTEXT.reset(token)
@@ -1789,6 +1858,13 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             "unpin_message",
         } and channel_id is not None:
             payload.setdefault("channel_id", channel_id)
+        if request.operation == "http_request":
+            route_info = payload.get("route") or {}
+            method = route_info.get("method")
+            path = route_info.get("path")
+            if method or path:
+                request.bucket_key = f"http_request|{method}|{path}"
+                return request.bucket_key
         webhook_id = payload.get("webhook_id")
         if webhook_id is None:
             webhook = payload.get("webhook")
@@ -2227,6 +2303,24 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             webhook, *payload.get("args", ()), **payload["kwargs"]
         )
 
+    async def _op_http_request(self, payload: dict[str, Any]):
+        route_info = payload.get("route") or {}
+        method = route_info.get("method")
+        path = route_info.get("path")
+        parameters = route_info.get("parameters") or {}
+        if method is None or path is None:
+            raise RuntimeError("HTTP request payload neobsahuje route info.")
+        if self._original_http_request is None and _HTTPCLIENT_REQUEST_ORIGINAL is None:
+            raise RuntimeError("Originální HTTPClient.request není dostupné.")
+        route = discord.http.Route(method, path, **parameters)
+        http = getattr(self.bot, "http", None)
+        if http is None:
+            raise RuntimeError("HTTP klient není dostupný.")
+        original = _HTTPCLIENT_REQUEST_ORIGINAL or self._original_http_request
+        if original is None:
+            raise RuntimeError("Originální HTTPClient.request není dostupné.")
+        return await original(http, route, **payload.get("kwargs", {}))
+
     async def send_message(self, target: discord.abc.Messageable, *args, **kwargs):
         if args:
             if len(args) > 1:
@@ -2535,6 +2629,128 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         )
         await self._queue.put((normalized_priority, next(self._queue_counter), request))
         return await future
+
+    def _extract_http_route_info(self, route: Any, method: str) -> dict[str, Any]:
+        path = getattr(route, "path", None)
+        if path is None:
+            url = getattr(route, "url", None)
+            if isinstance(url, str):
+                path = urlsplit(url).path
+        parameters = getattr(route, "parameters", None)
+        if not isinstance(parameters, dict):
+            parameters = {}
+        return {"method": method, "path": path, "parameters": parameters}
+
+    def _extract_route_id(
+        self,
+        parameters: dict[str, Any],
+        path: str | None,
+        key: str,
+        pattern: str,
+    ) -> int | None:
+        raw_value = parameters.get(key)
+        if raw_value is not None:
+            try:
+                return int(raw_value)
+            except (TypeError, ValueError):
+                return None
+        if path:
+            match = re.search(pattern, path)
+            if match:
+                try:
+                    return int(match.group(1))
+                except (TypeError, ValueError):
+                    return None
+        return None
+
+    def _map_http_route_to_operation(
+        self, route: Any, method: str, kwargs: dict[str, Any]
+    ) -> tuple[str, dict[str, Any], bool] | None:
+        route_info = self._extract_http_route_info(route, method)
+        path = route_info.get("path")
+        parameters = route_info.get("parameters") or {}
+        if not isinstance(path, str):
+            return None
+        if kwargs.get("files") is not None or kwargs.get("form") is not None:
+            return None
+        json_payload = kwargs.get("json")
+        channel_id = self._extract_route_id(parameters, path, "channel_id", r"/channels/(\d+)")
+        message_id = self._extract_route_id(
+            parameters, path, "message_id", r"/messages/(\d+)"
+        )
+        if method == "POST" and path.endswith("/messages") and channel_id is not None:
+            if isinstance(json_payload, dict):
+                payload_kwargs = dict(json_payload)
+                has_verified_clan_prefix = False
+                if payload_kwargs.get("components") is not None:
+                    has_verified_clan_prefix = _find_prefix_and_nick_in_components(
+                        payload_kwargs["components"]
+                    )
+                payload = {
+                    "target_type": "channel",
+                    "target_id": channel_id,
+                    "kwargs": payload_kwargs,
+                    "has_verified_clan_prefix": has_verified_clan_prefix,
+                }
+                return "send_message", payload, self._is_serializable(payload)
+            return None
+        if method == "PATCH" and "/messages/" in path and channel_id and message_id:
+            if isinstance(json_payload, dict):
+                payload = {
+                    "channel_id": channel_id,
+                    "message_id": message_id,
+                    "kwargs": dict(json_payload),
+                }
+                return "edit_message", payload, self._is_serializable(payload)
+            return None
+        if method == "DELETE" and "/messages/" in path and channel_id and message_id:
+            payload = {
+                "channel_id": channel_id,
+                "message_id": message_id,
+                "kwargs": {},
+            }
+            if kwargs.get("reason") is not None:
+                payload["kwargs"]["reason"] = kwargs.get("reason")
+            return "delete_message", payload, self._is_serializable(payload)
+        if method == "PUT" and "/pins/" in path and channel_id and message_id:
+            payload = {
+                "channel_id": channel_id,
+                "message_id": message_id,
+                "reason": kwargs.get("reason"),
+            }
+            return "pin_message", payload, self._is_serializable(payload)
+        if method == "DELETE" and "/pins/" in path and channel_id and message_id:
+            payload = {
+                "channel_id": channel_id,
+                "message_id": message_id,
+                "reason": kwargs.get("reason"),
+            }
+            return "unpin_message", payload, self._is_serializable(payload)
+        if method == "PATCH" and path.startswith("/channels/") and channel_id is not None:
+            if isinstance(json_payload, dict):
+                payload = {"channel_id": channel_id, "kwargs": dict(json_payload)}
+                return "edit_channel", payload, self._is_serializable(payload)
+            return None
+        if method == "DELETE" and path.startswith("/channels/") and channel_id is not None:
+            payload = {"channel_id": channel_id, "kwargs": {}}
+            if kwargs.get("reason") is not None:
+                payload["kwargs"]["reason"] = kwargs.get("reason")
+            return "delete_channel", payload, self._is_serializable(payload)
+        if method == "POST" and path.endswith("/messages/bulk-delete") and channel_id is not None:
+            if isinstance(json_payload, dict):
+                message_ids = json_payload.get("messages") or []
+                payload = {"channel_id": channel_id, "message_ids": list(message_ids)}
+                return "delete_messages", payload, self._is_serializable(payload)
+            return None
+        return None
+
+    def _build_http_request_payload(
+        self, route: Any, method: str, kwargs: dict[str, Any]
+    ) -> dict[str, Any]:
+        return {
+            "route": self._extract_http_route_info(route, method),
+            "kwargs": dict(kwargs),
+        }
 
     def _serialize_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         serialized: dict[str, Any] = {}
