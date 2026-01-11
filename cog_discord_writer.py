@@ -571,7 +571,6 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         self._worker_task: asyncio.Task | None = None
         self._scheduled_tasks: set[asyncio.Task] = set()
         self._last_write_at: float | None = None
-        self._bucket_last_write_at: dict[str, float] = {}
         self._blocked_until: float | None = None
         self._rate_limit_buckets: dict[str, float] = {}
         self._max_backoff_seconds = 30.0
@@ -1035,8 +1034,6 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
                 continue
 
             self._last_write_at = datetime.utcnow().timestamp()
-            if bucket_key is not None:
-                self._bucket_last_write_at[bucket_key] = self._last_write_at
             update_discord_write_last_write_at(self._last_write_at)
             if request.persist and request.db_id is not None:
                 mark_discord_write_done(request.db_id)
@@ -1053,11 +1050,6 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         if self._blocked_until is not None and self._blocked_until > now:
             wait_for = max(wait_for, self._blocked_until - now)
         if bucket_key is not None:
-            bucket_last_write = self._bucket_last_write_at.get(bucket_key)
-            if bucket_last_write is not None:
-                wait_for = max(
-                    wait_for, self._min_interval_seconds - (now - bucket_last_write)
-                )
             bucket_until = self._rate_limit_buckets.get(bucket_key)
             if bucket_until is not None:
                 if bucket_until <= now:
