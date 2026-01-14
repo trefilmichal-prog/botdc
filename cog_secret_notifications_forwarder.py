@@ -64,7 +64,7 @@ CONGRATS_LINE_REGEX = re.compile(
 NOTIFICATION_HEADER_SKIP_REGEX = re.compile(
     r"Secrets Hatched.*#🐾┃secrets-hatched.*REBIRTH CHAMPIONS"
 )
-DROPSTATS_MAX_MEMBERS_PER_CLAN = 15
+DROPSTATS_TOP_MEMBERS = 10
 
 logger = logging.getLogger("botdc.secret_notifications")
 winrt_logger = logging.getLogger("botdc.winrt_notifications")
@@ -1227,13 +1227,6 @@ class SecretNotificationsForwarder(commands.Cog):
             view=views[0],
             allowed_mentions=discord.AllowedMentions.none(),
         )
-        writer = get_writer(interaction.client)
-        for extra_view in views[1:]:
-            await writer.send_interaction_followup(
-                interaction,
-                view=extra_view,
-                allowed_mentions=discord.AllowedMentions.none(),
-            )
 
     @app_commands.checks.has_permissions(manage_channels=True)
     @app_commands.describe(channel="Kanál, kam se má dropstats panel poslat.")
@@ -1247,26 +1240,24 @@ class SecretNotificationsForwarder(commands.Cog):
             return
         await interaction.response.defer(ephemeral=True)
         writer = get_writer(interaction.client)
-        messages: list[discord.Message] = []
-        for view in views:
-            try:
-                message = await writer.send_message(
-                    channel,
-                    view=view,
-                    allowed_mentions=discord.AllowedMentions.none(),
-                )
-                messages.append(message)
-            except discord.HTTPException:
-                logger.exception(
-                    "Odeslání dropstats panelu přes writer queue selhalo (channel=%s).",
-                    channel.id,
-                )
-            await asyncio.sleep(0.5)
-        if interaction.guild:
+        message = None
+        try:
+            message = await writer.send_message(
+                channel,
+                view=views[0],
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except discord.HTTPException:
+            logger.exception(
+                "Odeslání dropstats panelu přes writer queue selhalo (channel=%s).",
+                channel.id,
+            )
+        await asyncio.sleep(0.5)
+        if interaction.guild and message:
             set_dropstats_panel_message_ids(
                 interaction.guild.id,
                 channel.id,
-                [message.id for message in messages],
+                [message.id],
             )
         await writer.send_interaction_followup(
             interaction,
@@ -1435,15 +1426,13 @@ class SecretNotificationsForwarder(commands.Cog):
             user_id: sum(counts.values()) for user_id, counts in breakdown.items()
         }
         summary_view = self._build_dropstats_summary_view(members, totals, breakdown)
-        if not members:
-            return [summary_view]
-        clan_groups, clan_sort_index = self._build_dropstats_clan_groups(members)
-        sorted_clans = self._sort_dropstats_clans(clan_groups, clan_sort_index)
-        clan_views = [
-            self._build_dropstats_clan_view(clan_group, totals, breakdown)
-            for _, clan_group in sorted_clans
-        ]
-        return [summary_view, *clan_views]
+        if members:
+            summary_view.add_item(
+                self._build_dropstats_top_members_container(
+                    members, totals, breakdown
+                )
+            )
+        return [summary_view]
 
     def _build_dropstats_summary_view(
         self,
@@ -1516,6 +1505,56 @@ class SecretNotificationsForwarder(commands.Cog):
         )
         view.add_item(summary_container)
         return view
+
+    def _build_dropstats_top_members_container(
+        self,
+        members: dict[int, dict[str, Optional[str]]],
+        totals: dict[int, int],
+        breakdown: dict[int, dict[str, int]],
+    ) -> discord.ui.Container:
+        container = discord.ui.Container()
+        container.add_item(discord.ui.Separator())
+        container.add_item(
+            discord.ui.TextDisplay(content="### 🌍 Top členové napříč clany")
+        )
+        sorted_members = sorted(
+            members.items(),
+            key=lambda item: (
+                -totals.get(item[0], 0),
+                (item[1].get("name") or "").lower(),
+            ),
+        )
+        medal_emojis = ["🥇", "🥈", "🥉"]
+        lines = []
+        limited_members = sorted_members[:DROPSTATS_TOP_MEMBERS]
+        for idx, (user_id, entry) in enumerate(limited_members, start=1):
+            prefix = medal_emojis[idx - 1] if idx <= 3 else f"`#{idx}`"
+            counts = breakdown.get(user_id, {})
+            supreme = counts.get("supreme", 0)
+            divine = counts.get("divine", 0)
+            aura = counts.get("aura", 0)
+            mysterious = counts.get("mysterious", 0)
+            secret = counts.get("secret", 0)
+            lines.append(
+                (
+                    f"{prefix} **{entry.get('name', user_id)}** — "
+                    f"**{totals.get(user_id, 0)}**"
+                    f"  •  `Su` {supreme}  •  `My` {mysterious}  •  `D` {divine}"
+                    f"  •  `Se` {secret}  •  `Au` {aura}"
+                )
+            )
+        for chunk in self._chunk_lines(lines, max_len=3800):
+            container.add_item(discord.ui.TextDisplay(content=chunk))
+        if len(sorted_members) > DROPSTATS_TOP_MEMBERS:
+            container.add_item(
+                discord.ui.TextDisplay(
+                    content=(
+                        f"ℹ️ Zobrazuji top {DROPSTATS_TOP_MEMBERS} členů. "
+                        "Zbytek není v přehledu zobrazen."
+                    )
+                )
+            )
+        return container
 
     def _build_dropstats_clan_groups(
         self, members: dict[int, dict[str, Optional[str]]]
@@ -1626,7 +1665,7 @@ class SecretNotificationsForwarder(commands.Cog):
         )
         medal_emojis = ["🥇", "🥈", "🥉"]
         lines = []
-        limited_members = clan_members_sorted[:DROPSTATS_MAX_MEMBERS_PER_CLAN]
+        limited_members = clan_members_sorted[:DROPSTATS_TOP_MEMBERS]
         for idx, (user_id, entry) in enumerate(limited_members, start=1):
             prefix = medal_emojis[idx - 1] if idx <= 3 else f"`#{idx}`"
             counts = breakdown.get(user_id, {})
@@ -1645,11 +1684,11 @@ class SecretNotificationsForwarder(commands.Cog):
             )
         for chunk in self._chunk_lines(lines, max_len=3800):
             container.add_item(discord.ui.TextDisplay(content=chunk))
-        if len(clan_members_sorted) > DROPSTATS_MAX_MEMBERS_PER_CLAN:
+        if len(clan_members_sorted) > DROPSTATS_TOP_MEMBERS:
             container.add_item(
                 discord.ui.TextDisplay(
                     content=(
-                        f"ℹ️ Zobrazuji top {DROPSTATS_MAX_MEMBERS_PER_CLAN} členů. "
+                        f"ℹ️ Zobrazuji top {DROPSTATS_TOP_MEMBERS} členů. "
                         "Zbytek není v přehledu zobrazen."
                     )
                 )
@@ -1812,17 +1851,19 @@ class SecretNotificationsForwarder(commands.Cog):
             message_ids = list(stored_message_ids)
             removed_message_ids: list[int] = []
             views = self._build_dropstats_views()
-            for index, view in enumerate(views):
-                if index < len(message_ids):
-                    message_id = message_ids[index]
-                    try:
-                        msg = await channel.fetch_message(message_id)
-                    except discord.NotFound:
-                        removed_message_ids.append(message_id)
-                        message_ids[index] = None
-                        continue
-                    except discord.HTTPException:
-                        continue
+            if not views:
+                continue
+            view = views[0]
+            primary_message_id = message_ids[0] if message_ids else None
+            if primary_message_id is not None:
+                try:
+                    msg = await channel.fetch_message(primary_message_id)
+                except discord.NotFound:
+                    removed_message_ids.append(primary_message_id)
+                    primary_message_id = None
+                except discord.HTTPException:
+                    pass
+                else:
                     try:
                         await writer.edit_message(
                             msg,
@@ -1836,17 +1877,13 @@ class SecretNotificationsForwarder(commands.Cog):
                             "(guild=%s, channel=%s, message=%s).",
                             guild_id,
                             channel_id,
-                            message_id,
+                            primary_message_id,
                         )
-                        continue
-                else:
-                    continue
             extra_message_ids = [
                 message_id
-                for message_id in message_ids[len(views) :]
+                for message_id in message_ids[1:]
                 if message_id is not None
             ]
-            kept_message_ids: list[int] = []
             for message_id in extra_message_ids:
                 try:
                     msg = await channel.fetch_message(message_id)
@@ -1854,7 +1891,13 @@ class SecretNotificationsForwarder(commands.Cog):
                     removed_message_ids.append(message_id)
                     continue
                 except discord.HTTPException:
-                    kept_message_ids.append(message_id)
+                    logger.exception(
+                        "Načtení přebytečného dropstats panelu selhalo "
+                        "(guild=%s, channel=%s, message=%s).",
+                        guild_id,
+                        channel_id,
+                        message_id,
+                    )
                     continue
                 try:
                     await writer.delete_message(msg)
@@ -1866,14 +1909,9 @@ class SecretNotificationsForwarder(commands.Cog):
                         channel_id,
                         message_id,
                     )
-                    kept_message_ids.append(message_id)
                     continue
                 removed_message_ids.append(message_id)
-            message_ids = [
-                message_id
-                for message_id in message_ids[: len(views)]
-                if message_id is not None
-            ] + kept_message_ids
+            message_ids = [primary_message_id] if primary_message_id else []
             if removed_message_ids:
                 delete_dropstats_panel_states(removed_message_ids)
             if message_ids != stored_message_ids:
