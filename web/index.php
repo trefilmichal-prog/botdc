@@ -283,14 +283,16 @@ foreach ($memberRows as $row) {
     <style>
         :root {
             color-scheme: light;
-            --bg-start: #0f172a;
-            --bg-end: #1f2937;
-            --card: #f8fafc;
-            --card-strong: #ffffff;
-            --text: #0f172a;
-            --muted: #64748b;
-            --accent: #6366f1;
-            --shadow: 0 20px 40px rgba(15, 23, 42, 0.15);
+            --bg-start: #16070f;
+            --bg-end: #0b1026;
+            --card: rgba(15, 23, 42, 0.9);
+            --card-strong: rgba(15, 23, 42, 0.98);
+            --text: #e2e8f0;
+            --muted: #94a3b8;
+            --accent: #ff2d55;
+            --accent-alt: #3b82f6;
+            --neon: #ff4d6d;
+            --shadow: 0 24px 50px rgba(3, 7, 18, 0.55);
             --radius: 18px;
         }
         * { box-sizing: border-box; }
@@ -313,12 +315,13 @@ foreach ($memberRows as $row) {
             align-items: center;
             justify-content: space-between;
             gap: 1.5rem;
-            background: rgba(255, 255, 255, 0.08);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: linear-gradient(130deg, rgba(255, 45, 85, 0.12), rgba(59, 130, 246, 0.2));
+            border: 1px solid rgba(255, 45, 85, 0.35);
             border-radius: var(--radius);
             padding: 2rem;
             color: #f8fafc;
-            backdrop-filter: blur(8px);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 0 30px rgba(255, 45, 85, 0.25);
         }
         .header h1 {
             margin: 0 0 0.3rem;
@@ -337,8 +340,10 @@ foreach ($memberRows as $row) {
             font-size: 0.85rem;
             font-weight: 600;
             letter-spacing: 0.01em;
-            background: rgba(255, 255, 255, 0.2);
-            color: #f8fafc;
+            background: linear-gradient(135deg, rgba(255, 45, 85, 0.95), rgba(59, 130, 246, 0.9));
+            color: #ffffff;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 0 12px rgba(255, 45, 85, 0.5);
         }
         .layout {
             margin-top: 2rem;
@@ -350,10 +355,13 @@ foreach ($memberRows as $row) {
             border-radius: var(--radius);
             padding: 1.8rem;
             box-shadow: var(--shadow);
+            border: 1px solid rgba(59, 130, 246, 0.2);
         }
         .card h2 {
             margin-top: 0;
             font-size: 1.4rem;
+            color: #f8fafc;
+            text-shadow: 0 0 18px rgba(255, 45, 85, 0.3);
         }
         .subtle {
             color: var(--muted);
@@ -363,8 +371,9 @@ foreach ($memberRows as $row) {
             margin-top: 1rem;
             overflow-x: auto;
             border-radius: 12px;
-            border: 1px solid #e2e8f0;
-            background: #ffffff;
+            border: 1px solid rgba(255, 45, 85, 0.35);
+            background: rgba(15, 23, 42, 0.95);
+            box-shadow: inset 0 0 20px rgba(59, 130, 246, 0.15);
         }
         table {
             border-collapse: collapse;
@@ -377,15 +386,17 @@ foreach ($memberRows as $row) {
             font-size: 0.95rem;
         }
         th {
-            background: #f1f5f9;
-            color: #0f172a;
+            background: linear-gradient(90deg, rgba(255, 45, 85, 0.2), rgba(59, 130, 246, 0.2));
+            color: #f8fafc;
             font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
         }
         tbody tr:nth-child(even) {
-            background: #f8fafc;
+            background: rgba(59, 130, 246, 0.08);
         }
         tbody tr:hover {
-            background: #e0e7ff;
+            background: rgba(255, 45, 85, 0.2);
         }
         .rank {
             display: inline-flex;
@@ -394,16 +405,18 @@ foreach ($memberRows as $row) {
             width: 2.1rem;
             height: 2.1rem;
             border-radius: 12px;
-            background: #111827;
+            background: linear-gradient(135deg, rgba(255, 45, 85, 0.95), rgba(59, 130, 246, 0.95));
             color: #fff;
             font-weight: 700;
             font-size: 0.9rem;
+            box-shadow: 0 0 12px rgba(255, 45, 85, 0.6);
         }
         .empty {
             padding: 1.5rem;
             border-radius: 12px;
-            background: #f1f5f9;
+            background: rgba(15, 23, 42, 0.8);
             color: var(--muted);
+            border: 1px dashed rgba(59, 130, 246, 0.35);
         }
         .footer-note {
             margin-top: 2rem;
@@ -425,15 +438,15 @@ foreach ($memberRows as $row) {
     <div class="page">
         <header class="header">
             <div>
-                <h1>Secret Leaderboard</h1>
+                <h1>🎮 Secret Leaderboard</h1>
                 <p>Poslední update: <?php echo htmlspecialchars($lastUpdate, ENT_QUOTES, 'UTF-8'); ?></p>
             </div>
-            <span class="badge" title="Celkový přehled clanů">Leaderboard podle clanů</span>
+            <span class="badge" title="Celkový přehled clanů">🎮 Leaderboard podle clanů</span>
         </header>
 
         <section class="layout">
             <div class="card">
-                <h2>Přehled clanů</h2>
+                <h2>🛡️ Přehled clanů</h2>
                 <p class="subtle">Souhrn všech clanů podle celkového počtu dropů.</p>
                 <?php if (!$clanTotals): ?>
                     <div class="empty">Žádná data.</div>
@@ -468,7 +481,7 @@ foreach ($memberRows as $row) {
                 $members = isset($clanMembers[$clanKey]) ? $clanMembers[$clanKey] : array();
                 ?>
                 <div class="card">
-                    <h2><?php echo htmlspecialchars($clanDisplay, ENT_QUOTES, 'UTF-8'); ?></h2>
+                    <h2>🏆 Top členové – <?php echo htmlspecialchars($clanDisplay, ENT_QUOTES, 'UTF-8'); ?></h2>
                     <p class="subtle">Celkem dropů: <?php echo $totalCount; ?></p>
                     <?php if (!$members): ?>
                         <div class="empty">Žádní členové.</div>
