@@ -36,6 +36,7 @@ try {
         CREATE TABLE IF NOT EXISTS secret_leaderboard (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
+            display_name TEXT NOT NULL DEFAULT '',
             rarity TEXT NOT NULL,
             count INTEGER NOT NULL
         );
@@ -58,15 +59,21 @@ try {
 try {
     $columns = $pdo->query("PRAGMA table_info('secret_leaderboard')")->fetchAll(PDO::FETCH_ASSOC);
     $hasRarity = false;
+    $hasDisplayName = false;
     foreach ($columns as $column) {
         $name = isset($column['name']) ? $column['name'] : '';
         if ($name === 'rarity') {
             $hasRarity = true;
-            break;
+        }
+        if ($name === 'display_name') {
+            $hasDisplayName = true;
         }
     }
     if (!$hasRarity) {
         $pdo->exec("ALTER TABLE secret_leaderboard ADD COLUMN rarity TEXT NOT NULL DEFAULT 'secret'");
+    }
+    if (!$hasDisplayName) {
+        $pdo->exec("ALTER TABLE secret_leaderboard ADD COLUMN display_name TEXT NOT NULL DEFAULT ''");
     }
 } catch (Exception $e) {
     http_response_code(500);
@@ -112,6 +119,10 @@ if ($method === 'POST') {
         $userId = (int)$row['user_id'];
         $rarity = strtolower(trim((string)$row['rarity']));
         $count  = (int)$row['count'];
+        $displayName = '';
+        if (isset($row['display_name'])) {
+            $displayName = trim((string)$row['display_name']);
+        }
 
         if ($userId <= 0) {
             bad_request('Invalid user_id.');
@@ -122,7 +133,15 @@ if ($method === 'POST') {
 
         $key = $userId . ':' . $rarity;
         if (!isset($aggregated[$key])) {
-            $aggregated[$key] = array('user_id' => $userId, 'rarity' => $rarity, 'count' => 0);
+            $aggregated[$key] = array(
+                'user_id' => $userId,
+                'display_name' => $displayName,
+                'rarity' => $rarity,
+                'count' => 0,
+            );
+        }
+        if ($aggregated[$key]['display_name'] === '' && $displayName !== '') {
+            $aggregated[$key]['display_name'] = $displayName;
         }
         $aggregated[$key]['count'] += $count;
     }
@@ -133,10 +152,11 @@ if ($method === 'POST') {
 
         $pdo->exec("DELETE FROM secret_leaderboard");
 
-        $stmt = $pdo->prepare("INSERT INTO secret_leaderboard (user_id, rarity, count) VALUES (:user_id, :rarity, :count)");
+        $stmt = $pdo->prepare("INSERT INTO secret_leaderboard (user_id, display_name, rarity, count) VALUES (:user_id, :display_name, :rarity, :count)");
         foreach ($aggregated as $row) {
             $stmt->execute(array(
                 ':user_id' => (int)$row['user_id'],
+                ':display_name' => (string)$row['display_name'],
                 ':rarity'  => (string)$row['rarity'],
                 ':count'   => (int)$row['count'],
             ));
@@ -177,7 +197,7 @@ try {
 
     if ($filterRarity === 'all') {
         $stmtMain = $pdo->query("
-            SELECT user_id, rarity, SUM(count) AS count
+            SELECT user_id, rarity, MAX(display_name) AS display_name, SUM(count) AS count
             FROM secret_leaderboard
             GROUP BY user_id, rarity
             ORDER BY count DESC, user_id ASC, rarity ASC
@@ -185,7 +205,7 @@ try {
         $rows = $stmtMain->fetchAll(PDO::FETCH_ASSOC);
     } else {
         $stmtMain = $pdo->prepare("
-            SELECT user_id, rarity, SUM(count) AS count
+            SELECT user_id, rarity, MAX(display_name) AS display_name, SUM(count) AS count
             FROM secret_leaderboard
             WHERE rarity = :rarity
             GROUP BY user_id, rarity
@@ -196,7 +216,7 @@ try {
     }
 
     $secretRows = $pdo->query("
-        SELECT user_id, SUM(count) AS count
+        SELECT user_id, MAX(display_name) AS display_name, SUM(count) AS count
         FROM secret_leaderboard
         WHERE rarity = 'secret'
         GROUP BY user_id
@@ -204,7 +224,7 @@ try {
     ")->fetchAll(PDO::FETCH_ASSOC);
 
     $allRows = $pdo->query("
-        SELECT user_id, SUM(count) AS count
+        SELECT user_id, MAX(display_name) AS display_name, SUM(count) AS count
         FROM secret_leaderboard
         GROUP BY user_id
         ORDER BY count DESC, user_id ASC
@@ -241,6 +261,14 @@ function rarity_label($rarity) {
     $label = trim((string)$rarity);
     if ($label === '') {
         return 'unknown';
+    }
+    return $label;
+}
+
+function display_name_label($displayName, $userId) {
+    $label = trim((string)$displayName);
+    if ($label === '') {
+        return (string)$userId;
     }
     return $label;
 }
@@ -483,13 +511,13 @@ function rarity_label($rarity) {
                     <div class="table-wrap">
                         <table>
                             <thead>
-                            <tr><th>Rank</th><th>User ID</th><th>Rarity</th><th>Count</th></tr>
+                            <tr><th>Rank</th><th>User</th><th>Rarity</th><th>Count</th></tr>
                             </thead>
                             <tbody>
                             <?php foreach ($rows as $i => $row): ?>
                                 <tr>
                                     <td><span class="rank" title="Pořadí"><?php echo (int)($i + 1); ?></span></td>
-                                    <td><?php echo (int)$row['user_id']; ?></td>
+                                    <td><?php echo htmlspecialchars(display_name_label($row['display_name'], $row['user_id']), ENT_QUOTES, 'UTF-8'); ?></td>
                                     <td>
                                         <span class="rarity <?php echo rarity_badge_class($row['rarity']); ?>" title="Rarita: <?php echo htmlspecialchars(rarity_label($row['rarity']), ENT_QUOTES, 'UTF-8'); ?>">
                                             <?php echo htmlspecialchars(rarity_label($row['rarity']), ENT_QUOTES, 'UTF-8'); ?>
@@ -513,13 +541,13 @@ function rarity_label($rarity) {
                     <div class="table-wrap">
                         <table>
                             <thead>
-                            <tr><th>Rank</th><th>User ID</th><th>Count</th></tr>
+                            <tr><th>Rank</th><th>User</th><th>Count</th></tr>
                             </thead>
                             <tbody>
                             <?php foreach ($secretRows as $i => $row): ?>
                                 <tr>
                                     <td><span class="rank"><?php echo (int)($i + 1); ?></span></td>
-                                    <td><?php echo (int)$row['user_id']; ?></td>
+                                    <td><?php echo htmlspecialchars(display_name_label($row['display_name'], $row['user_id']), ENT_QUOTES, 'UTF-8'); ?></td>
                                     <td><?php echo (int)$row['count']; ?></td>
                                 </tr>
                             <?php endforeach; ?>
@@ -538,13 +566,13 @@ function rarity_label($rarity) {
                     <div class="table-wrap">
                         <table>
                             <thead>
-                            <tr><th>Rank</th><th>User ID</th><th>Count</th></tr>
+                            <tr><th>Rank</th><th>User</th><th>Count</th></tr>
                             </thead>
                             <tbody>
                             <?php foreach ($allRows as $i => $row): ?>
                                 <tr>
                                     <td><span class="rank"><?php echo (int)($i + 1); ?></span></td>
-                                    <td><?php echo (int)$row['user_id']; ?></td>
+                                    <td><?php echo htmlspecialchars(display_name_label($row['display_name'], $row['user_id']), ENT_QUOTES, 'UTF-8'); ?></td>
                                     <td><?php echo (int)$row['count']; ?></td>
                                 </tr>
                             <?php endforeach; ?>
