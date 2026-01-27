@@ -227,6 +227,7 @@ try {
             MAX(COALESCE(NULLIF(TRIM(clan_display), ''), 'Nezařazeno')) AS clan_display,
             SUM(count) AS total_count
         FROM secret_leaderboard
+        WHERE clan_key IS NOT NULL AND clan_key != ''
         GROUP BY clan_key_group
         ORDER BY total_count DESC, clan_display ASC
     ")->fetchAll(PDO::FETCH_ASSOC);
@@ -239,6 +240,7 @@ try {
             MAX(display_name) AS display_name,
             SUM(count) AS count
         FROM secret_leaderboard
+        WHERE clan_key IS NOT NULL AND clan_key != ''
         GROUP BY clan_key_group, user_id
         ORDER BY clan_key_group ASC, count DESC, user_id ASC
     ")->fetchAll(PDO::FETCH_ASSOC);
@@ -458,6 +460,9 @@ foreach ($memberRows as $row) {
             <?php foreach ($clanTotals as $clan): ?>
                 <?php
                 $clanKey = isset($clan['clan_key_group']) ? $clan['clan_key_group'] : 'unassigned';
+                if ($clanKey === '' || $clanKey === 'unassigned') {
+                    continue;
+                }
                 $clanDisplay = isset($clan['clan_display']) ? $clan['clan_display'] : 'Nezařazeno';
                 $totalCount = isset($clan['total_count']) ? (int)$clan['total_count'] : 0;
                 $members = isset($clanMembers[$clanKey]) ? $clanMembers[$clanKey] : array();
