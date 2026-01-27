@@ -156,6 +156,66 @@ def reset_secret_drop_stats() -> None:
             conn.close()
 
 
+def enqueue_secret_leaderboard_payload(payload: Dict[str, Any]) -> int:
+    conn = None
+    try:
+        conn = get_connection()
+        with conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO secret_leaderboard_queue (payload, created_at)
+                VALUES (?, ?)
+                """,
+                (json.dumps(payload, ensure_ascii=False), datetime.utcnow().isoformat()),
+            )
+            return int(cursor.lastrowid)
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def list_secret_leaderboard_queue(limit: int = 20) -> List[Tuple[int, Dict[str, Any]]]:
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.execute(
+            """
+            SELECT id, payload
+            FROM secret_leaderboard_queue
+            ORDER BY id ASC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        items: List[Tuple[int, Dict[str, Any]]] = []
+        for row_id, payload_raw in cursor.fetchall():
+            try:
+                payload = json.loads(payload_raw)
+            except json.JSONDecodeError:
+                payload = {}
+            items.append((int(row_id), payload))
+        return items
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def delete_secret_leaderboard_queue(ids: List[int]) -> None:
+    if not ids:
+        return
+    conn = None
+    try:
+        conn = get_connection()
+        with conn:
+            conn.execute(
+                f"DELETE FROM secret_leaderboard_queue WHERE id IN ({','.join(['?'] * len(ids))})",
+                ids,
+            )
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def init_db():
     conn = get_connection()
     c = conn.cursor()
@@ -227,6 +287,16 @@ def init_db():
         """
         CREATE INDEX IF NOT EXISTS idx_secret_drop_events_occurred_at
         ON secret_drop_events (occurred_at)
+        """
+    )
+
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS secret_leaderboard_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            payload TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
         """
     )
 

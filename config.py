@@ -113,6 +113,12 @@ REBIRTH_DATA_URL = os.getenv(
     "REBIRTH_DATA_URL", "https://ezrz.eu/dcbot/admin.php?rebirths_json=1"
 )
 
+# Secret leaderboard endpoint
+SECRET_LEADERBOARD_URL = os.getenv(
+    "SECRET_LEADERBOARD_URL", "https://ezrz.eu/lbsecret/index.php"
+)
+SECRET_LEADERBOARD_TOKEN = os.getenv("SECRET_LEADERBOARD_TOKEN")
+
 # Role, která má přístup do ticketů s dřevem (0 = vypnuto)
 STAFF_ROLE_ID = 0  # např. 123456789012345678
 

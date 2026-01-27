@@ -17,6 +17,8 @@ from config import (
     CLAN3_MEMBER_ROLE_ID,
     CLAN_MEMBER_ROLE_EN_ID,
     CLAN_MEMBER_ROLE_ID,
+    SECRET_LEADERBOARD_TOKEN,
+    SECRET_LEADERBOARD_URL,
     SETUP_MANAGER_ROLE_ID,
     WINRT_LOG_PATH,
 )
@@ -24,15 +26,19 @@ from cog_clan import CLAN_MEMBER_ROLE_IDS as CLAN_MEMBER_ROLE_IDS_BY_KEY
 from cog_discord_writer import get_writer
 from db import (
     add_secret_drop_event,
+    delete_secret_leaderboard_queue,
     delete_windows_notifications,
     delete_dropstats_panel_states,
     get_all_dropstats_panels,
     get_connection,
     get_secret_drop_breakdown_all_time,
+    get_secret_drop_leaderboard,
     get_secret_notifications_role_ids,
     get_windows_notifications,
     increment_secret_drop_stat,
+    enqueue_secret_leaderboard_payload,
     list_clan_definitions,
+    list_secret_leaderboard_queue,
     normalize_clan_member_name,
     remove_dropstats_panel,
     reset_secret_drop_stats,
@@ -96,6 +102,7 @@ class SecretNotificationsForwarder(commands.Cog):
         self._last_processed_notification_id: Optional[int] = None
         self._dropstats_refresh_lock = asyncio.Lock()
         self._dropstats_refresh_pending = False
+        self._secret_leaderboard_lock = asyncio.Lock()
         self._secret_role_ids = self._load_secret_role_ids()
         self._load_cached_players_from_db()
         self._load_last_processed_notification_id()
@@ -153,12 +160,14 @@ class SecretNotificationsForwarder(commands.Cog):
         self.log_notification_stats.start()
         self.refresh_clan_member_cache.start()
         self.refresh_dropstats_task.start()
+        self.secret_leaderboard_sender.start()
 
     def cog_unload(self):
         self.poll_notifications.cancel()
         self.log_notification_stats.cancel()
         self.refresh_clan_member_cache.cancel()
         self.refresh_dropstats_task.cancel()
+        self.secret_leaderboard_sender.cancel()
         self.bot.tree.remove_command("dropstats", type=discord.AppCommandType.chat_input)
         self.bot.tree.remove_command("secret", type=discord.AppCommandType.chat_input)
 
@@ -221,7 +230,7 @@ class SecretNotificationsForwarder(commands.Cog):
                     f"Players: {', '.join(self._format_player_names(matched_players))}"
                 )
                 rarity = self._detect_drop_rarity(text_body)
-                self._record_drop_stats(matched_players, rarity)
+                await self._record_drop_stats(matched_players, rarity)
                 updated_stats = True
                 view = self._build_view(lines)
                 try:
@@ -1201,7 +1210,9 @@ class SecretNotificationsForwarder(commands.Cog):
                 await asyncio.sleep(ROBLOX_USERNAME_REQUEST_DELAY_SECONDS)
         return results
 
-    def _record_drop_stats(self, player_ids: List[int], rarity: Optional[str]) -> None:
+    async def _record_drop_stats(
+        self, player_ids: List[int], rarity: Optional[str]
+    ) -> None:
         if not player_ids:
             return
         rarity_value = rarity or "unknown"
@@ -1213,6 +1224,70 @@ class SecretNotificationsForwarder(commands.Cog):
                 add_secret_drop_event(now, int(player_id), rarity_value)
             except Exception:
                 logger.exception("Uložení denní statistiky dropu selhalo.")
+        if rarity_value == "secret":
+            await self._enqueue_secret_leaderboard_payload()
+
+    async def _enqueue_secret_leaderboard_payload(self) -> None:
+        if not SECRET_LEADERBOARD_URL or not SECRET_LEADERBOARD_TOKEN:
+            logger.warning(
+                "Secret leaderboard endpoint není nakonfigurován (URL nebo token)."
+            )
+            return
+        leaderboard = get_secret_drop_leaderboard(limit=DROPSTATS_TOP_MEMBERS)
+        payload = {
+            "secret": SECRET_LEADERBOARD_TOKEN,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "entries": [
+                {"user_id": user_id, "count": total}
+                for user_id, total in leaderboard
+            ],
+        }
+        enqueue_secret_leaderboard_payload(payload)
+        await self._flush_secret_leaderboard_queue()
+
+    async def _flush_secret_leaderboard_queue(self) -> None:
+        if self._secret_leaderboard_lock.locked():
+            return
+        async with self._secret_leaderboard_lock:
+            items = list_secret_leaderboard_queue(limit=20)
+            if not items:
+                return
+            deleted_ids: List[int] = []
+            async with aiohttp.ClientSession() as session:
+                for row_id, payload in items:
+                    if not payload or "secret" not in payload:
+                        deleted_ids.append(row_id)
+                        continue
+                    if await self._post_secret_leaderboard(session, payload):
+                        deleted_ids.append(row_id)
+            delete_secret_leaderboard_queue(deleted_ids)
+
+    async def _post_secret_leaderboard(
+        self, session: aiohttp.ClientSession, payload: Dict[str, Any]
+    ) -> bool:
+        try:
+            async with session.post(
+                SECRET_LEADERBOARD_URL, json=payload, timeout=15
+            ) as response:
+                if response.status >= 400:
+                    logger.warning(
+                        "Odeslání secret leaderboardu selhalo (status=%s).",
+                        response.status,
+                    )
+                    return False
+        except Exception:
+            logger.exception("Odeslání secret leaderboardu selhalo.")
+            return False
+        return True
+
+    @tasks.loop(seconds=30)
+    async def secret_leaderboard_sender(self) -> None:
+        await self._flush_secret_leaderboard_queue()
+
+    @secret_leaderboard_sender.before_loop
+    async def before_secret_leaderboard_sender(self) -> None:
+        await self.bot.wait_until_ready()
+        await self._flush_secret_leaderboard_queue()
 
     async def dropstats_leaderboard(self, interaction: discord.Interaction):
         views = self._build_dropstats_views()
