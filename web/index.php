@@ -54,9 +54,6 @@ try {
     exit;
 }
 
-// Podporované rarity (držet se bot logiky): secret, mysterious, divine, supreme, aura.
-$supportedRarities = array('secret', 'mysterious', 'divine', 'supreme', 'aura');
-
 // Ověření, že sloupec rarity existuje (kompatibilní doplnění, pokud někdo měl starou DB).
 try {
     $columns = $pdo->query("PRAGMA table_info('secret_leaderboard')")->fetchAll(PDO::FETCH_ASSOC);
@@ -113,14 +110,11 @@ if ($method === 'POST') {
         }
 
         $userId = (int)$row['user_id'];
-        $rarity = (string)$row['rarity'];
+        $rarity = strtolower(trim((string)$row['rarity']));
         $count  = (int)$row['count'];
 
         if ($userId <= 0) {
             bad_request('Invalid user_id.');
-        }
-        if (!in_array($rarity, $supportedRarities, true)) {
-            bad_request('Invalid rarity.');
         }
         if ($count < 0) {
             bad_request('Invalid count.');
@@ -170,11 +164,50 @@ if ($method === 'POST') {
 
 // GET – zobrazit leaderboard
 try {
-    $rows = $pdo->query("
-        SELECT user_id, rarity, SUM(count) AS count
+    $filterRarity = isset($_GET['rarity']) ? strtolower(trim((string)$_GET['rarity'])) : 'secret';
+    if ($filterRarity === '') {
+        $filterRarity = 'secret';
+    }
+
+    $rarityRows = $pdo->query("
+        SELECT DISTINCT rarity
         FROM secret_leaderboard
-        GROUP BY user_id, rarity
-        ORDER BY count DESC, user_id ASC, rarity ASC
+        ORDER BY rarity ASC
+    ")->fetchAll(PDO::FETCH_ASSOC);
+
+    if ($filterRarity === 'all') {
+        $stmtMain = $pdo->query("
+            SELECT user_id, rarity, SUM(count) AS count
+            FROM secret_leaderboard
+            GROUP BY user_id, rarity
+            ORDER BY count DESC, user_id ASC, rarity ASC
+        ");
+        $rows = $stmtMain->fetchAll(PDO::FETCH_ASSOC);
+    } else {
+        $stmtMain = $pdo->prepare("
+            SELECT user_id, rarity, SUM(count) AS count
+            FROM secret_leaderboard
+            WHERE rarity = :rarity
+            GROUP BY user_id, rarity
+            ORDER BY count DESC, user_id ASC
+        ");
+        $stmtMain->execute(array(':rarity' => $filterRarity));
+        $rows = $stmtMain->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    $secretRows = $pdo->query("
+        SELECT user_id, SUM(count) AS count
+        FROM secret_leaderboard
+        WHERE rarity = 'secret'
+        GROUP BY user_id
+        ORDER BY count DESC, user_id ASC
+    ")->fetchAll(PDO::FETCH_ASSOC);
+
+    $allRows = $pdo->query("
+        SELECT user_id, SUM(count) AS count
+        FROM secret_leaderboard
+        GROUP BY user_id
+        ORDER BY count DESC, user_id ASC
     ")->fetchAll(PDO::FETCH_ASSOC);
 
     $stmtLU = $pdo->prepare("SELECT value FROM meta WHERE key = 'last_update'");
@@ -200,11 +233,30 @@ try {
         table { border-collapse: collapse; width: 100%; max-width: 600px; }
         th, td { border: 1px solid #ccc; padding: 0.5rem; text-align: left; }
         th { background: #f5f5f5; }
+        .filters { margin: 1rem 0; }
+        .filters a { margin-right: 0.5rem; }
+        .section { margin-top: 2rem; }
     </style>
 </head>
 <body>
     <h1>Secret Leaderboard</h1>
     <p>Poslední update: <?php echo htmlspecialchars($lastUpdate, ENT_QUOTES, 'UTF-8'); ?></p>
+
+    <div class="filters">
+        <strong>Filtr:</strong>
+        <a href="?rarity=secret">Secret</a>
+        <a href="?rarity=all">All</a>
+        <?php foreach ($rarityRows as $rarityRow): ?>
+            <?php $rarityName = isset($rarityRow['rarity']) ? $rarityRow['rarity'] : ''; ?>
+            <?php if ($rarityName !== '' && $rarityName !== 'secret'): ?>
+                <a href="?rarity=<?php echo urlencode($rarityName); ?>">
+                    <?php echo htmlspecialchars($rarityName, ENT_QUOTES, 'UTF-8'); ?>
+                </a>
+            <?php endif; ?>
+        <?php endforeach; ?>
+    </div>
+
+    <h2>Aktuální zobrazení: <?php echo htmlspecialchars($filterRarity, ENT_QUOTES, 'UTF-8'); ?></h2>
 
     <?php if (!$rows): ?>
         <p>Žádná data.</p>
@@ -225,5 +277,49 @@ try {
             </tbody>
         </table>
     <?php endif; ?>
+
+    <div class="section">
+        <h2>Secret</h2>
+        <?php if (!$secretRows): ?>
+            <p>Žádná data.</p>
+        <?php else: ?>
+            <table>
+                <thead>
+                <tr><th>#</th><th>User ID</th><th>Count</th></tr>
+                </thead>
+                <tbody>
+                <?php foreach ($secretRows as $i => $row): ?>
+                    <tr>
+                        <td><?php echo (int)($i + 1); ?></td>
+                        <td><?php echo (int)$row['user_id']; ?></td>
+                        <td><?php echo (int)$row['count']; ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+    </div>
+
+    <div class="section">
+        <h2>All rarities</h2>
+        <?php if (!$allRows): ?>
+            <p>Žádná data.</p>
+        <?php else: ?>
+            <table>
+                <thead>
+                <tr><th>#</th><th>User ID</th><th>Count</th></tr>
+                </thead>
+                <tbody>
+                <?php foreach ($allRows as $i => $row): ?>
+                    <tr>
+                        <td><?php echo (int)($i + 1); ?></td>
+                        <td><?php echo (int)$row['user_id']; ?></td>
+                        <td><?php echo (int)$row['count']; ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+    </div>
 </body>
 </html>
