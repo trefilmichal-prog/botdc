@@ -36,6 +36,7 @@ from db import (
     get_connection,
     get_setting,
     get_secret_drop_breakdown_all_time,
+    get_secret_drop_user_display_names,
     get_secret_notifications_role_ids,
     get_windows_notifications,
     increment_secret_drop_stat,
@@ -48,6 +49,7 @@ from db import (
     set_setting,
     set_dropstats_panel_message_ids,
     set_secret_notifications_role_ids,
+    upsert_secret_drop_user,
 )
 
 
@@ -250,7 +252,7 @@ class SecretNotificationsForwarder(commands.Cog):
                     f"Players: {', '.join(self._format_player_names(matched_players))}"
                 )
                 rarity = self._detect_drop_rarity(text_body)
-                await self._record_drop_stats(matched_players, rarity)
+                await self._record_drop_stats(matched_players, rarity, channel.guild)
                 updated_stats = True
                 view = self._build_view(lines)
                 try:
@@ -696,6 +698,22 @@ class SecretNotificationsForwarder(commands.Cog):
             if entry.get("id") == player_id:
                 return str(entry.get("name") or player_id)
         return str(player_id)
+
+    def _get_display_name_from_discord(
+        self, member: Optional[discord.abc.User]
+    ) -> Optional[str]:
+        if member is None:
+            return None
+        display_name = getattr(member, "display_name", None)
+        if display_name:
+            return str(display_name)
+        global_name = getattr(member, "global_name", None)
+        if global_name:
+            return str(global_name)
+        name = getattr(member, "name", None)
+        if name:
+            return str(name)
+        return None
 
     def _has_exact_name_match(self, text: str, name: str) -> bool:
         if not text or not name:
@@ -1244,7 +1262,10 @@ class SecretNotificationsForwarder(commands.Cog):
         return results
 
     async def _record_drop_stats(
-        self, player_ids: List[int], rarity: Optional[str]
+        self,
+        player_ids: List[int],
+        rarity: Optional[str],
+        guild: Optional[discord.Guild],
     ) -> None:
         if not player_ids:
             return
@@ -1257,6 +1278,15 @@ class SecretNotificationsForwarder(commands.Cog):
                 add_secret_drop_event(now, int(player_id), rarity_value)
             except Exception:
                 logger.exception("Uložení denní statistiky dropu selhalo.")
+            try:
+                member = guild.get_member(int(player_id)) if guild else None
+                if member is None:
+                    member = self.bot.get_user(int(player_id))
+                display_name = self._get_display_name_from_discord(member)
+                if display_name:
+                    upsert_secret_drop_user(int(player_id), display_name, now)
+            except Exception:
+                logger.exception("Uložení display name pro drop selhalo.")
         if rarity_value == "secret":
             await self._enqueue_secret_leaderboard_payload()
 
@@ -1270,6 +1300,7 @@ class SecretNotificationsForwarder(commands.Cog):
 
     def _build_secret_leaderboard_payload(self) -> Dict[str, Any]:
         breakdown = get_secret_drop_breakdown_all_time()
+        display_names = get_secret_drop_user_display_names()
         entries: List[Dict[str, Any]] = []
         for user_id in sorted(breakdown.keys()):
             rarity_counts = breakdown[user_id]
@@ -1277,6 +1308,7 @@ class SecretNotificationsForwarder(commands.Cog):
                 entries.append(
                     {
                         "user_id": int(user_id),
+                        "display_name": display_names.get(int(user_id), ""),
                         "rarity": str(rarity),
                         "count": int(rarity_counts[rarity]),
                     }

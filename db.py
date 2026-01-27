@@ -156,6 +156,52 @@ def reset_secret_drop_stats() -> None:
             conn.close()
 
 
+def upsert_secret_drop_user(
+    user_id: int, display_name: str, updated_at: datetime | str
+) -> None:
+    if not user_id:
+        return
+    name = (display_name or "").strip()
+    if not name:
+        return
+    timestamp = (
+        updated_at.isoformat() if isinstance(updated_at, datetime) else str(updated_at)
+    )
+    conn = None
+    try:
+        conn = get_connection()
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO secret_drop_users (user_id, display_name, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(user_id)
+                DO UPDATE SET display_name = excluded.display_name,
+                              updated_at = excluded.updated_at
+                """,
+                (int(user_id), name, timestamp),
+            )
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def get_secret_drop_user_display_names() -> Dict[int, str]:
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.execute(
+            """
+            SELECT user_id, display_name
+            FROM secret_drop_users
+            """
+        )
+        return {int(row[0]): str(row[1]) for row in cursor.fetchall() if row[1]}
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def enqueue_secret_leaderboard_payload(payload: Dict[str, Any]) -> int:
     conn = None
     try:
@@ -279,6 +325,16 @@ def init_db():
             occurred_at TEXT NOT NULL,
             user_id INTEGER NOT NULL,
             rarity TEXT NOT NULL
+        )
+        """
+    )
+
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS secret_drop_users (
+            user_id INTEGER PRIMARY KEY,
+            display_name TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         )
         """
     )
