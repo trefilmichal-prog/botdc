@@ -283,16 +283,16 @@ foreach ($memberRows as $row) {
     <style>
         :root {
             color-scheme: light;
-            --bg-start: #16070f;
-            --bg-end: #0b1026;
+            --bg-start: #2a020d;
+            --bg-end: #04173a;
             --card: rgba(15, 23, 42, 0.9);
             --card-strong: rgba(15, 23, 42, 0.98);
-            --text: #e2e8f0;
-            --muted: #94a3b8;
-            --accent: #ff2d55;
+            --text: #f8fafc;
+            --muted: #a9b7d0;
+            --accent: #ff1744;
             --accent-alt: #3b82f6;
-            --neon: #ff4d6d;
-            --shadow: 0 24px 50px rgba(3, 7, 18, 0.55);
+            --neon: #ff1f6a;
+            --shadow: 0 28px 60px rgba(2, 6, 23, 0.7);
             --radius: 18px;
         }
         * { box-sizing: border-box; }
@@ -315,13 +315,13 @@ foreach ($memberRows as $row) {
             align-items: center;
             justify-content: space-between;
             gap: 1.5rem;
-            background: linear-gradient(130deg, rgba(255, 45, 85, 0.12), rgba(59, 130, 246, 0.2));
-            border: 1px solid rgba(255, 45, 85, 0.35);
+            background: linear-gradient(130deg, rgba(255, 23, 68, 0.2), rgba(41, 121, 255, 0.28));
+            border: 1px solid rgba(255, 23, 68, 0.55);
             border-radius: var(--radius);
             padding: 2rem;
             color: #f8fafc;
             backdrop-filter: blur(10px);
-            box-shadow: 0 0 30px rgba(255, 45, 85, 0.25);
+            box-shadow: 0 0 35px rgba(255, 23, 68, 0.45), 0 0 55px rgba(41, 121, 255, 0.3);
         }
         .header h1 {
             margin: 0 0 0.3rem;
@@ -340,10 +340,11 @@ foreach ($memberRows as $row) {
             font-size: 0.85rem;
             font-weight: 600;
             letter-spacing: 0.01em;
-            background: linear-gradient(135deg, rgba(255, 45, 85, 0.95), rgba(59, 130, 246, 0.9));
+            background: linear-gradient(135deg, rgba(255, 23, 68, 0.98), rgba(41, 121, 255, 0.95));
             color: #ffffff;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            box-shadow: 0 0 12px rgba(255, 45, 85, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.45);
+            box-shadow: 0 0 16px rgba(255, 23, 68, 0.75), 0 0 22px rgba(41, 121, 255, 0.5);
+            text-shadow: 0 0 10px rgba(255, 23, 68, 0.8);
         }
         .layout {
             margin-top: 2rem;
@@ -354,14 +355,14 @@ foreach ($memberRows as $row) {
             background: var(--card);
             border-radius: var(--radius);
             padding: 1.8rem;
-            box-shadow: var(--shadow);
-            border: 1px solid rgba(59, 130, 246, 0.2);
+            box-shadow: var(--shadow), 0 0 25px rgba(41, 121, 255, 0.25);
+            border: 1px solid rgba(41, 121, 255, 0.35);
         }
         .card h2 {
             margin-top: 0;
             font-size: 1.4rem;
             color: #f8fafc;
-            text-shadow: 0 0 18px rgba(255, 45, 85, 0.3);
+            text-shadow: 0 0 20px rgba(255, 23, 68, 0.5), 0 0 26px rgba(41, 121, 255, 0.35);
         }
         .subtle {
             color: var(--muted);
@@ -371,9 +372,9 @@ foreach ($memberRows as $row) {
             margin-top: 1rem;
             overflow-x: auto;
             border-radius: 12px;
-            border: 1px solid rgba(255, 45, 85, 0.35);
-            background: rgba(15, 23, 42, 0.95);
-            box-shadow: inset 0 0 20px rgba(59, 130, 246, 0.15);
+            border: 1px solid rgba(255, 23, 68, 0.55);
+            background: rgba(5, 10, 24, 0.96);
+            box-shadow: inset 0 0 22px rgba(41, 121, 255, 0.25), 0 0 18px rgba(255, 23, 68, 0.25);
         }
         table {
             border-collapse: collapse;
@@ -386,17 +387,18 @@ foreach ($memberRows as $row) {
             font-size: 0.95rem;
         }
         th {
-            background: linear-gradient(90deg, rgba(255, 45, 85, 0.2), rgba(59, 130, 246, 0.2));
-            color: #f8fafc;
+            background: linear-gradient(90deg, rgba(255, 23, 68, 0.45), rgba(41, 121, 255, 0.35));
+            color: #f9fbff;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.08em;
+            text-shadow: 0 0 12px rgba(255, 23, 68, 0.6);
         }
         tbody tr:nth-child(even) {
-            background: rgba(59, 130, 246, 0.08);
+            background: rgba(41, 121, 255, 0.12);
         }
         tbody tr:hover {
-            background: rgba(255, 45, 85, 0.2);
+            background: rgba(255, 23, 68, 0.35);
         }
         .rank {
             display: inline-flex;
@@ -405,11 +407,12 @@ foreach ($memberRows as $row) {
             width: 2.1rem;
             height: 2.1rem;
             border-radius: 12px;
-            background: linear-gradient(135deg, rgba(255, 45, 85, 0.95), rgba(59, 130, 246, 0.95));
+            background: linear-gradient(135deg, rgba(255, 23, 68, 0.98), rgba(41, 121, 255, 0.98));
             color: #fff;
             font-weight: 700;
             font-size: 0.9rem;
-            box-shadow: 0 0 12px rgba(255, 45, 85, 0.6);
+            box-shadow: 0 0 14px rgba(255, 23, 68, 0.75), 0 0 20px rgba(41, 121, 255, 0.6);
+            text-shadow: 0 0 10px rgba(255, 23, 68, 0.8);
         }
         .empty {
             padding: 1.5rem;
