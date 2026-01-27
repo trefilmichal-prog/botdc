@@ -114,10 +114,35 @@ REBIRTH_DATA_URL = os.getenv(
 )
 
 # Secret leaderboard endpoint
+# Pokud se objeví SSL chyba, nastavte cestu přes SECRET_LEADERBOARD_CA_BUNDLE
+# nebo dočasně vypněte ověření pomocí SECRET_LEADERBOARD_SSL_VERIFY=false.
 SECRET_LEADERBOARD_URL = os.getenv(
     "SECRET_LEADERBOARD_URL", "https://ezrz.eu/lbsecret/index.php"
 )
 SECRET_LEADERBOARD_TOKEN = os.getenv("SECRET_LEADERBOARD_TOKEN")
+SECRET_LEADERBOARD_SSL_VERIFY = (
+    os.getenv("SECRET_LEADERBOARD_SSL_VERIFY", "true").lower() == "true"
+)
+SECRET_LEADERBOARD_CA_BUNDLE = os.getenv("SECRET_LEADERBOARD_CA_BUNDLE")
+
+if SECRET_LEADERBOARD_CA_BUNDLE:
+    if not (
+        os.path.isfile(SECRET_LEADERBOARD_CA_BUNDLE)
+        and os.access(SECRET_LEADERBOARD_CA_BUNDLE, os.R_OK)
+    ):
+        logger.warning(
+            "SECRET_LEADERBOARD_CA_BUNDLE path is not readable or missing: %s",
+            SECRET_LEADERBOARD_CA_BUNDLE,
+        )
+        SECRET_LEADERBOARD_CA_BUNDLE = None
+
+if not SECRET_LEADERBOARD_CA_BUNDLE:
+    certifi_spec = importlib.util.find_spec("certifi")
+    if certifi_spec is not None:
+        certifi = importlib.import_module("certifi")
+        certifi_path = certifi.where()
+        if os.path.isfile(certifi_path) and os.access(certifi_path, os.R_OK):
+            SECRET_LEADERBOARD_CA_BUNDLE = certifi_path
 
 # Role, která má přístup do ticketů s dřevem (0 = vypnuto)
 STAFF_ROLE_ID = 0  # např. 123456789012345678

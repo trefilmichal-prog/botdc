@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import re
+import ssl
 import unicodedata
 from datetime import datetime, timedelta, timezone
 from logging.handlers import RotatingFileHandler
@@ -17,6 +18,8 @@ from config import (
     CLAN3_MEMBER_ROLE_ID,
     CLAN_MEMBER_ROLE_EN_ID,
     CLAN_MEMBER_ROLE_ID,
+    SECRET_LEADERBOARD_CA_BUNDLE,
+    SECRET_LEADERBOARD_SSL_VERIFY,
     SECRET_LEADERBOARD_TOKEN,
     SECRET_LEADERBOARD_URL,
     SETUP_MANAGER_ROLE_ID,
@@ -1309,9 +1312,19 @@ class SecretNotificationsForwarder(commands.Cog):
     async def _post_secret_leaderboard(
         self, session: aiohttp.ClientSession, payload: Dict[str, Any]
     ) -> bool:
+        ssl_param: ssl.SSLContext | bool | None = None
+        if not SECRET_LEADERBOARD_SSL_VERIFY:
+            ssl_param = False
+        elif SECRET_LEADERBOARD_CA_BUNDLE:
+            ssl_param = ssl.create_default_context(
+                cafile=SECRET_LEADERBOARD_CA_BUNDLE
+            )
         try:
             async with session.post(
-                self._secret_leaderboard_url, json=payload, timeout=15
+                self._secret_leaderboard_url,
+                json=payload,
+                timeout=15,
+                ssl=ssl_param,
             ) as response:
                 if response.status >= 400:
                     logger.warning(
