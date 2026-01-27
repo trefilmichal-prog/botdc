@@ -221,18 +221,45 @@ if ($method === 'POST') {
 
 // GET – zobrazit leaderboard
 try {
-    $clanTotals = $pdo->query("
+    $selectedClan = null;
+    if (isset($_GET['clan'])) {
+        $candidateClan = trim((string)$_GET['clan']);
+        if ($candidateClan !== '') {
+            $selectedClan = strtolower($candidateClan);
+        }
+    }
+
+    $clanOptions = $pdo->query("
+        SELECT
+            clan_key,
+            MAX(COALESCE(NULLIF(TRIM(clan_display), ''), 'Nezařazeno')) AS clan_display
+        FROM secret_leaderboard
+        WHERE clan_key IS NOT NULL AND clan_key != ''
+        GROUP BY clan_key
+        ORDER BY clan_display ASC
+    ")->fetchAll(PDO::FETCH_ASSOC);
+
+    $filterClause = '';
+    $filterParams = array();
+    if ($selectedClan !== null) {
+        $filterClause = " AND lower(clan_key) = :clan_key";
+        $filterParams[':clan_key'] = $selectedClan;
+    }
+
+    $stmtTotals = $pdo->prepare("
         SELECT
             COALESCE(clan_key, 'unassigned') AS clan_key_group,
             MAX(COALESCE(NULLIF(TRIM(clan_display), ''), 'Nezařazeno')) AS clan_display,
             SUM(count) AS total_count
         FROM secret_leaderboard
-        WHERE clan_key IS NOT NULL AND clan_key != ''
+        WHERE clan_key IS NOT NULL AND clan_key != ''$filterClause
         GROUP BY clan_key_group
         ORDER BY total_count DESC, clan_display ASC
-    ")->fetchAll(PDO::FETCH_ASSOC);
+    ");
+    $stmtTotals->execute($filterParams);
+    $clanTotals = $stmtTotals->fetchAll(PDO::FETCH_ASSOC);
 
-    $memberRows = $pdo->query("
+    $stmtMembers = $pdo->prepare("
         SELECT
             COALESCE(clan_key, 'unassigned') AS clan_key_group,
             MAX(COALESCE(NULLIF(TRIM(clan_display), ''), 'Nezařazeno')) AS clan_display,
@@ -240,10 +267,12 @@ try {
             MAX(display_name) AS display_name,
             SUM(count) AS count
         FROM secret_leaderboard
-        WHERE clan_key IS NOT NULL AND clan_key != ''
+        WHERE clan_key IS NOT NULL AND clan_key != ''$filterClause
         GROUP BY clan_key_group, user_id
         ORDER BY clan_key_group ASC, count DESC, user_id ASC
-    ")->fetchAll(PDO::FETCH_ASSOC);
+    ");
+    $stmtMembers->execute($filterParams);
+    $memberRows = $stmtMembers->fetchAll(PDO::FETCH_ASSOC);
 
     $stmtLU = $pdo->prepare("SELECT value FROM meta WHERE key = 'last_update'");
     $stmtLU->execute();
@@ -264,6 +293,24 @@ function display_name_label($displayName, $userId) {
         return (string)$userId;
     }
     return $label;
+}
+
+function clan_emoji_label($clanKey, $clanDisplay) {
+    $key = strtolower(trim((string)$clanKey));
+    $map = array(
+        'hrot' => '🛡️',
+    );
+    if (isset($map[$key])) {
+        return $map[$key];
+    }
+    $display = trim((string)$clanDisplay);
+    if ($display !== '') {
+        $displayKey = strtolower($display);
+        if (isset($map[$displayKey])) {
+            return $map[$displayKey];
+        }
+    }
+    return '🏴';
 }
 
 $clanMembers = array();
@@ -345,6 +392,41 @@ foreach ($memberRows as $row) {
             border: 1px solid rgba(255, 255, 255, 0.45);
             box-shadow: 0 0 16px rgba(255, 23, 68, 0.75), 0 0 22px rgba(41, 121, 255, 0.5);
             text-shadow: 0 0 10px rgba(255, 23, 68, 0.8);
+        }
+        .filters {
+            margin-top: 1.8rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            align-items: center;
+        }
+        .filter-label {
+            font-size: 0.95rem;
+            color: var(--muted);
+            margin-right: 0.5rem;
+        }
+        .filter-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.45rem 0.9rem;
+            border-radius: 999px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            border: 1px solid rgba(59, 130, 246, 0.45);
+            background: rgba(15, 23, 42, 0.7);
+            color: #e2e8f0;
+            transition: transform 0.15s ease, box-shadow 0.2s ease;
+        }
+        .filter-pill:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 20px rgba(59, 130, 246, 0.35);
+        }
+        .filter-pill.active {
+            background: linear-gradient(135deg, rgba(255, 23, 68, 0.95), rgba(41, 121, 255, 0.85));
+            border-color: rgba(255, 255, 255, 0.5);
+            color: #fff;
+            box-shadow: 0 0 18px rgba(255, 23, 68, 0.65), 0 0 24px rgba(41, 121, 255, 0.45);
         }
         .layout {
             margin-top: 2rem;
@@ -448,6 +530,31 @@ foreach ($memberRows as $row) {
         </header>
 
         <section class="layout">
+            <div class="card">
+                <h2>🔎 Filtr podle clanu</h2>
+                <p class="subtle">Zobraz leaderboard pro konkrétní clan nebo všechny najednou.</p>
+                <div class="filters">
+                    <span class="filter-label">Filtry:</span>
+                    <?php
+                    $allActive = $selectedClan === null;
+                    ?>
+                    <a class="filter-pill<?php echo $allActive ? ' active' : ''; ?>" href="index.php">🌐 Všechny</a>
+                    <?php foreach ($clanOptions as $option): ?>
+                        <?php
+                        $optionKey = isset($option['clan_key']) ? (string)$option['clan_key'] : '';
+                        if ($optionKey === '') {
+                            continue;
+                        }
+                        $optionDisplay = isset($option['clan_display']) ? (string)$option['clan_display'] : 'Nezařazeno';
+                        $isActive = $selectedClan !== null && strtolower($optionKey) === $selectedClan;
+                        $emoji = clan_emoji_label($optionKey, $optionDisplay);
+                        ?>
+                        <a class="filter-pill<?php echo $isActive ? ' active' : ''; ?>" href="index.php?clan=<?php echo urlencode($optionKey); ?>">
+                            <?php echo htmlspecialchars($emoji . ' ' . $optionDisplay, ENT_QUOTES, 'UTF-8'); ?>
+                        </a>
+                    <?php endforeach; ?>
+                </div>
+            </div>
             <div class="card">
                 <h2>🛡️ Přehled clanů</h2>
                 <p class="subtle">Souhrn všech clanů podle celkového počtu dropů.</p>
