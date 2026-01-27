@@ -1313,6 +1313,24 @@ class SecretNotificationsForwarder(commands.Cog):
     def _build_secret_leaderboard_payload(self) -> Dict[str, Any]:
         breakdown = get_secret_drop_breakdown_all_time()
         display_names = get_secret_drop_user_display_names()
+        now = datetime.now(timezone.utc)
+        missing_ids = [
+            int(user_id)
+            for user_id in breakdown.keys()
+            if not display_names.get(int(user_id))
+        ]
+        if missing_ids:
+            for user_id in missing_ids:
+                cached_name = self._get_cached_display_name_for_id(user_id)
+                if not cached_name:
+                    continue
+                normalized_name = cached_name.strip()
+                if not normalized_name:
+                    continue
+                if display_names.get(user_id) == normalized_name:
+                    continue
+                upsert_secret_drop_user(user_id, normalized_name, now)
+                display_names[user_id] = normalized_name
         entries: List[Dict[str, Any]] = []
         for user_id in sorted(breakdown.keys()):
             rarity_counts = breakdown[user_id]
@@ -1326,7 +1344,7 @@ class SecretNotificationsForwarder(commands.Cog):
                     }
                 )
         payload: Dict[str, Any] = {
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": now.isoformat(),
             "entries": entries,
         }
         if self._secret_leaderboard_token:
