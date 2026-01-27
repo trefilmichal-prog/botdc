@@ -31,6 +31,7 @@ from db import (
     delete_dropstats_panel_states,
     get_all_dropstats_panels,
     get_connection,
+    get_setting,
     get_secret_drop_breakdown_all_time,
     get_secret_notifications_role_ids,
     get_windows_notifications,
@@ -41,6 +42,7 @@ from db import (
     normalize_clan_member_name,
     remove_dropstats_panel,
     reset_secret_drop_stats,
+    set_setting,
     set_dropstats_panel_message_ids,
     set_secret_notifications_role_ids,
 )
@@ -52,6 +54,8 @@ SETTINGS_KEY_CLAN_MEMBER_CACHE_UPDATED = (
     "secret_notifications_clan_member_cache_updated_at"
 )
 SETTINGS_KEY_LAST_NOTIFICATION_ID = "secret_notifications_last_notification_id"
+SETTINGS_KEY_SECRET_LEADERBOARD_URL = "secret_leaderboard_url"
+SETTINGS_KEY_SECRET_LEADERBOARD_TOKEN = "secret_leaderboard_token"
 CLAN_MEMBER_ROLE_IDS = [
     CLAN_MEMBER_ROLE_ID,
     CLAN_MEMBER_ROLE_EN_ID,
@@ -103,6 +107,9 @@ class SecretNotificationsForwarder(commands.Cog):
         self._dropstats_refresh_pending = False
         self._secret_leaderboard_lock = asyncio.Lock()
         self._secret_role_ids = self._load_secret_role_ids()
+        self._secret_leaderboard_url: Optional[str] = None
+        self._secret_leaderboard_token: Optional[str] = None
+        self._load_secret_leaderboard_settings()
         self._load_cached_players_from_db()
         self._load_last_processed_notification_id()
         existing_group = self.bot.tree.get_command(
@@ -153,6 +160,15 @@ class SecretNotificationsForwarder(commands.Cog):
             name="refresh",
             description="Vynutí refresh Roblox přezdívky pro člena.",
         )(self.secret_cache_refresh)
+        self.secret_leaderboard_group = app_commands.Group(
+            name="leaderboard",
+            description="Nastavení secret leaderboardu",
+        )
+        self.secret_leaderboard_group.command(
+            name="set",
+            description="Nastaví URL a token pro secret leaderboard.",
+        )(self.secret_leaderboard_set)
+        self.secret_group.add_command(self.secret_leaderboard_group)
         self.bot.tree.add_command(self.dropstats_group)
         self.bot.tree.add_command(self.secret_group)
         self.poll_notifications.start()
@@ -881,6 +897,19 @@ class SecretNotificationsForwarder(commands.Cog):
                 except Exception:
                     logger.exception("Uzavření DB spojení selhalo.")
 
+    def _load_secret_leaderboard_settings(self) -> None:
+        url_setting = get_setting(SETTINGS_KEY_SECRET_LEADERBOARD_URL)
+        if url_setting:
+            self._secret_leaderboard_url = url_setting.strip()
+        else:
+            self._secret_leaderboard_url = SECRET_LEADERBOARD_URL
+
+        token_setting = get_setting(SETTINGS_KEY_SECRET_LEADERBOARD_TOKEN)
+        if token_setting is None:
+            self._secret_leaderboard_token = SECRET_LEADERBOARD_TOKEN
+        else:
+            self._secret_leaderboard_token = token_setting.strip() or ""
+
     def _load_secret_role_ids(self) -> list[int]:
         role_ids = get_secret_notifications_role_ids()
         if role_ids:
@@ -1229,7 +1258,7 @@ class SecretNotificationsForwarder(commands.Cog):
             await self._enqueue_secret_leaderboard_payload()
 
     async def _enqueue_secret_leaderboard_payload(self) -> None:
-        if not SECRET_LEADERBOARD_URL:
+        if not self._secret_leaderboard_url:
             logger.warning("Secret leaderboard endpoint není nakonfigurován (URL).")
             return
         payload = self._build_secret_leaderboard_payload()
@@ -1253,21 +1282,24 @@ class SecretNotificationsForwarder(commands.Cog):
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "entries": entries,
         }
-        if SECRET_LEADERBOARD_TOKEN:
-            payload["secret"] = SECRET_LEADERBOARD_TOKEN
+        if self._secret_leaderboard_token:
+            payload["secret"] = self._secret_leaderboard_token
         return payload
 
     async def _flush_secret_leaderboard_queue(self) -> None:
         if self._secret_leaderboard_lock.locked():
             return
         async with self._secret_leaderboard_lock:
+            if not self._secret_leaderboard_url:
+                logger.warning("Secret leaderboard endpoint není nakonfigurován (URL).")
+                return
             items = list_secret_leaderboard_queue(limit=20)
             if not items:
                 return
             deleted_ids: List[int] = []
             async with aiohttp.ClientSession() as session:
                 for row_id, payload in items:
-                    if not payload or "secret" not in payload:
+                    if not payload:
                         deleted_ids.append(row_id)
                         continue
                     if await self._post_secret_leaderboard(session, payload):
@@ -1279,7 +1311,7 @@ class SecretNotificationsForwarder(commands.Cog):
     ) -> bool:
         try:
             async with session.post(
-                SECRET_LEADERBOARD_URL, json=payload, timeout=15
+                self._secret_leaderboard_url, json=payload, timeout=15
             ) as response:
                 if response.status >= 400:
                     logger.warning(
@@ -1477,10 +1509,66 @@ class SecretNotificationsForwarder(commands.Cog):
         )
         await interaction.response.send_message(view=view, ephemeral=True)
 
+    @app_commands.describe(
+        url="URL pro secret leaderboard endpoint.",
+        token="Volitelný token pro ověření.",
+    )
+    async def secret_leaderboard_set(
+        self,
+        interaction: discord.Interaction,
+        url: str,
+        token: Optional[str] = None,
+    ):
+        normalized_url = url.strip() if url else ""
+        if not normalized_url or not normalized_url.lower().startswith("http"):
+            view = self._build_notice_view(
+                "⚠️ URL nesmí být prázdná a musí začínat na http."
+            )
+            await interaction.response.send_message(view=view, ephemeral=True)
+            return
+
+        normalized_token = token.strip() if token else ""
+        try:
+            set_setting(SETTINGS_KEY_SECRET_LEADERBOARD_URL, normalized_url)
+            set_setting(SETTINGS_KEY_SECRET_LEADERBOARD_TOKEN, normalized_token)
+            self._secret_leaderboard_url = normalized_url
+            self._secret_leaderboard_token = normalized_token
+        except Exception:
+            logger.exception("Uložení secret leaderboard nastavení selhalo.")
+            view = self._build_notice_view(
+                "⚠️ Nastavení secret leaderboardu se nepodařilo uložit."
+            )
+            await interaction.response.send_message(view=view, ephemeral=True)
+            return
+
+        view = self._build_secret_leaderboard_settings_view(
+            normalized_url, normalized_token
+        )
+        await interaction.response.send_message(view=view, ephemeral=True)
+
     def _build_notice_view(self, message: str) -> discord.ui.LayoutView:
         view = discord.ui.LayoutView()
         container = discord.ui.Container()
         container.add_item(discord.ui.TextDisplay(content=message))
+        view.add_item(container)
+        return view
+
+    def _build_secret_leaderboard_settings_view(
+        self, url: str, token: str
+    ) -> discord.ui.LayoutView:
+        view = discord.ui.LayoutView()
+        container = discord.ui.Container()
+        container.add_item(
+            discord.ui.TextDisplay(content="✅ Secret leaderboard nastavení uložené.")
+        )
+        container.add_item(discord.ui.Separator())
+        container.add_item(
+            discord.ui.TextDisplay(content=f"🔗 URL: `{url}`")
+        )
+        token_text = "nenastaven" if not token else "nastaven"
+        container.add_item(
+            discord.ui.TextDisplay(content=f"🔐 Token: {token_text}")
+        )
         view.add_item(container)
         return view
 
