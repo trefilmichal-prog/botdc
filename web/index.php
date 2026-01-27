@@ -7,22 +7,35 @@ const SECRET_TOKEN = 'ZDE_VAS_SECRET'; // nastavte stejné jako SECRET_LEADERBOA
 header('Content-Type: text/html; charset=utf-8');
 
 // DB init
-$pdo = new PDO('sqlite:' . DB_PATH);
-$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+if (!extension_loaded('pdo_sqlite')) {
+  http_response_code(500);
+  echo 'Missing PHP extension: pdo_sqlite. Please install/enable it.';
+  exit;
+}
 
-$pdo->exec("
-  CREATE TABLE IF NOT EXISTS secret_leaderboard (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    count INTEGER NOT NULL
-  );
-");
-$pdo->exec("
-  CREATE TABLE IF NOT EXISTS meta (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  );
-");
+try {
+  $pdo = new PDO('sqlite:' . DB_PATH);
+  $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+  $pdo->exec("
+    CREATE TABLE IF NOT EXISTS secret_leaderboard (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      count INTEGER NOT NULL
+    );
+  ");
+  $pdo->exec("
+    CREATE TABLE IF NOT EXISTS meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  ");
+} catch (PDOException $e) {
+  http_response_code(500);
+  error_log($e->getMessage());
+  echo 'Database unavailable';
+  exit;
+}
 
 // Helpers
 function bad_request(string $msg): void {
