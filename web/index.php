@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 const DB_PATH = __DIR__ . '/leaderboard.sqlite';
-const SECRET_TOKEN = 'ZDE_VAS_SECRET'; // nastavte stejné jako SECRET_LEADERBOARD_TOKEN
+// POST endpoint předpokládá ochranu na úrovni reverse proxy (bez aplikačního ověřování).
 
 header('Content-Type: text/html; charset=utf-8');
 
@@ -52,11 +52,6 @@ if ($method === 'POST') {
 
   if (!is_array($data)) {
     bad_request('Invalid JSON.');
-  }
-
-  $secret = $data['secret'] ?? null;
-  if (!$secret || !hash_equals(SECRET_TOKEN, (string)$secret)) {
-    bad_request('Invalid secret.');
   }
 
   $entries = $data['entries'] ?? null;
