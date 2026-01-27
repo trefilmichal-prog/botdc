@@ -228,6 +228,13 @@ try {
             $selectedClan = strtolower($candidateClan);
         }
     }
+    $selectedPlayerId = null;
+    if (isset($_GET['player'])) {
+        $candidatePlayer = trim((string)$_GET['player']);
+        if ($candidatePlayer !== '' && ctype_digit($candidatePlayer)) {
+            $selectedPlayerId = (int)$candidatePlayer;
+        }
+    }
 
     $clanOptions = $pdo->query("
         SELECT
@@ -274,6 +281,26 @@ try {
     $stmtMembers->execute($filterParams);
     $memberRows = $stmtMembers->fetchAll(PDO::FETCH_ASSOC);
 
+    $playerRarityRows = array();
+    $playerDisplayName = '';
+    if ($selectedPlayerId !== null) {
+        $stmtPlayer = $pdo->prepare("
+            SELECT
+                rarity,
+                SUM(count) AS total_count,
+                MAX(display_name) AS display_name
+            FROM secret_leaderboard
+            WHERE user_id = :user_id
+            GROUP BY rarity
+            ORDER BY total_count DESC, rarity ASC
+        ");
+        $stmtPlayer->execute(array(':user_id' => $selectedPlayerId));
+        $playerRarityRows = $stmtPlayer->fetchAll(PDO::FETCH_ASSOC);
+        if ($playerRarityRows) {
+            $playerDisplayName = (string)$playerRarityRows[0]['display_name'];
+        }
+    }
+
     $stmtLU = $pdo->prepare("SELECT value FROM meta WHERE key = 'last_update'");
     $stmtLU->execute();
     $lastUpdate = $stmtLU->fetchColumn();
@@ -311,6 +338,30 @@ function clan_emoji_label($clanKey, $clanDisplay) {
         }
     }
     return '🏴';
+}
+
+function rarity_emoji_label($rarity) {
+    $key = strtolower(trim((string)$rarity));
+    $map = array(
+        'secret' => '🔮',
+        'legendary' => '🏵️',
+        'epic' => '💜',
+        'rare' => '💎',
+        'uncommon' => '🟢',
+        'common' => '⚪',
+    );
+    if (isset($map[$key])) {
+        return $map[$key];
+    }
+    return '✨';
+}
+
+function player_link($userId, $selectedClan) {
+    $params = array('player' => (int)$userId);
+    if ($selectedClan !== null) {
+        $params['clan'] = (string)$selectedClan;
+    }
+    return 'index.php?' . http_build_query($params);
 }
 
 $clanMembers = array();
@@ -555,6 +606,43 @@ foreach ($memberRows as $row) {
                     <?php endforeach; ?>
                 </div>
             </div>
+
+            <?php if ($selectedPlayerId !== null): ?>
+                <div class="card">
+                    <h2>👤 Player details</h2>
+                    <p class="subtle">
+                        Player:
+                        <?php
+                        $playerLabel = display_name_label($playerDisplayName, $selectedPlayerId);
+                        echo htmlspecialchars($playerLabel, ENT_QUOTES, 'UTF-8');
+                        ?>
+                    </p>
+                    <?php if (!$playerRarityRows): ?>
+                        <div class="empty">No drops recorded for this player.</div>
+                    <?php else: ?>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                <tr><th>Rarity</th><th>Drops</th></tr>
+                                </thead>
+                                <tbody>
+                                <?php foreach ($playerRarityRows as $row): ?>
+                                    <?php
+                                    $rarity = isset($row['rarity']) ? (string)$row['rarity'] : '';
+                                    $emoji = rarity_emoji_label($rarity);
+                                    ?>
+                                    <tr>
+                                        <td><?php echo htmlspecialchars($emoji . ' ' . $rarity, ENT_QUOTES, 'UTF-8'); ?></td>
+                                        <td><?php echo (int)$row['total_count']; ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
+
             <div class="card">
                 <h2>🛡️ Clan overview</h2>
                 <p class="subtle">Summary of all clans by total drops.</p>
@@ -605,7 +693,11 @@ foreach ($memberRows as $row) {
                                 <?php foreach ($members as $i => $row): ?>
                                     <tr>
                                         <td><span class="rank"><?php echo (int)($i + 1); ?></span></td>
-                                        <td><?php echo htmlspecialchars(display_name_label($row['display_name'], $row['user_id']), ENT_QUOTES, 'UTF-8'); ?></td>
+                                        <td>
+                                            <a href="<?php echo htmlspecialchars(player_link($row['user_id'], $selectedClan), ENT_QUOTES, 'UTF-8'); ?>">
+                                                <?php echo htmlspecialchars(display_name_label($row['display_name'], $row['user_id']), ENT_QUOTES, 'UTF-8'); ?>
+                                            </a>
+                                        </td>
                                         <td><?php echo (int)$row['count']; ?></td>
                                     </tr>
                                 <?php endforeach; ?>
