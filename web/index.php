@@ -38,7 +38,9 @@ try {
             user_id INTEGER NOT NULL,
             display_name TEXT NOT NULL DEFAULT '',
             rarity TEXT NOT NULL,
-            count INTEGER NOT NULL
+            count INTEGER NOT NULL,
+            clan_key TEXT NULL,
+            clan_display TEXT NOT NULL DEFAULT 'Nezařazeno'
         );
     ");
 
@@ -60,6 +62,8 @@ try {
     $columns = $pdo->query("PRAGMA table_info('secret_leaderboard')")->fetchAll(PDO::FETCH_ASSOC);
     $hasRarity = false;
     $hasDisplayName = false;
+    $hasClanKey = false;
+    $hasClanDisplay = false;
     foreach ($columns as $column) {
         $name = isset($column['name']) ? $column['name'] : '';
         if ($name === 'rarity') {
@@ -68,12 +72,24 @@ try {
         if ($name === 'display_name') {
             $hasDisplayName = true;
         }
+        if ($name === 'clan_key') {
+            $hasClanKey = true;
+        }
+        if ($name === 'clan_display') {
+            $hasClanDisplay = true;
+        }
     }
     if (!$hasRarity) {
         $pdo->exec("ALTER TABLE secret_leaderboard ADD COLUMN rarity TEXT NOT NULL DEFAULT 'secret'");
     }
     if (!$hasDisplayName) {
         $pdo->exec("ALTER TABLE secret_leaderboard ADD COLUMN display_name TEXT NOT NULL DEFAULT ''");
+    }
+    if (!$hasClanKey) {
+        $pdo->exec("ALTER TABLE secret_leaderboard ADD COLUMN clan_key TEXT NULL");
+    }
+    if (!$hasClanDisplay) {
+        $pdo->exec("ALTER TABLE secret_leaderboard ADD COLUMN clan_display TEXT NOT NULL DEFAULT 'Nezařazeno'");
     }
 } catch (Exception $e) {
     http_response_code(500);
@@ -123,6 +139,20 @@ if ($method === 'POST') {
         if (isset($row['display_name'])) {
             $displayName = trim((string)$row['display_name']);
         }
+        $clanKey = null;
+        if (isset($row['clan_key'])) {
+            $clanKey = trim((string)$row['clan_key']);
+            if ($clanKey === '') {
+                $clanKey = null;
+            }
+        }
+        $clanDisplay = 'Nezařazeno';
+        if (isset($row['clan_display'])) {
+            $candidateDisplay = trim((string)$row['clan_display']);
+            if ($candidateDisplay !== '') {
+                $clanDisplay = $candidateDisplay;
+            }
+        }
 
         if ($userId <= 0) {
             bad_request('Invalid user_id.');
@@ -131,17 +161,22 @@ if ($method === 'POST') {
             bad_request('Invalid count.');
         }
 
-        $key = $userId . ':' . $rarity;
+        $key = $userId . ':' . $rarity . ':' . ($clanKey === null ? 'unassigned' : $clanKey);
         if (!isset($aggregated[$key])) {
             $aggregated[$key] = array(
                 'user_id' => $userId,
                 'display_name' => $displayName,
                 'rarity' => $rarity,
                 'count' => 0,
+                'clan_key' => $clanKey,
+                'clan_display' => $clanDisplay,
             );
         }
         if ($aggregated[$key]['display_name'] === '' && $displayName !== '') {
             $aggregated[$key]['display_name'] = $displayName;
+        }
+        if ($aggregated[$key]['clan_display'] === 'Nezařazeno' && $clanDisplay !== 'Nezařazeno') {
+            $aggregated[$key]['clan_display'] = $clanDisplay;
         }
         $aggregated[$key]['count'] += $count;
     }
@@ -152,13 +187,15 @@ if ($method === 'POST') {
 
         $pdo->exec("DELETE FROM secret_leaderboard");
 
-        $stmt = $pdo->prepare("INSERT INTO secret_leaderboard (user_id, display_name, rarity, count) VALUES (:user_id, :display_name, :rarity, :count)");
+        $stmt = $pdo->prepare("INSERT INTO secret_leaderboard (user_id, display_name, rarity, count, clan_key, clan_display) VALUES (:user_id, :display_name, :rarity, :count, :clan_key, :clan_display)");
         foreach ($aggregated as $row) {
             $stmt->execute(array(
                 ':user_id' => (int)$row['user_id'],
                 ':display_name' => (string)$row['display_name'],
                 ':rarity'  => (string)$row['rarity'],
                 ':count'   => (int)$row['count'],
+                ':clan_key' => $row['clan_key'] === null ? null : (string)$row['clan_key'],
+                ':clan_display' => (string)$row['clan_display'],
             ));
         }
 
@@ -184,50 +221,26 @@ if ($method === 'POST') {
 
 // GET – zobrazit leaderboard
 try {
-    $filterRarity = isset($_GET['rarity']) ? strtolower(trim((string)$_GET['rarity'])) : 'secret';
-    if ($filterRarity === '') {
-        $filterRarity = 'secret';
-    }
-
-    $rarityRows = $pdo->query("
-        SELECT DISTINCT rarity
+    $clanTotals = $pdo->query("
+        SELECT
+            COALESCE(clan_key, 'unassigned') AS clan_key_group,
+            MAX(COALESCE(NULLIF(TRIM(clan_display), ''), 'Nezařazeno')) AS clan_display,
+            SUM(count) AS total_count
         FROM secret_leaderboard
-        ORDER BY rarity ASC
+        GROUP BY clan_key_group
+        ORDER BY total_count DESC, clan_display ASC
     ")->fetchAll(PDO::FETCH_ASSOC);
 
-    if ($filterRarity === 'all') {
-        $stmtMain = $pdo->query("
-            SELECT user_id, rarity, MAX(display_name) AS display_name, SUM(count) AS count
-            FROM secret_leaderboard
-            GROUP BY user_id, rarity
-            ORDER BY count DESC, user_id ASC, rarity ASC
-        ");
-        $rows = $stmtMain->fetchAll(PDO::FETCH_ASSOC);
-    } else {
-        $stmtMain = $pdo->prepare("
-            SELECT user_id, rarity, MAX(display_name) AS display_name, SUM(count) AS count
-            FROM secret_leaderboard
-            WHERE rarity = :rarity
-            GROUP BY user_id, rarity
-            ORDER BY count DESC, user_id ASC
-        ");
-        $stmtMain->execute(array(':rarity' => $filterRarity));
-        $rows = $stmtMain->fetchAll(PDO::FETCH_ASSOC);
-    }
-
-    $secretRows = $pdo->query("
-        SELECT user_id, MAX(display_name) AS display_name, SUM(count) AS count
+    $memberRows = $pdo->query("
+        SELECT
+            COALESCE(clan_key, 'unassigned') AS clan_key_group,
+            MAX(COALESCE(NULLIF(TRIM(clan_display), ''), 'Nezařazeno')) AS clan_display,
+            user_id,
+            MAX(display_name) AS display_name,
+            SUM(count) AS count
         FROM secret_leaderboard
-        WHERE rarity = 'secret'
-        GROUP BY user_id
-        ORDER BY count DESC, user_id ASC
-    ")->fetchAll(PDO::FETCH_ASSOC);
-
-    $allRows = $pdo->query("
-        SELECT user_id, MAX(display_name) AS display_name, SUM(count) AS count
-        FROM secret_leaderboard
-        GROUP BY user_id
-        ORDER BY count DESC, user_id ASC
+        GROUP BY clan_key_group, user_id
+        ORDER BY clan_key_group ASC, count DESC, user_id ASC
     ")->fetchAll(PDO::FETCH_ASSOC);
 
     $stmtLU = $pdo->prepare("SELECT value FROM meta WHERE key = 'last_update'");
@@ -243,34 +256,21 @@ try {
     exit;
 }
 
-function rarity_badge_class($rarity) {
-    $key = strtolower(trim((string)$rarity));
-    $map = array(
-        'common' => 'rarity-common',
-        'uncommon' => 'rarity-uncommon',
-        'rare' => 'rarity-rare',
-        'epic' => 'rarity-epic',
-        'legendary' => 'rarity-legendary',
-        'mythic' => 'rarity-mythic',
-        'secret' => 'rarity-secret',
-    );
-    return isset($map[$key]) ? $map[$key] : 'rarity-default';
-}
-
-function rarity_label($rarity) {
-    $label = trim((string)$rarity);
-    if ($label === '') {
-        return 'unknown';
-    }
-    return $label;
-}
-
 function display_name_label($displayName, $userId) {
     $label = trim((string)$displayName);
     if ($label === '') {
         return (string)$userId;
     }
     return $label;
+}
+
+$clanMembers = array();
+foreach ($memberRows as $row) {
+    $clanKey = isset($row['clan_key_group']) ? $row['clan_key_group'] : 'unassigned';
+    if (!isset($clanMembers[$clanKey])) {
+        $clanMembers[$clanKey] = array();
+    }
+    $clanMembers[$clanKey][] = $row;
 }
 ?>
 <!doctype html>
@@ -338,41 +338,6 @@ function display_name_label($displayName, $userId) {
             background: rgba(255, 255, 255, 0.2);
             color: #f8fafc;
         }
-        .filters {
-            margin-top: 1.8rem;
-            position: sticky;
-            top: 1rem;
-            z-index: 10;
-        }
-        .filters-card {
-            background: var(--card-strong);
-            border-radius: var(--radius);
-            padding: 1.2rem 1.5rem;
-            box-shadow: var(--shadow);
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 0.8rem;
-        }
-        .filters-card strong {
-            color: var(--muted);
-            font-size: 0.9rem;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-        }
-        .filter-pill {
-            padding: 0.45rem 0.9rem;
-            border-radius: 999px;
-            background: #e2e8f0;
-            color: #0f172a;
-            font-weight: 600;
-            transition: all 0.2s ease;
-        }
-        .filter-pill:hover {
-            background: var(--accent);
-            color: #ffffff;
-            transform: translateY(-1px);
-        }
         .layout {
             margin-top: 2rem;
             display: grid;
@@ -432,23 +397,6 @@ function display_name_label($displayName, $userId) {
             font-weight: 700;
             font-size: 0.9rem;
         }
-        .rarity {
-            display: inline-flex;
-            padding: 0.25rem 0.7rem;
-            border-radius: 999px;
-            font-size: 0.8rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        .rarity-common { background: #e2e8f0; color: #1f2937; }
-        .rarity-uncommon { background: #d1fae5; color: #065f46; }
-        .rarity-rare { background: #dbeafe; color: #1d4ed8; }
-        .rarity-epic { background: #f3e8ff; color: #7c3aed; }
-        .rarity-legendary { background: #ffedd5; color: #c2410c; }
-        .rarity-mythic { background: #fee2e2; color: #b91c1c; }
-        .rarity-secret { background: #0f172a; color: #f8fafc; }
-        .rarity-default { background: #e5e7eb; color: #111827; }
         .empty {
             padding: 1.5rem;
             border-radius: 12px;
@@ -465,10 +413,6 @@ function display_name_label($displayName, $userId) {
             .header {
                 padding: 1.5rem;
             }
-            .filters-card {
-                flex-direction: column;
-                align-items: flex-start;
-            }
             table {
                 min-width: 420px;
             }
@@ -482,48 +426,27 @@ function display_name_label($displayName, $userId) {
                 <h1>Secret Leaderboard</h1>
                 <p>Poslední update: <?php echo htmlspecialchars($lastUpdate, ENT_QUOTES, 'UTF-8'); ?></p>
             </div>
-            <span class="badge" title="Filtrovaný pohled na rarity">Aktuální: <?php echo htmlspecialchars($filterRarity, ENT_QUOTES, 'UTF-8'); ?></span>
+            <span class="badge" title="Celkový přehled clanů">Leaderboard podle clanů</span>
         </header>
-
-        <div class="filters">
-            <div class="filters-card">
-                <strong>Filtr</strong>
-                <a class="filter-pill" href="?rarity=secret" title="Zobrazit pouze secret rarity">Secret</a>
-                <a class="filter-pill" href="?rarity=all" title="Zobrazit všechny rarity">All</a>
-                <?php foreach ($rarityRows as $rarityRow): ?>
-                    <?php $rarityName = isset($rarityRow['rarity']) ? $rarityRow['rarity'] : ''; ?>
-                    <?php if ($rarityName !== '' && $rarityName !== 'secret'): ?>
-                        <a class="filter-pill" href="?rarity=<?php echo urlencode($rarityName); ?>" title="Filtrovat <?php echo htmlspecialchars($rarityName, ENT_QUOTES, 'UTF-8'); ?>">
-                            <?php echo htmlspecialchars($rarityName, ENT_QUOTES, 'UTF-8'); ?>
-                        </a>
-                    <?php endif; ?>
-                <?php endforeach; ?>
-            </div>
-        </div>
 
         <section class="layout">
             <div class="card">
-                <h2>Leaderboard detail</h2>
-                <p class="subtle">Zobrazení podle filtru rarity s rychlým srovnáním pořadí.</p>
-                <?php if (!$rows): ?>
+                <h2>Přehled clanů</h2>
+                <p class="subtle">Souhrn všech clanů podle celkového počtu dropů.</p>
+                <?php if (!$clanTotals): ?>
                     <div class="empty">Žádná data.</div>
                 <?php else: ?>
                     <div class="table-wrap">
                         <table>
                             <thead>
-                            <tr><th>Rank</th><th>User</th><th>Rarity</th><th>Count</th></tr>
+                            <tr><th>Rank</th><th>Clan</th><th>Dropy</th></tr>
                             </thead>
                             <tbody>
-                            <?php foreach ($rows as $i => $row): ?>
+                            <?php foreach ($clanTotals as $i => $row): ?>
                                 <tr>
                                     <td><span class="rank" title="Pořadí"><?php echo (int)($i + 1); ?></span></td>
-                                    <td><?php echo htmlspecialchars(display_name_label($row['display_name'], $row['user_id']), ENT_QUOTES, 'UTF-8'); ?></td>
-                                    <td>
-                                        <span class="rarity <?php echo rarity_badge_class($row['rarity']); ?>" title="Rarita: <?php echo htmlspecialchars(rarity_label($row['rarity']), ENT_QUOTES, 'UTF-8'); ?>">
-                                            <?php echo htmlspecialchars(rarity_label($row['rarity']), ENT_QUOTES, 'UTF-8'); ?>
-                                        </span>
-                                    </td>
-                                    <td><?php echo (int)$row['count']; ?></td>
+                                    <td><?php echo htmlspecialchars($row['clan_display'], ENT_QUOTES, 'UTF-8'); ?></td>
+                                    <td><?php echo (int)$row['total_count']; ?></td>
                                 </tr>
                             <?php endforeach; ?>
                             </tbody>
@@ -532,55 +455,38 @@ function display_name_label($displayName, $userId) {
                 <?php endif; ?>
             </div>
 
-            <div class="card">
-                <h2>Secret</h2>
-                <p class="subtle">Rychlý přehled pouze pro secret rarity.</p>
-                <?php if (!$secretRows): ?>
-                    <div class="empty">Žádná data.</div>
-                <?php else: ?>
-                    <div class="table-wrap">
-                        <table>
-                            <thead>
-                            <tr><th>Rank</th><th>User</th><th>Count</th></tr>
-                            </thead>
-                            <tbody>
-                            <?php foreach ($secretRows as $i => $row): ?>
-                                <tr>
-                                    <td><span class="rank"><?php echo (int)($i + 1); ?></span></td>
-                                    <td><?php echo htmlspecialchars(display_name_label($row['display_name'], $row['user_id']), ENT_QUOTES, 'UTF-8'); ?></td>
-                                    <td><?php echo (int)$row['count']; ?></td>
-                                </tr>
-                            <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                <?php endif; ?>
-            </div>
-
-            <div class="card">
-                <h2>All rarities</h2>
-                <p class="subtle">Součet napříč raritami pro rychlé porovnání.</p>
-                <?php if (!$allRows): ?>
-                    <div class="empty">Žádná data.</div>
-                <?php else: ?>
-                    <div class="table-wrap">
-                        <table>
-                            <thead>
-                            <tr><th>Rank</th><th>User</th><th>Count</th></tr>
-                            </thead>
-                            <tbody>
-                            <?php foreach ($allRows as $i => $row): ?>
-                                <tr>
-                                    <td><span class="rank"><?php echo (int)($i + 1); ?></span></td>
-                                    <td><?php echo htmlspecialchars(display_name_label($row['display_name'], $row['user_id']), ENT_QUOTES, 'UTF-8'); ?></td>
-                                    <td><?php echo (int)$row['count']; ?></td>
-                                </tr>
-                            <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                <?php endif; ?>
-            </div>
+            <?php foreach ($clanTotals as $clan): ?>
+                <?php
+                $clanKey = isset($clan['clan_key_group']) ? $clan['clan_key_group'] : 'unassigned';
+                $clanDisplay = isset($clan['clan_display']) ? $clan['clan_display'] : 'Nezařazeno';
+                $totalCount = isset($clan['total_count']) ? (int)$clan['total_count'] : 0;
+                $members = isset($clanMembers[$clanKey]) ? $clanMembers[$clanKey] : array();
+                ?>
+                <div class="card">
+                    <h2><?php echo htmlspecialchars($clanDisplay, ENT_QUOTES, 'UTF-8'); ?></h2>
+                    <p class="subtle">Celkem dropů: <?php echo $totalCount; ?></p>
+                    <?php if (!$members): ?>
+                        <div class="empty">Žádní členové.</div>
+                    <?php else: ?>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                <tr><th>Rank</th><th>User</th><th>Dropy</th></tr>
+                                </thead>
+                                <tbody>
+                                <?php foreach ($members as $i => $row): ?>
+                                    <tr>
+                                        <td><span class="rank"><?php echo (int)($i + 1); ?></span></td>
+                                        <td><?php echo htmlspecialchars(display_name_label($row['display_name'], $row['user_id']), ENT_QUOTES, 'UTF-8'); ?></td>
+                                        <td><?php echo (int)$row['count']; ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            <?php endforeach; ?>
         </section>
 
         <p class="footer-note">Layout funguje bez JavaScriptu a je optimalizovaný pro mobilní zařízení.</p>
