@@ -323,7 +323,7 @@ foreach ($memberRows as $row) {
 }
 ?>
 <!doctype html>
-<html lang="cs">
+<html lang="en">
 <head>
     <meta charset="utf-8">
     <title>Secret Leaderboard</title>
@@ -524,21 +524,21 @@ foreach ($memberRows as $row) {
         <header class="header">
             <div>
                 <h1>🎮 Secret Leaderboard</h1>
-                <p>Poslední update: <?php echo htmlspecialchars($lastUpdate, ENT_QUOTES, 'UTF-8'); ?></p>
+                <p>Last update: <?php echo htmlspecialchars($lastUpdate, ENT_QUOTES, 'UTF-8'); ?></p>
             </div>
-            <span class="badge" title="Celkový přehled clanů">🎮 Leaderboard podle clanů</span>
+            <span class="badge" title="Overall clan overview">🎮 Clan leaderboard</span>
         </header>
 
         <section class="layout">
             <div class="card">
-                <h2>🔎 Filtr podle clanu</h2>
-                <p class="subtle">Zobraz leaderboard pro konkrétní clan nebo všechny najednou.</p>
+                <h2>🔎 Clan filter</h2>
+                <p class="subtle">Show the leaderboard for a specific clan or all at once.</p>
                 <div class="filters">
-                    <span class="filter-label">Filtry:</span>
+                    <span class="filter-label">Filters:</span>
                     <?php
                     $allActive = $selectedClan === null;
                     ?>
-                    <a class="filter-pill<?php echo $allActive ? ' active' : ''; ?>" href="index.php">🌐 Všechny</a>
+                    <a class="filter-pill<?php echo $allActive ? ' active' : ''; ?>" href="index.php">🌐 All</a>
                     <?php foreach ($clanOptions as $option): ?>
                         <?php
                         $optionKey = isset($option['clan_key']) ? (string)$option['clan_key'] : '';
@@ -556,20 +556,20 @@ foreach ($memberRows as $row) {
                 </div>
             </div>
             <div class="card">
-                <h2>🛡️ Přehled clanů</h2>
-                <p class="subtle">Souhrn všech clanů podle celkového počtu dropů.</p>
+                <h2>🛡️ Clan overview</h2>
+                <p class="subtle">Summary of all clans by total drops.</p>
                 <?php if (!$clanTotals): ?>
-                    <div class="empty">Žádná data.</div>
+                    <div class="empty">No data.</div>
                 <?php else: ?>
                     <div class="table-wrap">
                         <table>
                             <thead>
-                            <tr><th>Rank</th><th>Clan</th><th>Dropy</th></tr>
+                            <tr><th>Rank</th><th>Clan</th><th>Drops</th></tr>
                             </thead>
                             <tbody>
                             <?php foreach ($clanTotals as $i => $row): ?>
                                 <tr>
-                                    <td><span class="rank" title="Pořadí"><?php echo (int)($i + 1); ?></span></td>
+                                    <td><span class="rank" title="Rank"><?php echo (int)($i + 1); ?></span></td>
                                     <td><?php echo htmlspecialchars($row['clan_display'], ENT_QUOTES, 'UTF-8'); ?></td>
                                     <td><?php echo (int)$row['total_count']; ?></td>
                                 </tr>
@@ -591,15 +591,15 @@ foreach ($memberRows as $row) {
                 $members = isset($clanMembers[$clanKey]) ? $clanMembers[$clanKey] : array();
                 ?>
                 <div class="card">
-                    <h2>🏆 Top členové – <?php echo htmlspecialchars($clanDisplay, ENT_QUOTES, 'UTF-8'); ?></h2>
-                    <p class="subtle">Celkem dropů: <?php echo $totalCount; ?></p>
+                    <h2>🏆 Top members – <?php echo htmlspecialchars($clanDisplay, ENT_QUOTES, 'UTF-8'); ?></h2>
+                    <p class="subtle">Total drops: <?php echo $totalCount; ?></p>
                     <?php if (!$members): ?>
-                        <div class="empty">Žádní členové.</div>
+                        <div class="empty">No members.</div>
                     <?php else: ?>
                         <div class="table-wrap">
                             <table>
                                 <thead>
-                                <tr><th>Rank</th><th>User</th><th>Dropy</th></tr>
+                                <tr><th>Rank</th><th>User</th><th>Drops</th></tr>
                                 </thead>
                                 <tbody>
                                 <?php foreach ($members as $i => $row): ?>
@@ -617,7 +617,7 @@ foreach ($memberRows as $row) {
             <?php endforeach; ?>
         </section>
 
-        <p class="footer-note">Layout funguje bez JavaScriptu a je optimalizovaný pro mobilní zařízení.</p>
+        <p class="footer-note">The layout works without JavaScript and is optimized for mobile devices.</p>
     </div>
 </body>
 </html>
