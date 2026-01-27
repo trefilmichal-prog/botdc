@@ -357,11 +357,12 @@ function rarity_emoji_label($rarity) {
 }
 
 function player_link($userId, $selectedClan) {
+    $base = isset($_SERVER['PHP_SELF']) ? $_SERVER['PHP_SELF'] : 'index.php';
     $params = array('player' => (int)$userId);
     if ($selectedClan !== null) {
         $params['clan'] = (string)$selectedClan;
     }
-    return 'index.php?' . http_build_query($params);
+    return $base . '?' . http_build_query($params);
 }
 
 $clanMembers = array();
