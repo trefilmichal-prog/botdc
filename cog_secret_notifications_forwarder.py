@@ -1313,6 +1313,7 @@ class SecretNotificationsForwarder(commands.Cog):
     def _build_secret_leaderboard_payload(self) -> Dict[str, Any]:
         breakdown = get_secret_drop_breakdown_all_time()
         display_names = get_secret_drop_user_display_names()
+        clan_members = self._get_clan_member_entries()
         now = datetime.now(timezone.utc)
         missing_ids = [
             int(user_id)
@@ -1334,6 +1335,13 @@ class SecretNotificationsForwarder(commands.Cog):
         entries: List[Dict[str, Any]] = []
         for user_id in sorted(breakdown.keys()):
             rarity_counts = breakdown[user_id]
+            member_entry = clan_members.get(int(user_id), {})
+            clan_key = member_entry.get("clan_key")
+            clan_display = member_entry.get("clan_display")
+            if not clan_key:
+                clan_key = None
+            if not clan_display:
+                clan_display = "unassigned"
             for rarity in sorted(rarity_counts.keys()):
                 entries.append(
                     {
@@ -1341,6 +1349,8 @@ class SecretNotificationsForwarder(commands.Cog):
                         "display_name": display_names.get(int(user_id), ""),
                         "rarity": str(rarity),
                         "count": int(rarity_counts[rarity]),
+                        "clan_key": clan_key,
+                        "clan_display": clan_display,
                     }
                 )
         payload: Dict[str, Any] = {
