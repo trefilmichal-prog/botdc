@@ -693,6 +693,14 @@ class SecretNotificationsForwarder(commands.Cog):
     def _format_player_mentions(self, player_ids: List[int]) -> str:
         return ", ".join(f"<@{player_id}>" for player_id in player_ids)
 
+    def _get_cached_display_name_for_id(self, player_id: int) -> Optional[str]:
+        for entry in self._clan_member_cache.values():
+            if entry.get("id") == player_id:
+                name = entry.get("name")
+                if name:
+                    return str(name)
+        return None
+
     def _get_display_name_for_id(self, player_id: int) -> str:
         for entry in self._clan_member_cache.values():
             if entry.get("id") == player_id:
@@ -1285,6 +1293,10 @@ class SecretNotificationsForwarder(commands.Cog):
                 display_name = self._get_display_name_from_discord(member)
                 if display_name:
                     upsert_secret_drop_user(int(player_id), display_name, now)
+                else:
+                    cached_name = self._get_cached_display_name_for_id(int(player_id))
+                    if cached_name:
+                        upsert_secret_drop_user(int(player_id), cached_name, now)
             except Exception:
                 logger.exception("Uložení display name pro drop selhalo.")
         if rarity_value == "secret":
