@@ -1327,9 +1327,19 @@ class SecretNotificationsForwarder(commands.Cog):
                 ssl=ssl_param,
             ) as response:
                 if response.status >= 400:
+                    response_body = await response.text()
+                    response_preview = response_body.strip()
+                    max_length = 500
+                    if len(response_preview) > max_length:
+                        response_preview = response_preview[:max_length] + "…"
                     logger.warning(
                         "Odeslání secret leaderboardu selhalo (status=%s).",
                         response.status,
+                    )
+                    logger.warning(
+                        "Odpověď secret leaderboardu (status=%s): %s",
+                        response.status,
+                        response_preview,
                     )
                     return False
         except Exception:
