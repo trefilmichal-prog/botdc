@@ -32,7 +32,6 @@ from db import (
     get_all_dropstats_panels,
     get_connection,
     get_secret_drop_breakdown_all_time,
-    get_secret_drop_leaderboard,
     get_secret_notifications_role_ids,
     get_windows_notifications,
     increment_secret_drop_stat,
@@ -161,6 +160,7 @@ class SecretNotificationsForwarder(commands.Cog):
         self.refresh_clan_member_cache.start()
         self.refresh_dropstats_task.start()
         self.secret_leaderboard_sender.start()
+        self.secret_leaderboard_snapshot_sender.start()
 
     def cog_unload(self):
         self.poll_notifications.cancel()
@@ -168,6 +168,7 @@ class SecretNotificationsForwarder(commands.Cog):
         self.refresh_clan_member_cache.cancel()
         self.refresh_dropstats_task.cancel()
         self.secret_leaderboard_sender.cancel()
+        self.secret_leaderboard_snapshot_sender.cancel()
         self.bot.tree.remove_command("dropstats", type=discord.AppCommandType.chat_input)
         self.bot.tree.remove_command("secret", type=discord.AppCommandType.chat_input)
 
@@ -1228,22 +1229,33 @@ class SecretNotificationsForwarder(commands.Cog):
             await self._enqueue_secret_leaderboard_payload()
 
     async def _enqueue_secret_leaderboard_payload(self) -> None:
-        if not SECRET_LEADERBOARD_URL or not SECRET_LEADERBOARD_TOKEN:
-            logger.warning(
-                "Secret leaderboard endpoint není nakonfigurován (URL nebo token)."
-            )
+        if not SECRET_LEADERBOARD_URL:
+            logger.warning("Secret leaderboard endpoint není nakonfigurován (URL).")
             return
-        leaderboard = get_secret_drop_leaderboard(limit=DROPSTATS_TOP_MEMBERS)
-        payload = {
-            "secret": SECRET_LEADERBOARD_TOKEN,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-            "entries": [
-                {"user_id": user_id, "count": total}
-                for user_id, total in leaderboard
-            ],
-        }
+        payload = self._build_secret_leaderboard_payload()
         enqueue_secret_leaderboard_payload(payload)
         await self._flush_secret_leaderboard_queue()
+
+    def _build_secret_leaderboard_payload(self) -> Dict[str, Any]:
+        breakdown = get_secret_drop_breakdown_all_time()
+        entries: List[Dict[str, Any]] = []
+        for user_id in sorted(breakdown.keys()):
+            rarity_counts = breakdown[user_id]
+            for rarity in sorted(rarity_counts.keys()):
+                entries.append(
+                    {
+                        "user_id": int(user_id),
+                        "rarity": str(rarity),
+                        "count": int(rarity_counts[rarity]),
+                    }
+                )
+        payload: Dict[str, Any] = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "entries": entries,
+        }
+        if SECRET_LEADERBOARD_TOKEN:
+            payload["secret"] = SECRET_LEADERBOARD_TOKEN
+        return payload
 
     async def _flush_secret_leaderboard_queue(self) -> None:
         if self._secret_leaderboard_lock.locked():
@@ -1288,6 +1300,14 @@ class SecretNotificationsForwarder(commands.Cog):
     async def before_secret_leaderboard_sender(self) -> None:
         await self.bot.wait_until_ready()
         await self._flush_secret_leaderboard_queue()
+
+    @tasks.loop(minutes=5)
+    async def secret_leaderboard_snapshot_sender(self) -> None:
+        await self._enqueue_secret_leaderboard_payload()
+
+    @secret_leaderboard_snapshot_sender.before_loop
+    async def before_secret_leaderboard_snapshot_sender(self) -> None:
+        await self.bot.wait_until_ready()
 
     async def dropstats_leaderboard(self, interaction: discord.Interaction):
         views = self._build_dropstats_views()
