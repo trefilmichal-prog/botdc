@@ -66,10 +66,27 @@ class WelcomeCog(commands.Cog):
         self, member: discord.Member, description: str
     ) -> discord.ui.LayoutView:
         view = discord.ui.LayoutView(timeout=None)
+        supports_media_gallery = hasattr(
+            discord.ui, "MediaGallery"
+        ) and hasattr(discord.ui, "MediaGalleryItem")
+        if supports_media_gallery:
+            media_gallery = discord.ui.MediaGallery(
+                discord.ui.MediaGalleryItem(
+                    url="attachment://avatar.png"
+                )
+            )
+        else:
+            self.logger.warning(
+                "discord.ui.MediaGallery is unavailable; "
+                "upgrade to a Components V2-compatible "
+                "discord.py release to render gallery images."
+            )
         view.add_item(
             discord.ui.Container(
                 discord.ui.TextDisplay(content=member.mention),
-                discord.ui.TextDisplay(
+                media_gallery
+                if supports_media_gallery
+                else discord.ui.TextDisplay(
                     content="![avatar](attachment://avatar.png)"
                 ),
                 discord.ui.TextDisplay(content="## 🎉 Welcome!"),
