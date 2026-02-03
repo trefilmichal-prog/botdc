@@ -98,7 +98,6 @@ class WelcomeCog(commands.Cog):
         avatar_bytes = await selected_member.display_avatar.with_size(256).read()
         file = discord.File(io.BytesIO(avatar_bytes), filename="avatar.png")
         await interaction.response.send_message(
-            content=selected_member.mention,
             files=[file],
             view=self._build_view(selected_member, WELCOME_TEXT),
         )
@@ -125,7 +124,6 @@ class WelcomeCog(commands.Cog):
         avatar_bytes = await after.display_avatar.with_size(256).read()
         file = discord.File(io.BytesIO(avatar_bytes), filename="avatar.png")
         await channel.send(
-            content=after.mention,
             files=[file],
             view=self._build_view(after, WELCOME_TEXT),
         )
