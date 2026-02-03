@@ -36,6 +36,9 @@ class WelcomeCog(commands.Cog):
         view = discord.ui.LayoutView(timeout=None)
         view.add_item(
             discord.ui.Container(
+                discord.ui.TextDisplay(
+                    content="![avatar](attachment://avatar.png)"
+                ),
                 discord.ui.TextDisplay(content=member.mention),
                 discord.ui.TextDisplay(content="## 🎉 Welcome!"),
                 discord.ui.TextDisplay(content=description),
