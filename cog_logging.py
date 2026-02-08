@@ -207,11 +207,12 @@ class LoggingCog(commands.Cog):
         if channel is None:
             return
 
+        safe_message = self._safe_textdisplay_content(message)
         view = discord.ui.LayoutView(timeout=None)
         view.add_item(
             discord.ui.Container(
                 discord.ui.TextDisplay(content="## Log bota"),
-                discord.ui.TextDisplay(content=message[:4096]),
+                discord.ui.TextDisplay(content=safe_message),
             )
         )
         await channel.send(
@@ -226,6 +227,26 @@ class LoggingCog(commands.Cog):
             discord.ui.Container(*(discord.ui.TextDisplay(content=line) for line in lines))
         )
         return view
+
+    def _safe_textdisplay_content(self, value: object) -> str:
+        if value is None:
+            text = ""
+        elif isinstance(value, str):
+            text = value
+        else:
+            try:
+                text = str(value)
+            except Exception:  # noqa: BLE001
+                text = ""
+        if text.strip() == "":
+            return "\u200b"
+        if len(text) > 4000:
+            suffix = "… (zkráceno)"
+            limit = 4000
+            if len(suffix) >= limit:
+                return text[:limit]
+            return f"{text[:limit - len(suffix)]}{suffix}"
+        return text
 
     def _update_log_channel_id(self, channel_id: int) -> None:
         self.log_channel_id = channel_id
