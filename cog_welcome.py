@@ -70,7 +70,7 @@ class WelcomeCog(commands.Cog):
     ) -> discord.ui.LayoutView:
         view = discord.ui.LayoutView(timeout=None)
         media_gallery = discord.ui.MediaGallery(
-            discord.MediaGalleryItem(url=avatar_url)
+            discord.MediaGalleryItem(media=avatar_url)
         )
         view.add_item(
             discord.ui.Container(
