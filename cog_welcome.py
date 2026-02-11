@@ -1,5 +1,6 @@
 import io
 import logging
+import time
 
 import discord
 from discord import app_commands
@@ -12,9 +13,12 @@ WELCOME_TEXT = "Welcome in the Clan Server HROT"
 
 
 class WelcomeCog(commands.Cog):
+    WELCOME_DEDUPE_WINDOW_SECONDS = 15
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.logger = logging.getLogger("botdc")
+        self._welcome_dedupe: dict[str, float] = {}
         self.welcome_group = app_commands.Group(
             name="welcome",
             description="Příkazy pro uvítání členů.",
@@ -80,6 +84,40 @@ class WelcomeCog(commands.Cog):
         )
         return view
 
+    def _should_send_welcome(self, member: discord.Member) -> bool:
+        dedupe_key = f"{member.guild.id}:{member.id}"
+        now = time.monotonic()
+
+        expired_keys = [
+            key
+            for key, timestamp in self._welcome_dedupe.items()
+            if now - timestamp > self.WELCOME_DEDUPE_WINDOW_SECONDS
+        ]
+        for key in expired_keys:
+            self._welcome_dedupe.pop(key, None)
+
+        last_sent = self._welcome_dedupe.get(dedupe_key)
+        if last_sent and now - last_sent <= self.WELCOME_DEDUPE_WINDOW_SECONDS:
+            return False
+
+        self._welcome_dedupe[dedupe_key] = now
+        return True
+
+    async def _send_welcome(self, member: discord.Member) -> None:
+        if member.bot or not self._should_send_welcome(member):
+            return
+
+        channel = await self._get_welcome_channel()
+        if channel is None:
+            return
+
+        avatar_bytes = await member.display_avatar.with_size(256).read()
+        file = discord.File(io.BytesIO(avatar_bytes), filename="avatar.png")
+        await channel.send(
+            files=[file],
+            view=self._build_view(member, WELCOME_TEXT),
+        )
+
     @app_commands.describe(member="Člen, pro kterého se má vytvořit uvítání.")
     @app_commands.guild_only()
     async def send_welcome_preview(
@@ -110,9 +148,6 @@ class WelcomeCog(commands.Cog):
     async def on_member_update(
         self, before: discord.Member, after: discord.Member
     ) -> None:
-        if after.bot:
-            return
-
         added_role_ids = {role.id for role in after.roles} - {
             role.id for role in before.roles
         }
@@ -121,13 +156,8 @@ class WelcomeCog(commands.Cog):
         if not (added_role_ids & welcome_role_ids):
             return
 
-        channel = await self._get_welcome_channel()
-        if channel is None:
-            return
+        await self._send_welcome(after)
 
-        avatar_bytes = await after.display_avatar.with_size(256).read()
-        file = discord.File(io.BytesIO(avatar_bytes), filename="avatar.png")
-        await channel.send(
-            files=[file],
-            view=self._build_view(after, WELCOME_TEXT),
-        )
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member) -> None:
+        await self._send_welcome(member)
