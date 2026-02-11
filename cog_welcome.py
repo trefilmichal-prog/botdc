@@ -1,4 +1,3 @@
-import io
 import logging
 import time
 
@@ -67,11 +66,11 @@ class WelcomeCog(commands.Cog):
         return None
 
     def _build_view(
-        self, member: discord.Member, description: str
+        self, member: discord.Member, description: str, avatar_url: str
     ) -> discord.ui.LayoutView:
         view = discord.ui.LayoutView(timeout=None)
         media_gallery = discord.ui.MediaGallery(
-            discord.ui.MediaGalleryItem(url="attachment://avatar.png")
+            discord.ui.MediaGalleryItem(url=avatar_url)
         )
         view.add_item(
             discord.ui.Container(
@@ -111,11 +110,9 @@ class WelcomeCog(commands.Cog):
         if channel is None:
             return
 
-        avatar_bytes = await member.display_avatar.with_size(256).read()
-        file = discord.File(io.BytesIO(avatar_bytes), filename="avatar.png")
+        avatar_url = str(member.display_avatar.with_size(256).url)
         await channel.send(
-            files=[file],
-            view=self._build_view(member, WELCOME_TEXT),
+            view=self._build_view(member, WELCOME_TEXT, avatar_url),
         )
 
     @app_commands.describe(member="Člen, pro kterého se má vytvořit uvítání.")
@@ -137,11 +134,9 @@ class WelcomeCog(commands.Cog):
                 selected_member.id
             )
 
-        avatar_bytes = await selected_member.display_avatar.with_size(256).read()
-        file = discord.File(io.BytesIO(avatar_bytes), filename="avatar.png")
+        avatar_url = str(selected_member.display_avatar.with_size(256).url)
         await interaction.response.send_message(
-            files=[file],
-            view=self._build_view(selected_member, WELCOME_TEXT),
+            view=self._build_view(selected_member, WELCOME_TEXT, avatar_url),
         )
 
     @commands.Cog.listener()
