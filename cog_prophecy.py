@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import random
 import socket
 from urllib.parse import urlsplit, urlunsplit
 from datetime import datetime
@@ -18,6 +19,9 @@ from i18n import CZECH_LOCALE, get_interaction_locale, get_message_locale, t
 
 PERSONALITY_MIN_LENGTH = 20
 PERSONALITY_MAX_LENGTH = 2000
+# 5% random prophecy trigger channels
+PROPHECY_RANDOM_CHANNEL_IDS = {1457820636557742232, 1440041477664411731}
+PROPHECY_RANDOM_CHANCE = 0.05
 
 
 class PersonalityEditModal(discord.ui.Modal):
@@ -270,10 +274,21 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
         if message.author.bot:
             return
 
-        if not self.bot.user or self.bot.user not in message.mentions:
+        mention_trigger = bool(self.bot.user and self.bot.user in message.mentions)
+        random_trigger = (
+            message.channel.id in PROPHECY_RANDOM_CHANNEL_IDS
+            and random.random() < PROPHECY_RANDOM_CHANCE
+        )
+        if not mention_trigger and not random_trigger:
             return
 
-        dotaz = self._strip_mentions(message.content, message.mentions)
+        if mention_trigger:
+            dotaz = self._strip_mentions(message.content, message.mentions)
+        else:
+            dotaz = message.content.strip()
+            if not dotaz:
+                return
+
         locale = get_message_locale(message)
         if locale != CZECH_LOCALE and self._detect_czech_text(dotaz):
             locale = CZECH_LOCALE
