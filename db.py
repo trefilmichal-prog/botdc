@@ -341,6 +341,16 @@ def init_db():
 
     c.execute(
         """
+        CREATE TABLE IF NOT EXISTS guild_prophecy_settings (
+            guild_id INTEGER PRIMARY KEY,
+            random_chance REAL NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+    c.execute(
+        """
         CREATE TABLE IF NOT EXISTS restart_plans (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             planned_restart_at TEXT NOT NULL,
@@ -1065,6 +1075,40 @@ def get_guild_personality(guild_id: int) -> Optional[str]:
     row = c.fetchone()
     conn.close()
     return row[0] if row else None
+
+
+def set_guild_prophecy_random_chance(guild_id: int, random_chance: float) -> None:
+    now_iso = datetime.utcnow().isoformat()
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO guild_prophecy_settings (guild_id, random_chance, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(guild_id) DO UPDATE SET
+            random_chance = excluded.random_chance,
+            updated_at = excluded.updated_at
+        """,
+        (int(guild_id), float(random_chance), now_iso),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_guild_prophecy_random_chance(guild_id: int) -> Optional[float]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT random_chance
+        FROM guild_prophecy_settings
+        WHERE guild_id = ?
+        """,
+        (int(guild_id),),
+    )
+    row = c.fetchone()
+    conn.close()
+    return float(row[0]) if row else None
 
 
 def upsert_guild_restart_setting(

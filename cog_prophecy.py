@@ -13,7 +13,13 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import OLLAMA_MODEL, OLLAMA_TIMEOUT, OLLAMA_URL, validate_ollama_model
-from db import get_guild_personality, log_prophecy, set_guild_personality
+from db import (
+    get_guild_personality,
+    get_guild_prophecy_random_chance,
+    log_prophecy,
+    set_guild_personality,
+    set_guild_prophecy_random_chance,
+)
 from i18n import CZECH_LOCALE, get_interaction_locale, get_message_locale, t
 
 
@@ -21,7 +27,9 @@ PERSONALITY_MIN_LENGTH = 20
 PERSONALITY_MAX_LENGTH = 2000
 # 5% random prophecy trigger channels
 PROPHECY_RANDOM_CHANNEL_IDS = {1457820636557742232, 1440041477664411731}
-PROPHECY_RANDOM_CHANCE = 0.30
+PROPHECY_RANDOM_CHANCE_DEFAULT = 0.30
+PROPHECY_RANDOM_CHANCE_MIN = 0.0
+PROPHECY_RANDOM_CHANCE_MAX = 1.0
 
 
 class PersonalityEditModal(discord.ui.Modal):
@@ -119,6 +127,12 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
     personality_group = app_commands.Group(
         name="personality",
         description="Správa osobnosti proroctví",
+        parent=prophecy_group,
+    )
+
+    random_group = app_commands.Group(
+        name="random",
+        description="Nastavení náhodných triggerů proroctví",
         parent=prophecy_group,
     )
 
@@ -237,6 +251,22 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
             )
             return None
 
+    def _get_guild_random_chance(self, guild_id: int | None) -> float:
+        if guild_id is None:
+            return PROPHECY_RANDOM_CHANCE_DEFAULT
+        try:
+            chance = get_guild_prophecy_random_chance(guild_id)
+        except Exception as error:
+            self._logger.warning(
+                "Failed to load prophecy random chance for guild_id=%s: %s", guild_id, error
+            )
+            return PROPHECY_RANDOM_CHANCE_DEFAULT
+
+        if chance is None:
+            return PROPHECY_RANDOM_CHANCE_DEFAULT
+
+        return max(PROPHECY_RANDOM_CHANCE_MIN, min(PROPHECY_RANDOM_CHANCE_MAX, float(chance)))
+
     def _build_prompt(self, locale, question: str, guild_id: int | None, *, is_message: bool) -> str:
         guild_prompt = self._load_guild_personality(guild_id)
         if guild_prompt:
@@ -278,7 +308,7 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
         mention_trigger = bool(self.bot.user and self.bot.user in message.mentions)
         random_trigger = (
             message.channel.id in PROPHECY_RANDOM_CHANNEL_IDS
-            and random.random() < PROPHECY_RANDOM_CHANCE
+            and random.random() < self._get_guild_random_chance(message.guild.id if message.guild else None)
         )
         if not mention_trigger and not random_trigger:
             return
@@ -380,3 +410,69 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
         self._log_prophecy(
             sent_message, dotaz or "-", response_text, author_id=interaction.user.id
         )
+
+
+    @random_group.command(name="chance", description="Nastaví šanci random triggeru proroctví pro tento server")
+    @app_commands.guild_only()
+    @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.describe(hodnota="Číslo od 0.0 do 1.0 (např. 0.3 = 30 %)")
+    async def prophecy_random_chance(self, interaction: discord.Interaction, hodnota: float) -> None:
+        locale = get_interaction_locale(interaction)
+
+        if not interaction.guild_id:
+            fallback_view = discord.ui.LayoutView(timeout=None)
+            fallback_view.add_item(
+                discord.ui.Container(
+                    discord.ui.TextDisplay(content=t("prophecy_personality_guild_only", locale)),
+                )
+            )
+            await interaction.response.send_message(view=fallback_view, ephemeral=True)
+            return
+
+        if not (PROPHECY_RANDOM_CHANCE_MIN <= hodnota <= PROPHECY_RANDOM_CHANCE_MAX):
+            invalid_view = discord.ui.LayoutView(timeout=None)
+            invalid_view.add_item(
+                discord.ui.Container(
+                    discord.ui.TextDisplay(content=t("prophecy_random_chance_invalid_title", locale)),
+                    discord.ui.TextDisplay(
+                        content=t(
+                            "prophecy_random_chance_invalid_body",
+                            locale,
+                            min_value=PROPHECY_RANDOM_CHANCE_MIN,
+                            max_value=PROPHECY_RANDOM_CHANCE_MAX,
+                        )
+                    ),
+                )
+            )
+            await interaction.response.send_message(view=invalid_view, ephemeral=True)
+            return
+
+        normalized_value = round(float(hodnota), 4)
+        try:
+            set_guild_prophecy_random_chance(interaction.guild_id, normalized_value)
+        except Exception as error:
+            error_view = discord.ui.LayoutView(timeout=None)
+            error_view.add_item(
+                discord.ui.Container(
+                    discord.ui.TextDisplay(content=t("prophecy_random_chance_save_failed_title", locale)),
+                    discord.ui.TextDisplay(content=t("prophecy_random_chance_save_failed_body", locale, error=error)),
+                )
+            )
+            await interaction.response.send_message(view=error_view, ephemeral=True)
+            return
+
+        success_view = discord.ui.LayoutView(timeout=None)
+        success_view.add_item(
+            discord.ui.Container(
+                discord.ui.TextDisplay(content=t("prophecy_random_chance_saved_title", locale)),
+                discord.ui.TextDisplay(
+                    content=t(
+                        "prophecy_random_chance_saved_body",
+                        locale,
+                        chance=normalized_value,
+                        percent=int(round(normalized_value * 100)),
+                    )
+                ),
+            )
+        )
+        await interaction.response.send_message(view=success_view, ephemeral=True)
