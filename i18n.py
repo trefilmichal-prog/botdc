@@ -566,6 +566,50 @@ STRINGS: dict[str, dict[str, str]] = {
         "cs": "😂 Vtipná odpověď",
         "en": "😂 Funny reply",
     },
+    "prophecy_personality_modal_title": {
+        "cs": "Upravit osobnost proroctví",
+        "en": "Edit prophecy personality",
+    },
+    "prophecy_personality_modal_label": {
+        "cs": "Osobnost (prompt)",
+        "en": "Personality (prompt)",
+    },
+    "prophecy_personality_modal_placeholder": {
+        "cs": "Zadej osobnost pro odpovědi bota na tomto serveru…",
+        "en": "Enter the bot personality for replies on this server…",
+    },
+    "prophecy_personality_too_short": {
+        "cs": "Osobnost musí mít minimálně **{min_length}** znaků.",
+        "en": "Personality must be at least **{min_length}** characters long.",
+    },
+    "prophecy_personality_too_long": {
+        "cs": "Osobnost může mít maximálně **{max_length}** znaků.",
+        "en": "Personality can be at most **{max_length}** characters long.",
+    },
+    "prophecy_personality_save_failed_title": {
+        "cs": "## ❌ Uložení se nezdařilo",
+        "en": "## ❌ Save failed",
+    },
+    "prophecy_personality_save_failed_body": {
+        "cs": "Chyba: `{error}`",
+        "en": "Error: `{error}`",
+    },
+    "prophecy_personality_saved_title": {
+        "cs": "## ✅ Osobnost byla uložena",
+        "en": "## ✅ Personality was saved",
+    },
+    "prophecy_personality_saved_body": {
+        "cs": "Nastavení je uloženo per guild a zůstane i po restartu bota.",
+        "en": "This setting is stored per guild and remains after bot restarts.",
+    },
+    "prophecy_personality_saved_length": {
+        "cs": "Délka: **{length}** znaků.",
+        "en": "Length: **{length}** characters.",
+    },
+    "prophecy_personality_guild_only": {
+        "cs": "## ❌ Tento příkaz lze použít jen na serveru.",
+        "en": "## ❌ This command can only be used in a server.",
+    },
     "profile_title": {
         "cs": "Profil – {name}",
         "en": "Profile – {name}",
