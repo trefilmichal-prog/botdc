@@ -22,9 +22,9 @@ ALLOWED_GUILD_ID = 1440039495058854030
 
 # Ollama konfigurace
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-# Podporovaný model je pouze qwen3:4b.
+# Podporovaný model je pouze qwen3:4b-instruct.
 # Jakákoli jiná hodnota OLLAMA_MODEL je považována za neplatnou konfiguraci.
-SUPPORTED_OLLAMA_MODEL = "qwen3:4b"
+SUPPORTED_OLLAMA_MODEL = "qwen3:4b-instruct"
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", SUPPORTED_OLLAMA_MODEL)
 OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))
 
