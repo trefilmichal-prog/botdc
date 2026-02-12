@@ -32,6 +32,7 @@ from cog_welcome import WelcomeCog
 from cog_wood import WoodCog
 from cog_xp import XpCog
 from config import (
+    LOG_TO_CONSOLE,
     TOKEN,
     WINDOWS_NOTIFICATION_WINRT_ENABLED,
     WINDOWS_NOTIFICATION_WINRT_POLL_INTERVAL,
@@ -49,14 +50,21 @@ class PragueTimeFormatter(logging.Formatter):
         return dt.isoformat()
 
 
-handler = logging.StreamHandler()
-handler.setFormatter(
-    PragueTimeFormatter(
-        "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        "%Y-%m-%d %H:%M:%S",
+if LOG_TO_CONSOLE:
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(
+        PragueTimeFormatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            "%Y-%m-%d %H:%M:%S",
+        )
     )
-)
-logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
+    logging.basicConfig(level=logging.INFO, handlers=[console_handler], force=True)
+else:
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()
+    root_logger.addHandler(logging.NullHandler())
+    root_logger.setLevel(logging.INFO)
+    logging.lastResort = None
 logger = logging.getLogger("botdc")
 
 
