@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import socket
+from urllib.parse import urlsplit, urlunsplit
 from datetime import datetime
 import urllib.error
 import urllib.request
@@ -73,14 +74,43 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
         return any(keyword in lowercase for keyword in czech_keywords)
 
     def _post_json(self, payload: dict[str, object]) -> str:
-        request = urllib.request.Request(
-            OLLAMA_URL,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
+        for ollama_url in self._candidate_ollama_urls():
+            try:
+                request = urllib.request.Request(
+                    ollama_url,
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(request, timeout=OLLAMA_TIMEOUT) as response:
+                    return response.read().decode("utf-8")
+            except urllib.error.HTTPError as error:
+                if error.code == 404:
+                    continue
+                raise
+
+        raise urllib.error.HTTPError(
+            self._candidate_ollama_urls()[-1],
+            404,
+            "No valid Ollama endpoint found",
+            hdrs=None,
+            fp=None,
         )
-        with urllib.request.urlopen(request, timeout=OLLAMA_TIMEOUT) as response:
-            return response.read().decode("utf-8")
+
+    def _candidate_ollama_urls(self) -> list[str]:
+        parsed = urlsplit(OLLAMA_URL)
+        path = parsed.path or ""
+        if not path or path == "/":
+            base = urlunsplit((parsed.scheme, parsed.netloc, "", parsed.query, parsed.fragment)).rstrip("/")
+            return [f"{base}/api/generate", f"{base}/api/chat"]
+
+        if path.endswith("/api/generate"):
+            return [OLLAMA_URL, OLLAMA_URL.replace("/api/generate", "/api/chat")]
+
+        if path.endswith("/api/chat"):
+            return [OLLAMA_URL, OLLAMA_URL.replace("/api/chat", "/api/generate")]
+
+        return [OLLAMA_URL]
 
     async def _ask_ollama(self, prompt: str) -> str | None:
         payload = {
