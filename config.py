@@ -4,6 +4,8 @@ import json
 import logging
 import os
 
+logger = logging.getLogger(__name__)
+
 # Absolutní cesta ke kořenovému adresáři projektu
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -17,7 +19,7 @@ ALLOWED_GUILD_ID = 1440039495058854030
 
 # Ollama konfigurace
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:4b")
 OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))
 
 # DeepL konfigurace
@@ -26,15 +28,13 @@ OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))
 # ověření pomocí DEEPL_SSL_VERIFY=false).
 DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
 if not DEEPL_API_KEY:
-    raise RuntimeError(
-        "Chybí environment proměnná DEEPL_API_KEY pro překlady Deepl."
+    logger.warning(
+        "DEEPL_API_KEY není nastaveno. DeepL překlady budou přeskočeny a použije se Ollama fallback."
     )
 DEEPL_API_URL = os.getenv("DEEPL_API_URL", "https://api-free.deepl.com/v2/translate")
 DEEPL_TIMEOUT = int(os.getenv("DEEPL_TIMEOUT", "30"))
 DEEPL_SSL_VERIFY = os.getenv("DEEPL_SSL_VERIFY", "true").lower() == "true"
 DEEPL_CA_BUNDLE = os.getenv("DEEPL_CA_BUNDLE")
-
-logger = logging.getLogger(__name__)
 
 if DEEPL_CA_BUNDLE:
     if not (os.path.isfile(DEEPL_CA_BUNDLE) and os.access(DEEPL_CA_BUNDLE, os.R_OK)):

@@ -7,6 +7,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -22,6 +23,9 @@ from config import (
     DEEPL_CA_BUNDLE,
     DEEPL_SSL_VERIFY,
     DEEPL_TIMEOUT,
+    OLLAMA_MODEL,
+    OLLAMA_TIMEOUT,
+    OLLAMA_URL,
     REACTION_TRANSLATION_BLOCKED_CHANNEL_IDS,
 )
 
@@ -124,6 +128,16 @@ class AutoTranslateCog(commands.Cog):
         ) as response:
             return response.read().decode("utf-8")
 
+    def _post_ollama(self, payload: dict[str, object]) -> str:
+        request = urllib.request.Request(
+            OLLAMA_URL,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=OLLAMA_TIMEOUT) as response:
+            return response.read().decode("utf-8")
+
     def _resolve_language(self, language: str) -> tuple[str, str] | None:
         normalized = language.strip().lower().replace(" ", "").replace("-", "")
         language_map = {
@@ -139,52 +153,91 @@ class AutoTranslateCog(commands.Cog):
         }
         return language_map.get(normalized)
 
-    async def _translate_text(self, target_lang: str, content: str) -> str | None:
-        prepared_content = self._prepare_content(content)
+    async def _translate_text_with_ollama(
+        self, target_lang: str, content: str
+    ) -> str | None:
+        prompt = (
+            "Přelož následující text do jazyka "
+            f"{target_lang}. Vrať pouze přeložený text bez komentářů, "
+            "vysvětlení nebo uvozovek.\n\n"
+            f"Text:\n{content}"
+        )
         payload = {
-            "auth_key": DEEPL_API_KEY,
-            "text": prepared_content,
-            "target_lang": target_lang,
+            "model": OLLAMA_MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"temperature": 0.1},
         }
 
         try:
-            raw_response = await asyncio.to_thread(self._post_deepl, payload)
+            raw_response = await asyncio.to_thread(self._post_ollama, payload)
             data = json.loads(raw_response)
-        except ssl.SSLCertVerificationError as error:
-            logger.warning(
-                "DeepL SSL certificate verification failed. "
-                "Check DEEPL_CA_BUNDLE or set DEEPL_SSL_VERIFY=false. Details: %s",
-                error,
-            )
-            return None
         except (urllib.error.URLError, TimeoutError) as error:
-            if isinstance(error, urllib.error.URLError) and isinstance(
-                error.reason, ssl.SSLCertVerificationError
-            ):
+            logger.warning("Ollama fallback request failed: %s", error)
+            return None
+        except json.JSONDecodeError:
+            logger.warning("Ollama fallback returned invalid JSON")
+            return None
+
+        translation_text = data.get("response") if isinstance(data, dict) else None
+        if not translation_text:
+            return None
+
+        cleaned = str(translation_text).strip()
+        return cleaned or None
+
+    async def _translate_text(self, target_lang: str, content: str) -> str | None:
+        prepared_content = self._prepare_content(content)
+
+        if DEEPL_API_KEY:
+            payload = {
+                "auth_key": DEEPL_API_KEY,
+                "text": prepared_content,
+                "target_lang": target_lang,
+            }
+
+            try:
+                raw_response = await asyncio.to_thread(self._post_deepl, payload)
+                data = json.loads(raw_response)
+            except ssl.SSLCertVerificationError as error:
                 logger.warning(
                     "DeepL SSL certificate verification failed. "
                     "Check DEEPL_CA_BUNDLE or set DEEPL_SSL_VERIFY=false. Details: %s",
-                    error.reason,
+                    error,
                 )
-                return None
-            logger.warning("DeepL request failed: %s", error)
-            return None
-        except json.JSONDecodeError:
-            logger.warning("DeepL returned invalid JSON")
-            return None
+            except (urllib.error.URLError, TimeoutError) as error:
+                if isinstance(error, urllib.error.URLError) and isinstance(
+                    error.reason, ssl.SSLCertVerificationError
+                ):
+                    logger.warning(
+                        "DeepL SSL certificate verification failed. "
+                        "Check DEEPL_CA_BUNDLE or set DEEPL_SSL_VERIFY=false. Details: %s",
+                        error.reason,
+                    )
+                else:
+                    logger.warning("DeepL request failed: %s", error)
+            except json.JSONDecodeError:
+                logger.warning("DeepL returned invalid JSON")
+            else:
+                translations = data.get("translations") if isinstance(data, dict) else None
+                if translations and isinstance(translations, list):
+                    first_translation = translations[0] if translations else None
+                    if isinstance(first_translation, dict):
+                        translation_text = first_translation.get("text")
+                        if translation_text:
+                            logger.info("Translation backend used: DeepL")
+                            return str(translation_text).strip()
 
-        translations = data.get("translations") if isinstance(data, dict) else None
-        if not translations or not isinstance(translations, list):
-            return None
+                logger.warning("DeepL response missing expected translations payload")
+        else:
+            logger.info("DeepL skipped because DEEPL_API_KEY is not configured")
 
-        first_translation = translations[0] if translations else None
-        if not isinstance(first_translation, dict):
-            return None
-
-        translation_text = first_translation.get("text")
-        if not translation_text:
-            return None
-        return str(translation_text).strip()
+        fallback_translation = await self._translate_text_with_ollama(
+            target_lang, prepared_content
+        )
+        if fallback_translation:
+            logger.info("Translation backend used: Ollama fallback (%s)", OLLAMA_MODEL)
+        return fallback_translation
 
     async def _target_messageable(self) -> discord.abc.Messageable | None:
         if self._target_channel:
