@@ -610,6 +610,30 @@ STRINGS: dict[str, dict[str, str]] = {
         "cs": "## ❌ Tento příkaz lze použít jen na serveru.",
         "en": "## ❌ This command can only be used in a server.",
     },
+    "prophecy_random_chance_invalid_title": {
+        "cs": "## ❌ Neplatná hodnota šance",
+        "en": "## ❌ Invalid chance value",
+    },
+    "prophecy_random_chance_invalid_body": {
+        "cs": "Použij číslo v rozsahu **{min_value}** až **{max_value}**.",
+        "en": "Use a number between **{min_value}** and **{max_value}**.",
+    },
+    "prophecy_random_chance_save_failed_title": {
+        "cs": "## ❌ Uložení šance se nezdařilo",
+        "en": "## ❌ Failed to save chance",
+    },
+    "prophecy_random_chance_save_failed_body": {
+        "cs": "Chyba: `{error}`",
+        "en": "Error: `{error}`",
+    },
+    "prophecy_random_chance_saved_title": {
+        "cs": "## ✅ Šance random triggeru byla uložena",
+        "en": "## ✅ Random trigger chance saved",
+    },
+    "prophecy_random_chance_saved_body": {
+        "cs": "Nová šance je **{chance}** (≈ **{percent} %**). Nastavení je per guild a zůstane po restartu.",
+        "en": "New chance is **{chance}** (≈ **{percent}%**). The setting is per guild and persists after restart.",
+    },
     "profile_title": {
         "cs": "Profil – {name}",
         "en": "Profile – {name}",
