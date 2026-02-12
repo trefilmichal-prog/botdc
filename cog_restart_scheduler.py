@@ -32,13 +32,11 @@ class RestartSchedulerCog(commands.Cog):
         self._restoring_plan = False
 
     async def cog_load(self) -> None:
-        self.bot.tree.add_command(self.restart_group)
         await self._restore_restart_plan()
         if not self.scheduler_loop.is_running():
             self.scheduler_loop.start()
 
     async def cog_unload(self) -> None:
-        self.bot.tree.remove_command("restart", type=discord.AppCommandType.chat_input)
         if self.scheduler_loop.is_running():
             self.scheduler_loop.cancel()
 
@@ -184,4 +182,3 @@ class RestartSchedulerCog(commands.Cog):
                 f"Poslední plánovaný restart: `{last_restart_at or 'neznámý'}`.",
             ],
         )
-
