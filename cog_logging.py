@@ -9,6 +9,8 @@ from discord.ext import commands
 from db import get_log_channel_id, set_log_channel_id
 
 LOG_CHANNEL_ID = 1440046748088402064
+MAX_TEXTDISPLAY_PAYLOAD_LENGTH = 4000
+TRUNCATION_SUFFIX = "… (zkráceno)"
 
 
 class LoggingCog(commands.Cog):
@@ -137,10 +139,7 @@ class LoggingCog(commands.Cog):
         if attachments:
             lines.append("**Přílohy:**\n" + "\n".join(attachments)[:1024])
 
-        view = discord.ui.LayoutView(timeout=None)
-        view.add_item(
-            discord.ui.Container(*(discord.ui.TextDisplay(content=line) for line in lines))
-        )
+        view = self._build_view(lines)
         await channel.send(
             content="",
             view=view,
@@ -180,10 +179,7 @@ class LoggingCog(commands.Cog):
             f"**Původní text:** {(before.content or '*(Žádný text)*')[:1024]}",
             f"**Nový text:** {(after.content or '*(Žádný text)*')[:1024]}",
         ]
-        view = discord.ui.LayoutView(timeout=None)
-        view.add_item(
-            discord.ui.Container(*(discord.ui.TextDisplay(content=line) for line in lines))
-        )
+        view = self._build_view(lines)
         await channel.send(
             content="",
             view=view,
@@ -207,14 +203,8 @@ class LoggingCog(commands.Cog):
         if channel is None:
             return
 
-        safe_message = self._safe_textdisplay_content(message)
-        view = discord.ui.LayoutView(timeout=None)
-        view.add_item(
-            discord.ui.Container(
-                discord.ui.TextDisplay(content="## Log bota"),
-                discord.ui.TextDisplay(content=safe_message),
-            )
-        )
+        payload_lines = self._fit_textdisplay_payload(["## Log bota", message])
+        view = self._build_view(payload_lines)
         await channel.send(
             content="",
             view=view,
@@ -222,13 +212,40 @@ class LoggingCog(commands.Cog):
         )
 
     def _build_view(self, lines: list[str]) -> discord.ui.LayoutView:
+        safe_lines = self._fit_textdisplay_payload(lines)
         view = discord.ui.LayoutView(timeout=None)
         view.add_item(
-            discord.ui.Container(*(discord.ui.TextDisplay(content=line) for line in lines))
+            discord.ui.Container(
+                *(discord.ui.TextDisplay(content=line) for line in safe_lines)
+            )
         )
         return view
 
-    def _safe_textdisplay_content(self, value: object) -> str:
+    def _fit_textdisplay_payload(self, values: list[object]) -> list[str]:
+        safe_values = [self._safe_textdisplay_content(value) for value in values]
+        adjusted_values: list[str] = []
+        used_chars = 0
+
+        for value in safe_values:
+            remaining = MAX_TEXTDISPLAY_PAYLOAD_LENGTH - used_chars
+            if remaining <= 0:
+                break
+
+            if len(value) <= remaining:
+                adjusted_values.append(value)
+                used_chars += len(value)
+                continue
+
+            adjusted_values.append(self._safe_textdisplay_content(value, limit=remaining))
+            break
+
+        if not adjusted_values:
+            return ["\u200b"]
+        return adjusted_values
+
+    def _safe_textdisplay_content(
+        self, value: object, limit: int = MAX_TEXTDISPLAY_PAYLOAD_LENGTH
+    ) -> str:
         if value is None:
             text = ""
         elif isinstance(value, str):
@@ -240,12 +257,10 @@ class LoggingCog(commands.Cog):
                 text = ""
         if text.strip() == "":
             return "\u200b"
-        if len(text) > 4000:
-            suffix = "… (zkráceno)"
-            limit = 4000
-            if len(suffix) >= limit:
+        if len(text) > limit:
+            if len(TRUNCATION_SUFFIX) >= limit:
                 return text[:limit]
-            return f"{text[:limit - len(suffix)]}{suffix}"
+            return f"{text[:limit - len(TRUNCATION_SUFFIX)]}{TRUNCATION_SUFFIX}"
         return text
 
     def _update_log_channel_id(self, channel_id: int) -> None:
