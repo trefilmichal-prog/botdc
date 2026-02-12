@@ -198,7 +198,7 @@ class AdminTasks(commands.Cog):
                         ),
                     )
                 )
-                await channel.send(content="", view=view)
+                await channel.send(view=view)
                 self.logger.info("Zpracován úkol %s (%s)", task_id, action)
                 self._mark_task_processed(task_id)
             except Exception:

@@ -89,7 +89,7 @@ class XpCog(commands.Cog, name="XpCog"):
             discord.ui.Container(*(discord.ui.TextDisplay(content=line) for line in lines))
         )
 
-        await interaction.response.send_message(content="", view=view, ephemeral=True)
+        await interaction.response.send_message(view=view, ephemeral=True)
 
     @app_commands.command(
         name="give_coins",

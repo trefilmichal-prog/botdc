@@ -167,18 +167,7 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
             return
 
         response_view = self._build_prophecy_view(locale, dotaz, response_text)
-        locale_code = getattr(locale, "value", str(locale))
-        question_label = "Otázka" if locale_code.startswith("cs") else "Question"
-        answer_label = "Odpověď" if locale_code.startswith("cs") else "Answer"
-        response_body = (
-            f"{t('prophecy_title', locale)}\n"
-            f"{question_label}: {dotaz}\n\n"
-            f"{answer_label}: {response_text}\n\n"
-            f"Model: {OLLAMA_MODEL}"
-        )
-
         sent_message = await message.channel.send(
-            response_body,
             view=response_view,
             allowed_mentions=discord.AllowedMentions.none(),
         )
@@ -207,18 +196,7 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
             return
 
         response_view = self._build_prophecy_view(locale, dotaz or "-", response_text)
-        locale_code = getattr(locale, "value", str(locale))
-        question_label = "Otázka" if locale_code.startswith("cs") else "Question"
-        answer_label = "Odpověď" if locale_code.startswith("cs") else "Answer"
-        response_body = (
-            f"{t('prophecy_title', locale)}\n"
-            f"{question_label}: {dotaz or '-'}\n\n"
-            f"{answer_label}: {response_text}\n\n"
-            f"Model: {OLLAMA_MODEL}"
-        )
-
         await interaction.edit_original_response(
-            response_body,
             view=response_view,
         )
         try:

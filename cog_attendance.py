@@ -205,7 +205,7 @@ class AttendancePanelView(discord.ui.LayoutView):
             session.statuses,
         )
 
-        await interaction.response.edit_message(content="", view=self)
+        await interaction.response.edit_message(view=self)
 
     async def mark_ready(
         self, interaction: discord.Interaction, button: discord.ui.Button | None = None
@@ -265,7 +265,7 @@ class AttendancePanelView(discord.ui.LayoutView):
             session.statuses,
         )
 
-        await interaction.response.edit_message(content="", view=self)
+        await interaction.response.edit_message(view=self)
 
 
 class SetupReadyPanelView(discord.ui.LayoutView):
@@ -610,7 +610,6 @@ class AttendanceCog(commands.Cog, name="Attendance"):
         writer = get_writer(self.bot)
         message = await writer.send_interaction_followup(
             interaction,
-            content="",
             view=view,
             allowed_mentions=discord.AllowedMentions(roles=roles),
         )
@@ -675,7 +674,7 @@ class AttendanceCog(commands.Cog, name="Attendance"):
             self.bot.add_view(view, message_id=message_id)
             try:
                 writer = get_writer(self.bot)
-                await writer.edit_message(message, content="", view=view)
+                await writer.edit_message(message, view=view)
             except (discord.Forbidden, discord.HTTPException):
                 delete_attendance_panel(message_id)
 
@@ -719,7 +718,7 @@ class AttendanceCog(commands.Cog, name="Attendance"):
             self.bot.add_view(view, message_id=message_id)
             try:
                 writer = get_writer(self.bot)
-                await writer.edit_message(message, content="", view=view)
+                await writer.edit_message(message, view=view)
             except (discord.Forbidden, discord.HTTPException):
                 delete_attendance_setup_panel(message_id)
 
@@ -747,7 +746,7 @@ class AttendanceCog(commands.Cog, name="Attendance"):
         view = SetupReadyPanelView(self, interaction.guild)
         writer = get_writer(self.bot)
         message = await writer.send_interaction_followup(
-            interaction, content="", view=view
+            interaction, view=view
         )
         save_attendance_setup_panel(
             message.id, interaction.guild.id, interaction.channel.id

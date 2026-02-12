@@ -1180,7 +1180,7 @@ class ClanApplicationModal(discord.ui.Modal):
             ),
         )
         summary_view.add_item(summary_container)
-        await ticket_channel.send(content="", view=summary_view)
+        await ticket_channel.send(view=summary_view)
 
         if (not nick_ok) or (not rename_ok) or (not role_vis_ok):
             warn_view = discord.ui.LayoutView(timeout=None)
@@ -1207,7 +1207,7 @@ class ClanApplicationModal(discord.ui.Modal):
 
             warn_container = discord.ui.Container(*warn_items)
             warn_view.add_item(warn_container)
-            await ticket_channel.send(content="", view=warn_view)
+            await ticket_channel.send(view=warn_view)
 
         role_mention = _role_mention_for_clan(self.clan_value, guild.id)
         if role_mention:
@@ -1217,9 +1217,7 @@ class ClanApplicationModal(discord.ui.Modal):
             )
 
         # Screenshot instructions (no button). Role mention is shown but NOT pinged by bot.
-        await ticket_channel.send(
-            content="",
-            view=ScreenshotInstructionsView(
+        await ticket_channel.send(view=ScreenshotInstructionsView(
                 interaction.user.mention,
                 self.clan_value,
                 lang,
@@ -1231,7 +1229,6 @@ class ClanApplicationModal(discord.ui.Modal):
         writer = get_writer(interaction.client)
         await writer.send_interaction_followup(
             interaction,
-            content="",
             view=_simple_text_view(f"{_t(lang, 'ticket_created')} {ticket_channel.mention}"),
             ephemeral=True,
         )
@@ -1277,9 +1274,7 @@ class ClanPanelConfigModal(discord.ui.Modal):
             except Exception:
                 pass
 
-        await interaction.response.send_message(
-            content="",
-            view=_simple_text_view("Panel byl upraven."),
+        await interaction.response.send_message(view=_simple_text_view("Panel byl upraven."),
             ephemeral=True,
         )
 
@@ -1542,7 +1537,7 @@ class ClanPanelCog(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def clan_panel(self, interaction: discord.Interaction):
         view = self._build_panel_view(interaction.guild.id if interaction.guild else None)
-        await interaction.response.send_message(content="", view=view, ephemeral=False)
+        await interaction.response.send_message(view=view, ephemeral=False)
 
         try:
             message = await interaction.original_response()
@@ -1681,7 +1676,7 @@ class ClanPanelCog(commands.Cog):
         if action_value == "list":
             entries = list_clan_definitions(guild.id)
             view = _render_view("Nastavené clany", entries)
-            await interaction.response.send_message(content="", view=view, ephemeral=True)
+            await interaction.response.send_message(view=view, ephemeral=True)
             return
 
         if not key_slug:
@@ -1692,7 +1687,7 @@ class ClanPanelCog(commands.Cog):
             delete_clan_definition(guild.id, key_slug)
             entries = list_clan_definitions(guild.id)
             view = _render_view(f"Clan {key_slug} byl odstraněn.", entries)
-            await interaction.response.send_message(content="", view=view, ephemeral=True)
+            await interaction.response.send_message(view=view, ephemeral=True)
             await self._refresh_clan_panels_for_guild(guild.id)
             return
 
@@ -1738,7 +1733,7 @@ class ClanPanelCog(commands.Cog):
 
         entries = list_clan_definitions(guild.id)
         view = _render_view("Clan byl uložen.", entries)
-        await interaction.response.send_message(content="", view=view, ephemeral=True)
+        await interaction.response.send_message(view=view, ephemeral=True)
         await self._refresh_clan_panels_for_guild(guild.id)
 
     async def _refresh_clan_panels_for_guild(self, guild_id: int | None):
@@ -1830,9 +1825,7 @@ class ClanPanelCog(commands.Cog):
                 await interaction.response.send_message(_t(lang, "no_perm"), ephemeral=True)
                 return
 
-            await interaction.response.send_message(
-                content="",
-                view=AdminDecisionView(channel_id, clan_value, lang, guild.id),
+            await interaction.response.send_message(view=AdminDecisionView(channel_id, clan_value, lang, guild.id),
                 ephemeral=True,
             )
             return
