@@ -6,7 +6,13 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from db import get_log_channel_id, set_log_channel_id
+from db import (
+    get_audit_log_channel_id,
+    get_error_log_channel_id,
+    get_log_channel_id,
+    set_audit_log_channel_id,
+    set_error_log_channel_id,
+)
 
 LOG_CHANNEL_ID = 1440046748088402064
 MAX_TEXTDISPLAY_PAYLOAD_LENGTH = 4000
@@ -18,7 +24,26 @@ class LoggingCog(commands.Cog):
         self.bot = bot
         self.logger = logging.getLogger("botdc")
         self.logger.setLevel(logging.INFO)
-        self.log_channel_id = get_log_channel_id() or LOG_CHANNEL_ID
+
+        legacy_log_channel_id = get_log_channel_id()
+        stored_error_log_channel_id = get_error_log_channel_id()
+        stored_audit_log_channel_id = get_audit_log_channel_id()
+
+        if stored_error_log_channel_id is None:
+            stored_error_log_channel_id = legacy_log_channel_id
+        if stored_audit_log_channel_id is None:
+            stored_audit_log_channel_id = legacy_log_channel_id
+
+        self.error_log_channel_id = (
+            LOG_CHANNEL_ID
+            if stored_error_log_channel_id is None
+            else stored_error_log_channel_id
+        )
+        self.audit_log_channel_id = (
+            LOG_CHANNEL_ID
+            if stored_audit_log_channel_id is None
+            else stored_audit_log_channel_id
+        )
 
         self.log_queue: asyncio.Queue[str] = asyncio.Queue()
         self.log_task: asyncio.Task[None] | None = None
@@ -41,25 +66,65 @@ class LoggingCog(commands.Cog):
 
         self.log_settings_group = app_commands.Group(
             name="log_settings",
-            description="Nastavení logovacího kanálu.",
+            description="Nastavení logování bota.",
             default_permissions=discord.Permissions(administrator=True),
         )
-        self.log_settings_group.command(
+
+        self.error_group = app_commands.Group(
+            name="errors",
+            description="Nastavení logování chyb a systémových událostí.",
+        )
+        self.error_group.command(
             name="set_channel",
-            description="Nastaví kanál, kam se budou posílat logy bota.",
-        )(self.set_log_channel)
-        self.log_settings_group.command(
+            description="Nastaví kanál pro logy chyb bota.",
+        )(self.errors_set_channel)
+        self.error_group.command(
             name="set_channel_id",
-            description="Nastaví ID kanálu (včetně vláken) pro logy bota.",
-        )(self.set_log_channel_id)
+            description="Nastaví ID kanálu (včetně vláken) pro logy chyb bota.",
+        )(self.errors_set_channel_id)
+        self.error_group.command(
+            name="show",
+            description="Zobrazí aktuální kanál pro logy chyb.",
+        )(self.errors_show)
+        self.error_group.command(
+            name="disable",
+            description="Vypne posílání logů chyb do Discord kanálu.",
+        )(self.errors_disable)
+
+        self.audit_group = app_commands.Group(
+            name="audit",
+            description="Nastavení audit logů (úprava/smazání zpráv).",
+        )
+        self.audit_group.command(
+            name="set_channel",
+            description="Nastaví kanál pro audit logy zpráv.",
+        )(self.audit_set_channel)
+        self.audit_group.command(
+            name="set_channel_id",
+            description="Nastaví ID kanálu (včetně vláken) pro audit logy zpráv.",
+        )(self.audit_set_channel_id)
+        self.audit_group.command(
+            name="show",
+            description="Zobrazí aktuální audit log kanál.",
+        )(self.audit_show)
+        self.audit_group.command(
+            name="disable",
+            description="Vypne posílání audit logů do Discord kanálu.",
+        )(self.audit_disable)
+
+        self.log_settings_group.add_command(self.error_group)
+        self.log_settings_group.add_command(self.audit_group)
         self.log_settings_group.command(
             name="show",
-            description="Zobrazí aktuálně nastavený logovací kanál.",
-        )(self.show_log_channel)
+            description="Zobrazí souhrn nastavení logování.",
+        )(self.show_log_channels)
+        self.log_settings_group.command(
+            name="disable",
+            description="Vypne chybové i audit logy do Discord kanálu.",
+        )(self.disable_all_log_channels)
         self.__cog_app_commands__ = []
 
     async def cog_load(self):
-        # Start log processing once the cog is fully loaded and a loop is running.
         loop = asyncio.get_running_loop()
         self.log_task = loop.create_task(self._process_log_queue())
         existing_group = self.bot.tree.get_command(
@@ -90,21 +155,32 @@ class LoggingCog(commands.Cog):
                 "log_settings", type=discord.AppCommandType.chat_input
             )
 
-    async def _get_log_channel(self) -> discord.TextChannel | discord.Thread | None:
-        channel = self.bot.get_channel(self.log_channel_id)
+    async def _resolve_log_channel(
+        self, channel_id: int
+    ) -> discord.TextChannel | discord.Thread | None:
+        if channel_id <= 0:
+            return None
+
+        channel = self.bot.get_channel(channel_id)
         if channel is not None:
             if isinstance(channel, (discord.TextChannel, discord.Thread)):
                 return channel
             return None
 
         try:
-            fetched = await self.bot.fetch_channel(self.log_channel_id)
+            fetched = await self.bot.fetch_channel(channel_id)
         except (discord.Forbidden, discord.HTTPException):
             return None
 
         if isinstance(fetched, (discord.TextChannel, discord.Thread)):
             return fetched
         return None
+
+    async def _get_error_log_channel(self) -> discord.TextChannel | discord.Thread | None:
+        return await self._resolve_log_channel(self.error_log_channel_id)
+
+    async def _get_audit_log_channel(self) -> discord.TextChannel | discord.Thread | None:
+        return await self._resolve_log_channel(self.audit_log_channel_id)
 
     @commands.Cog.listener()
     async def on_message_delete(self, message: discord.Message):
@@ -119,7 +195,7 @@ class LoggingCog(commands.Cog):
             extra={"skip_channel": True},
         )
 
-        channel = await self._get_log_channel()
+        channel = await self._get_audit_log_channel()
         if channel is None:
             return
 
@@ -140,7 +216,8 @@ class LoggingCog(commands.Cog):
             lines.append("**Přílohy:**\n" + "\n".join(attachments)[:1024])
 
         view = self._build_view(lines)
-        await channel.send(view=view,
+        await channel.send(
+            view=view,
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
@@ -152,7 +229,7 @@ class LoggingCog(commands.Cog):
         if before.content == after.content:
             return
 
-        channel = await self._get_log_channel()
+        channel = await self._get_audit_log_channel()
         if channel is None:
             return
 
@@ -178,7 +255,8 @@ class LoggingCog(commands.Cog):
             f"**Nový text:** {(after.content or '*(Žádný text)*')[:1024]}",
         ]
         view = self._build_view(lines)
-        await channel.send(view=view,
+        await channel.send(
+            view=view,
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
@@ -188,20 +266,21 @@ class LoggingCog(commands.Cog):
             while True:
                 log_entry = await self.log_queue.get()
                 try:
-                    await self._send_log_embed(log_entry)
+                    await self._send_log_entry(log_entry)
                 except Exception:
                     self.logger.exception("Nepodařilo se odeslat log do kanálu")
         except asyncio.CancelledError:
             pass
 
-    async def _send_log_embed(self, message: str):
-        channel = await self._get_log_channel()
+    async def _send_log_entry(self, message: str):
+        channel = await self._get_error_log_channel()
         if channel is None:
             return
 
         payload_lines = self._fit_textdisplay_payload(["## Log bota", message])
         view = self._build_view(payload_lines)
-        await channel.send(view=view,
+        await channel.send(
+            view=view,
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
@@ -257,65 +336,196 @@ class LoggingCog(commands.Cog):
             return f"{text[:limit - len(TRUNCATION_SUFFIX)]}{TRUNCATION_SUFFIX}"
         return text
 
-    def _update_log_channel_id(self, channel_id: int) -> None:
-        self.log_channel_id = channel_id
-        set_log_channel_id(channel_id)
-
-    async def set_log_channel(
-        self, interaction: discord.Interaction, channel: discord.TextChannel
-    ):
-        self._update_log_channel_id(channel.id)
-        view = self._build_view(
-            [
-                "## Logovací kanál nastaven",
-                f"Nový kanál: {channel.mention} ({channel.id})",
-            ]
-        )
-        await interaction.response.send_message(view=view, ephemeral=True)
-
-    async def set_log_channel_id(
+    async def _resolve_channel_input(
         self, interaction: discord.Interaction, channel_id: int
-    ):
+    ) -> discord.TextChannel | discord.Thread | None:
         channel = interaction.guild.get_channel(channel_id) if interaction.guild else None
         if channel is None:
             try:
                 channel = await self.bot.fetch_channel(channel_id)
             except (discord.Forbidden, discord.HTTPException):
-                channel = None
+                return None
 
-        if channel is None or not isinstance(channel, (discord.TextChannel, discord.Thread)):
-            view = self._build_view(
-                [
-                    "## Nelze nastavit logovací kanál",
-                    "Zadané ID neodpovídá textovému kanálu ani vláknu.",
-                ]
-            )
-            await interaction.response.send_message(view=view, ephemeral=True
-            )
-            return
+        if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+            return None
+        return channel
 
-        self._update_log_channel_id(channel.id)
+    async def errors_set_channel(
+        self, interaction: discord.Interaction, channel: discord.TextChannel
+    ):
+        self.error_log_channel_id = channel.id
+        set_error_log_channel_id(channel.id)
         view = self._build_view(
             [
-                "## Logovací kanál nastaven",
+                "## Chybový log kanál nastaven",
                 f"Nový kanál: {channel.mention} ({channel.id})",
             ]
         )
         await interaction.response.send_message(view=view, ephemeral=True)
 
-    async def show_log_channel(self, interaction: discord.Interaction):
-        channel = await self._get_log_channel()
+    async def errors_set_channel_id(
+        self, interaction: discord.Interaction, channel_id: int
+    ):
+        channel = await self._resolve_channel_input(interaction, channel_id)
         if channel is None:
+            view = self._build_view(
+                [
+                    "## Nelze nastavit chybový log kanál",
+                    "Zadané ID neodpovídá textovému kanálu ani vláknu.",
+                ]
+            )
+            await interaction.response.send_message(view=view, ephemeral=True)
+            return
+
+        self.error_log_channel_id = channel.id
+        set_error_log_channel_id(channel.id)
+        view = self._build_view(
+            [
+                "## Chybový log kanál nastaven",
+                f"Nový kanál: {channel.mention} ({channel.id})",
+            ]
+        )
+        await interaction.response.send_message(view=view, ephemeral=True)
+
+    async def errors_disable(self, interaction: discord.Interaction):
+        self.error_log_channel_id = 0
+        set_error_log_channel_id(0)
+        view = self._build_view(
+            [
+                "## Chybové logování vypnuto",
+                "Chyby bota se do Discord kanálu neposílají.",
+            ]
+        )
+        await interaction.response.send_message(view=view, ephemeral=True)
+
+    async def errors_show(self, interaction: discord.Interaction):
+        channel = await self._get_error_log_channel()
+        if self.error_log_channel_id <= 0:
             lines = [
-                "## Logovací kanál nenalezen",
-                f"Aktuálně uložené ID: {self.log_channel_id}",
+                "## Chybové logování je vypnuto",
+                "Logy chyb se odesílají jen do interní fronty handleru.",
+            ]
+        elif channel is None:
+            lines = [
+                "## Chybový log kanál nenalezen",
+                f"Aktuálně uložené ID: {self.error_log_channel_id}",
             ]
         else:
             lines = [
-                "## Aktuální logovací kanál",
+                "## Chybový log kanál",
                 f"Kanál: {channel.mention} ({channel.id})",
             ]
         view = self._build_view(lines)
+        await interaction.response.send_message(view=view, ephemeral=True)
+
+    async def audit_set_channel(
+        self, interaction: discord.Interaction, channel: discord.TextChannel
+    ):
+        self.audit_log_channel_id = channel.id
+        set_audit_log_channel_id(channel.id)
+        view = self._build_view(
+            [
+                "## Audit log kanál nastaven",
+                f"Nový kanál: {channel.mention} ({channel.id})",
+            ]
+        )
+        await interaction.response.send_message(view=view, ephemeral=True)
+
+    async def audit_set_channel_id(
+        self, interaction: discord.Interaction, channel_id: int
+    ):
+        channel = await self._resolve_channel_input(interaction, channel_id)
+        if channel is None:
+            view = self._build_view(
+                [
+                    "## Nelze nastavit audit log kanál",
+                    "Zadané ID neodpovídá textovému kanálu ani vláknu.",
+                ]
+            )
+            await interaction.response.send_message(view=view, ephemeral=True)
+            return
+
+        self.audit_log_channel_id = channel.id
+        set_audit_log_channel_id(channel.id)
+        view = self._build_view(
+            [
+                "## Audit log kanál nastaven",
+                f"Nový kanál: {channel.mention} ({channel.id})",
+            ]
+        )
+        await interaction.response.send_message(view=view, ephemeral=True)
+
+    async def audit_disable(self, interaction: discord.Interaction):
+        self.audit_log_channel_id = 0
+        set_audit_log_channel_id(0)
+        view = self._build_view(
+            [
+                "## Audit logování vypnuto",
+                "Logy úprav a mazání zpráv se do Discord kanálu neposílají.",
+            ]
+        )
+        await interaction.response.send_message(view=view, ephemeral=True)
+
+    async def audit_show(self, interaction: discord.Interaction):
+        channel = await self._get_audit_log_channel()
+        if self.audit_log_channel_id <= 0:
+            lines = [
+                "## Audit logování je vypnuto",
+                "Události úprav a mazání zpráv se do Discord kanálu neposílají.",
+            ]
+        elif channel is None:
+            lines = [
+                "## Audit log kanál nenalezen",
+                f"Aktuálně uložené ID: {self.audit_log_channel_id}",
+            ]
+        else:
+            lines = [
+                "## Audit log kanál",
+                f"Kanál: {channel.mention} ({channel.id})",
+            ]
+        view = self._build_view(lines)
+        await interaction.response.send_message(view=view, ephemeral=True)
+
+    async def disable_all_log_channels(self, interaction: discord.Interaction):
+        self.error_log_channel_id = 0
+        self.audit_log_channel_id = 0
+        set_error_log_channel_id(0)
+        set_audit_log_channel_id(0)
+        view = self._build_view(
+            [
+                "## Všechna Discord logování vypnuta",
+                "Bylo vypnuto chybové i audit logování do Discord kanálů.",
+            ]
+        )
+        await interaction.response.send_message(view=view, ephemeral=True)
+
+    async def show_log_channels(self, interaction: discord.Interaction):
+        error_channel = await self._get_error_log_channel()
+        audit_channel = await self._get_audit_log_channel()
+
+        if self.error_log_channel_id <= 0:
+            error_line = "Chybové logy: vypnuto"
+        elif error_channel is None:
+            error_line = (
+                f"Chybové logy: nenalezeno (ID: {self.error_log_channel_id})"
+            )
+        else:
+            error_line = f"Chybové logy: {error_channel.mention} ({error_channel.id})"
+
+        if self.audit_log_channel_id <= 0:
+            audit_line = "Audit logy: vypnuto"
+        elif audit_channel is None:
+            audit_line = (
+                f"Audit logy: nenalezeno (ID: {self.audit_log_channel_id})"
+            )
+        else:
+            audit_line = f"Audit logy: {audit_channel.mention} ({audit_channel.id})"
+
+        view = self._build_view([
+            "## Nastavení logování",
+            error_line,
+            audit_line,
+        ])
         await interaction.response.send_message(view=view, ephemeral=True)
 
 
