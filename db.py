@@ -331,6 +331,16 @@ def init_db():
 
     c.execute(
         """
+        CREATE TABLE IF NOT EXISTS guild_personality_settings (
+            guild_id INTEGER PRIMARY KEY,
+            personality_text TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+    c.execute(
+        """
         CREATE TABLE IF NOT EXISTS restart_plans (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             planned_restart_at TEXT NOT NULL,
@@ -1018,6 +1028,40 @@ def get_setting(key: str) -> Optional[str]:
     conn = get_connection()
     c = conn.cursor()
     c.execute("SELECT value FROM settings WHERE key = ?", (key,))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def set_guild_personality(guild_id: int, personality_text: str) -> None:
+    now_iso = datetime.utcnow().isoformat()
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO guild_personality_settings (guild_id, personality_text, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(guild_id) DO UPDATE SET
+            personality_text = excluded.personality_text,
+            updated_at = excluded.updated_at
+        """,
+        (int(guild_id), personality_text, now_iso),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_guild_personality(guild_id: int) -> Optional[str]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT personality_text
+        FROM guild_personality_settings
+        WHERE guild_id = ?
+        """,
+        (int(guild_id),),
+    )
     row = c.fetchone()
     conn.close()
     return row[0] if row else None
