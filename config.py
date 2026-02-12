@@ -22,8 +22,23 @@ ALLOWED_GUILD_ID = 1440039495058854030
 
 # Ollama konfigurace
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:4b")
+# Podporovaný model je pouze qwen3:4b.
+# Jakákoli jiná hodnota OLLAMA_MODEL je považována za neplatnou konfiguraci.
+SUPPORTED_OLLAMA_MODEL = "qwen3:4b"
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", SUPPORTED_OLLAMA_MODEL)
 OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))
+
+
+def validate_ollama_model(component_name: str) -> None:
+    if OLLAMA_MODEL == SUPPORTED_OLLAMA_MODEL:
+        return
+
+    error_message = (
+        f"{component_name}: nepodporovaný OLLAMA_MODEL '{OLLAMA_MODEL}'. "
+        f"Podporovaný model je pouze '{SUPPORTED_OLLAMA_MODEL}'."
+    )
+    logger.error(error_message)
+    raise RuntimeError(error_message)
 
 # DeepL konfigurace
 # Pokud se objeví SSL chyba, nainstalujte CA certifikáty v systému
