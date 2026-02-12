@@ -143,6 +143,7 @@ class MyBot(commands.Bot):
 
     async def on_ready(self):
         logger.info("Přihlášen jako %s (ID: %s)", self.user, self.user.id)
+
     async def on_interaction(self, interaction: discord.Interaction):
         if interaction.type == discord.InteractionType.application_command:
             now = time.monotonic()
@@ -158,7 +159,7 @@ class MyBot(commands.Bot):
                 )
                 return
             self._recent_interactions[interaction.id] = now
-        await self.tree.on_interaction(interaction)
+        await super().on_interaction(interaction)
 
     async def on_message(self, message: discord.Message):
         if message.author.bot:
