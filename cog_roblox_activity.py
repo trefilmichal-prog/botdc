@@ -1426,11 +1426,11 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             )
             return
 
-        await interaction.edit_original_response(content="", view=report_views[0])
+        await interaction.edit_original_response(view=report_views[0])
         writer = get_writer(self.bot)
         for view in report_views[1:]:
             await writer.send_interaction_followup(
-                interaction, content="", view=view, ephemeral=True
+                interaction, view=view, ephemeral=True
             )
 
     @app_commands.checks.has_permissions(administrator=True)
@@ -1468,11 +1468,11 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
             )
             return
 
-        await interaction.edit_original_response(content="", view=report_views[0])
+        await interaction.edit_original_response(view=report_views[0])
         writer = get_writer(self.bot)
         for view in report_views[1:]:
             await writer.send_interaction_followup(
-                interaction, content="", view=view, ephemeral=True
+                interaction, view=view, ephemeral=True
             )
 
     async def _build_presence_report(
@@ -1913,7 +1913,7 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         leaderboard_view = self._build_leaderboard_view(table_rows)
 
-        await interaction.edit_original_response(content="", view=leaderboard_view)
+        await interaction.edit_original_response(view=leaderboard_view)
 
     async def _send_offline_notifications(
         self, notifications: list[tuple[discord.Member, str, float]]
@@ -1969,11 +1969,17 @@ class RobloxActivityCog(commands.Cog, name="RobloxActivity"):
 
         for message in player_embeds:
             try:
-                await channel.send(
-                    content=message.get("content"),
-                    view=message.get("view"),
-                    allowed_mentions=message.get("allowed_mentions"),
-                )
+                message_view = message.get("view")
+                if message_view is not None:
+                    await channel.send(
+                        view=message_view,
+                        allowed_mentions=message.get("allowed_mentions"),
+                    )
+                else:
+                    await channel.send(
+                        content=message.get("content"),
+                        allowed_mentions=message.get("allowed_mentions"),
+                    )
             except discord.HTTPException as exc:
                 self._logger.warning("Failed to send message for player: %s", exc)
             await asyncio.sleep(0.3)

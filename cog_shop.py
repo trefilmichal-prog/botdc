@@ -229,7 +229,7 @@ class ShopCog(commands.Cog, name="ShopCog"):
             seller_id=interaction.user.id,
             item_id=item_id,
         )
-        msg = await channel.send(content="", view=view)
+        msg = await channel.send(view=view)
 
         set_shop_item_message(item_id, channel.id, msg.id)
 
@@ -248,7 +248,7 @@ class ShopCog(commands.Cog, name="ShopCog"):
         view = ShopOrdersView(self, target_guild)
 
         try:
-            dm_message = await interaction.user.send(content="", view=view)
+            dm_message = await interaction.user.send(view=view)
             view.message = dm_message
         except discord.Forbidden:
             await interaction.response.send_message(
@@ -304,7 +304,7 @@ class ShopCog(commands.Cog, name="ShopCog"):
             )
         )
 
-        await interaction.response.send_message(content="", view=view, ephemeral=True)
+        await interaction.response.send_message(view=view, ephemeral=True)
 
 
 class PurchaseQuantityModal(discord.ui.Modal):
@@ -471,7 +471,7 @@ class PurchaseQuantityModal(discord.ui.Modal):
                     )
                     writer = get_writer(interaction.client)
                     await writer.edit_message(
-                        message, content="", embeds=[], view=view
+                        message, embeds=[], view=view
                     )
             else:
                 view = self.cog._build_shop_item_view(
@@ -483,7 +483,7 @@ class PurchaseQuantityModal(discord.ui.Modal):
                     item_id=self.item_id,
                 )
                 writer = get_writer(interaction.client)
-                await writer.edit_message(message, content="", embeds=[], view=view)
+                await writer.edit_message(message, embeds=[], view=view)
 
         await interaction.response.send_message(
             f"Koupil jsi **{quantity}× {title}** za **{total_price}** coinů.",
@@ -688,4 +688,4 @@ class ShopOrdersView(discord.ui.LayoutView):
             except discord.NotFound:
                 return
         self.message = target_message
-        await target_message.edit(content="", embeds=[], view=self)
+        await target_message.edit(embeds=[], view=self)

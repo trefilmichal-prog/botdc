@@ -38,7 +38,7 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
                 discord.ui.TextDisplay(content=t("help_guide", locale)),
             )
         )
-        await interaction.response.send_message(content="", view=view, ephemeral=True)
+        await interaction.response.send_message(view=view, ephemeral=True)
 
     @staticmethod
     def _can_moderate(actor: discord.Member, target: discord.Member) -> bool:

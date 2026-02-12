@@ -316,7 +316,7 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
         await self._remove_existing_panel(interaction.guild.id)
 
         view = self._build_rebirth_view()
-        message = await channel.send(content="", view=view)
+        message = await channel.send(view=view)
         add_sp_panel(interaction.guild.id, channel.id, message.id)
 
         await interaction.response.send_message(
@@ -354,7 +354,7 @@ class RebirthPanel(commands.Cog, name="RebirthPanel"):
                 if self._should_skip_panel_edit(message_id, payload_hash):
                     continue
                 writer = get_writer(self.bot)
-                await writer.edit_message(message, content="", embeds=[], view=view)
+                await writer.edit_message(message, embeds=[], view=view)
                 self._record_panel_payload_state(message_id, payload_hash)
                 await asyncio.sleep(0.25)
             except discord.HTTPException:

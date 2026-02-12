@@ -68,7 +68,7 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
                 discord.ui.TextDisplay(content="\n".join(lines)),
             )
         )
-        await interaction.response.send_message(content="", view=view)
+        await interaction.response.send_message(view=view)
 
     def build_leaderboard_view(
         self, locale: discord.Locale = DEFAULT_LOCALE
@@ -118,7 +118,7 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
             return
 
         view = self.build_clan_panel_view(role, locale)
-        message = await channel.send(content="", view=view)
+        message = await channel.send(view=view)
         add_clan_panel(channel.guild.id, channel.id, message.id)
 
         await interaction.response.send_message(
@@ -138,7 +138,7 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
     ):
         locale = get_interaction_locale(interaction)
         view = self.build_leaderboard_view(locale)
-        message = await channel.send(content="", view=view)
+        message = await channel.send(view=view)
         if interaction.guild:
             add_leaderboard_panel(interaction.guild.id, channel.id, message.id)
 
@@ -209,7 +209,7 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
                 if self._should_skip_panel_edit("clan_panel", message_id, payload_hash):
                     continue
                 writer = get_writer(self.bot)
-                await writer.edit_message(msg, content="", embeds=[], view=view)
+                await writer.edit_message(msg, embeds=[], view=view)
                 self._record_panel_payload_state(
                     "clan_panel", message_id, payload_hash
                 )
@@ -250,7 +250,7 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
                 ):
                     continue
                 writer = get_writer(self.bot)
-                await writer.edit_message(msg, content="", embeds=[], view=view)
+                await writer.edit_message(msg, embeds=[], view=view)
                 self._record_panel_payload_state(
                     "leaderboard_panel", message_id, payload_hash
                 )

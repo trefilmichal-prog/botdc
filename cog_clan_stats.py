@@ -66,10 +66,7 @@ class ClanStatsOcrCog(commands.Cog, name="ClanStatsOcr"):
         }
 
         view = self._build_stats_view(interaction.user, stats)
-        await channel.send(
-            content=f"📊 Nové clan statistiky od <@{interaction.user.id}>",
-            view=view,
-        )
+        await channel.send(view=view)
         await interaction.response.send_message(
             "Statistiky byly odeslány do nastavené roomky.", ephemeral=True
         )

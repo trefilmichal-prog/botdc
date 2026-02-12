@@ -208,7 +208,7 @@ class WoodCog(commands.Cog, name="WoodCog"):
         rows = get_resources_status()
         view = self._build_panel_view(locale, rows)
         writer = get_writer(self.bot)
-        await writer.edit_message(msg, content="", embeds=[], view=view)
+        await writer.edit_message(msg, embeds=[], view=view)
 
     async def _handle_setup_access_error(
         self, interaction: discord.Interaction, error: app_commands.AppCommandError
@@ -356,7 +356,7 @@ class WoodCog(commands.Cog, name="WoodCog"):
 
         rows = get_resources_status()
         view = self._build_panel_view(locale, rows)
-        msg = await channel.send(content="", view=view)
+        msg = await channel.send(view=view)
 
         set_setting("panel_channel_id", str(channel.id))
         set_setting("panel_message_id", str(msg.id))
@@ -468,7 +468,7 @@ class WoodCog(commands.Cog, name="WoodCog"):
         view.add_item(
             discord.ui.Container(*(discord.ui.TextDisplay(content=line) for line in lines))
         )
-        await interaction.response.send_message(content="", view=view, ephemeral=True)
+        await interaction.response.send_message(view=view, ephemeral=True)
 
 
 class WoodSelectView(discord.ui.LayoutView):
@@ -483,6 +483,7 @@ class WoodSelectView(discord.ui.LayoutView):
 
         view_lines = [
             f"## {t('wood_ticket_title', locale)}",
+            f"<@{ticket_owner_id}>",
             t("wood_ticket_instructions", locale),
         ]
         self.add_item(
@@ -522,16 +523,22 @@ class WoodSelectView(discord.ui.LayoutView):
 
         self.select.disabled = True
 
-        await interaction.response.edit_message(
-            content=(
-                t("wood_ticket_selected", locale, resource=resource_value)
-                + "\n"
-                + t("wood_ticket_enter_amount", locale)
-                + "\n"
-                + t("wood_ticket_will_delete", locale)
-            ),
-            view=self,
+        self.clear_items()
+        selected_lines = [
+            f"## {t('wood_ticket_title', locale)}",
+            f"<@{self.ticket_owner_id}>",
+            t("wood_ticket_selected", locale, resource=resource_value),
+            t("wood_ticket_enter_amount", locale),
+            t("wood_ticket_will_delete", locale),
+        ]
+        self.add_item(
+            discord.ui.Container(
+                *(discord.ui.TextDisplay(content=line) for line in selected_lines)
+            )
         )
+        self.add_item(discord.ui.ActionRow(self.select))
+
+        await interaction.response.edit_message(view=self)
 
 
 class TicketButton(discord.ui.Button):
@@ -595,7 +602,7 @@ class TicketButton(discord.ui.Button):
         )
 
         view = WoodSelectView(self.cog, interaction.user.id, ticket_channel.id, locale)
-        await ticket_channel.send(content=interaction.user.mention, view=view)
+        await ticket_channel.send(view=view)
 
         await interaction.response.send_message(
             t("wood_ticket_created", locale, channel=ticket_channel.mention),

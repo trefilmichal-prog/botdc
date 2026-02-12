@@ -120,7 +120,7 @@ class TimersCog(commands.Cog, name="TimersCog"):
         timers = get_all_timers()
         view = build_timers_view(self, timers)
         writer = get_writer(self.bot)
-        await writer.edit_message(msg, content="", embeds=[], view=view)
+        await writer.edit_message(msg, embeds=[], view=view)
 
     # ---------- SLASH ----------
 
@@ -141,7 +141,7 @@ class TimersCog(commands.Cog, name="TimersCog"):
 
         timers = get_all_timers()
         view = build_timers_view(self, timers)
-        msg = await channel.send(content="", view=view)
+        msg = await channel.send(view=view)
 
         set_setting("timers_channel_id", str(channel.id))
         set_setting("timers_message_id", str(msg.id))

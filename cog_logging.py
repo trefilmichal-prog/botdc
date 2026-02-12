@@ -140,9 +140,7 @@ class LoggingCog(commands.Cog):
             lines.append("**Přílohy:**\n" + "\n".join(attachments)[:1024])
 
         view = self._build_view(lines)
-        await channel.send(
-            content="",
-            view=view,
+        await channel.send(view=view,
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
@@ -180,9 +178,7 @@ class LoggingCog(commands.Cog):
             f"**Nový text:** {(after.content or '*(Žádný text)*')[:1024]}",
         ]
         view = self._build_view(lines)
-        await channel.send(
-            content="",
-            view=view,
+        await channel.send(view=view,
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
@@ -205,9 +201,7 @@ class LoggingCog(commands.Cog):
 
         payload_lines = self._fit_textdisplay_payload(["## Log bota", message])
         view = self._build_view(payload_lines)
-        await channel.send(
-            content="",
-            view=view,
+        await channel.send(view=view,
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
@@ -277,7 +271,7 @@ class LoggingCog(commands.Cog):
                 f"Nový kanál: {channel.mention} ({channel.id})",
             ]
         )
-        await interaction.response.send_message(content="", view=view, ephemeral=True)
+        await interaction.response.send_message(view=view, ephemeral=True)
 
     async def set_log_channel_id(
         self, interaction: discord.Interaction, channel_id: int
@@ -296,8 +290,7 @@ class LoggingCog(commands.Cog):
                     "Zadané ID neodpovídá textovému kanálu ani vláknu.",
                 ]
             )
-            await interaction.response.send_message(
-                content="", view=view, ephemeral=True
+            await interaction.response.send_message(view=view, ephemeral=True
             )
             return
 
@@ -308,7 +301,7 @@ class LoggingCog(commands.Cog):
                 f"Nový kanál: {channel.mention} ({channel.id})",
             ]
         )
-        await interaction.response.send_message(content="", view=view, ephemeral=True)
+        await interaction.response.send_message(view=view, ephemeral=True)
 
     async def show_log_channel(self, interaction: discord.Interaction):
         channel = await self._get_log_channel()
@@ -323,7 +316,7 @@ class LoggingCog(commands.Cog):
                 f"Kanál: {channel.mention} ({channel.id})",
             ]
         view = self._build_view(lines)
-        await interaction.response.send_message(content="", view=view, ephemeral=True)
+        await interaction.response.send_message(view=view, ephemeral=True)
 
 
 class _ChannelLogHandler(logging.Handler):
