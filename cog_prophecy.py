@@ -12,7 +12,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from config import OLLAMA_MODEL, OLLAMA_TIMEOUT, OLLAMA_URL
+from config import OLLAMA_MODEL, OLLAMA_TIMEOUT, OLLAMA_URL, validate_ollama_model
 from db import get_guild_personality, log_prophecy, set_guild_personality
 from i18n import CZECH_LOCALE, get_interaction_locale, get_message_locale, t
 
@@ -125,6 +125,7 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._logger = logging.getLogger(__name__)
+        validate_ollama_model(self.__class__.__name__)
 
     def _build_prophecy_view(self, locale, question: str, answer: str):
         locale_code = getattr(locale, "value", str(locale))

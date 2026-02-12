@@ -27,6 +27,7 @@ from config import (
     OLLAMA_TIMEOUT,
     OLLAMA_URL,
     REACTION_TRANSLATION_BLOCKED_CHANNEL_IDS,
+    validate_ollama_model,
 )
 
 
@@ -70,6 +71,7 @@ class TranslationRevealView(discord.ui.LayoutView):
 class AutoTranslateCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        validate_ollama_model(self.__class__.__name__)
         self._target_channel: discord.abc.Messageable | None = None
         self._reaction_targets = {"🇨🇿": "czech", "🇺🇲": "english"}
         self._safe_allowed_mentions = discord.AllowedMentions(
