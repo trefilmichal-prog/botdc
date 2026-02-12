@@ -12,11 +12,97 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import OLLAMA_MODEL, OLLAMA_TIMEOUT, OLLAMA_URL
-from db import get_guild_personality, log_prophecy
+from db import get_guild_personality, log_prophecy, set_guild_personality
 from i18n import CZECH_LOCALE, get_interaction_locale, get_message_locale, t
 
 
+PERSONALITY_MIN_LENGTH = 20
+PERSONALITY_MAX_LENGTH = 2000
+
+
+class PersonalityEditModal(discord.ui.Modal, title="Upravit osobnost proroctví"):
+    personality_text = discord.ui.TextInput(
+        label="Osobnost (prompt)",
+        style=discord.TextStyle.paragraph,
+        required=True,
+        min_length=PERSONALITY_MIN_LENGTH,
+        max_length=PERSONALITY_MAX_LENGTH,
+        placeholder="Zadej osobnost pro odpovědi bota na tomto serveru…",
+    )
+
+    def __init__(self, guild_id: int, current_personality: str | None = None):
+        super().__init__()
+        self.guild_id = guild_id
+        if current_personality:
+            self.personality_text.default = current_personality[:PERSONALITY_MAX_LENGTH]
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        raw_value = str(self.personality_text.value or "")
+        personality = raw_value.strip()
+
+        if len(personality) < PERSONALITY_MIN_LENGTH:
+            error_view = discord.ui.LayoutView(timeout=None)
+            error_view.add_item(
+                discord.ui.Container(
+                    discord.ui.TextDisplay(content="## ❌ Neplatná délka textu"),
+                    discord.ui.TextDisplay(
+                        content=(
+                            f"Osobnost musí mít minimálně **{PERSONALITY_MIN_LENGTH}** znaků."
+                        )
+                    ),
+                )
+            )
+            await interaction.response.send_message(view=error_view, ephemeral=True)
+            return
+
+        if len(personality) > PERSONALITY_MAX_LENGTH:
+            error_view = discord.ui.LayoutView(timeout=None)
+            error_view.add_item(
+                discord.ui.Container(
+                    discord.ui.TextDisplay(content="## ❌ Neplatná délka textu"),
+                    discord.ui.TextDisplay(
+                        content=(
+                            f"Osobnost může mít maximálně **{PERSONALITY_MAX_LENGTH}** znaků."
+                        )
+                    ),
+                )
+            )
+            await interaction.response.send_message(view=error_view, ephemeral=True)
+            return
+
+        try:
+            set_guild_personality(self.guild_id, personality)
+        except Exception as error:
+            failure_view = discord.ui.LayoutView(timeout=None)
+            failure_view.add_item(
+                discord.ui.Container(
+                    discord.ui.TextDisplay(content="## ❌ Uložení se nezdařilo"),
+                    discord.ui.TextDisplay(content=f"Chyba: `{error}`"),
+                )
+            )
+            await interaction.response.send_message(view=failure_view, ephemeral=True)
+            return
+
+        success_view = discord.ui.LayoutView(timeout=None)
+        success_view.add_item(
+            discord.ui.Container(
+                discord.ui.TextDisplay(content="## ✅ Osobnost byla uložena"),
+                discord.ui.TextDisplay(content="Nastavení je uloženo per guild a zůstane i po restartu bota."),
+                discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.small),
+                discord.ui.TextDisplay(content=f"Délka: **{len(personality)}** znaků."),
+            )
+        )
+        await interaction.response.send_message(view=success_view, ephemeral=True)
+
+
 class ProphecyCog(commands.Cog, name="RobloxProphecy"):
+    prophecy_group = app_commands.Group(name="prophecy", description="Nastavení proroctví")
+    personality_group = app_commands.Group(
+        name="personality",
+        description="Správa osobnosti proroctví",
+        parent=prophecy_group,
+    )
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._logger = logging.getLogger(__name__)
@@ -206,6 +292,28 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
             allowed_mentions=discord.AllowedMentions.none(),
         )
         self._log_prophecy(sent_message, dotaz, response_text, author_id=message.author.id)
+
+    @personality_group.command(name="edit", description="Upraví osobnost proroctví pro tento server")
+    @app_commands.guild_only()
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def prophecy_personality_edit(self, interaction: discord.Interaction) -> None:
+        if not interaction.guild_id:
+            fallback_view = discord.ui.LayoutView(timeout=None)
+            fallback_view.add_item(
+                discord.ui.Container(
+                    discord.ui.TextDisplay(content="## ❌ Tento příkaz lze použít jen na serveru."),
+                )
+            )
+            await interaction.response.send_message(view=fallback_view, ephemeral=True)
+            return
+
+        current_personality = self._load_guild_personality(interaction.guild_id)
+        await interaction.response.send_modal(
+            PersonalityEditModal(
+                guild_id=interaction.guild_id,
+                current_personality=current_personality,
+            )
+        )
 
     @app_commands.command(
         name="rebirth_future",
