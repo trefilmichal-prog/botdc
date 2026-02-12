@@ -19,6 +19,7 @@ from cog_giveaway import GiveawayCog
 from cog_leaderboard import LeaderboardCog
 from cog_logging import LoggingCog
 from cog_prophecy import ProphecyCog
+from cog_restart_scheduler import RestartSchedulerCog
 from cog_roblox_activity import RobloxActivityCog
 from cog_secret_notifications_forwarder import SecretNotificationsForwarder
 from cog_shop import ShopCog
@@ -99,6 +100,7 @@ class MyBot(commands.Bot):
             AutoTranslateCog(self),
             TimeStatusCog(self),
             WelcomeCog(self),
+            RestartSchedulerCog(self),
         ]:
             await add_cog_safe(cog)
 

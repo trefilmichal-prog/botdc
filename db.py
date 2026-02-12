@@ -309,6 +309,39 @@ def init_db():
 
     c.execute(
         """
+        CREATE TABLE IF NOT EXISTS guild_restart_settings (
+            guild_id INTEGER PRIMARY KEY,
+            enabled INTEGER NOT NULL,
+            interval_minutes INTEGER NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS guild_restart_runtime (
+            guild_id INTEGER PRIMARY KEY,
+            next_restart_at TEXT,
+            last_restart_at TEXT,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS restart_plans (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            planned_restart_at TEXT NOT NULL,
+            source_guild_id INTEGER,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+    c.execute(
+        """
         CREATE TABLE IF NOT EXISTS secret_drop_stats (
             date TEXT NOT NULL,
             user_id INTEGER NOT NULL,
@@ -988,6 +1021,172 @@ def get_setting(key: str) -> Optional[str]:
     row = c.fetchone()
     conn.close()
     return row[0] if row else None
+
+
+def upsert_guild_restart_setting(
+    guild_id: int, enabled: bool, interval_minutes: int
+) -> None:
+    now_iso = datetime.utcnow().isoformat()
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO guild_restart_settings (guild_id, enabled, interval_minutes, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(guild_id) DO UPDATE SET
+            enabled = excluded.enabled,
+            interval_minutes = excluded.interval_minutes,
+            updated_at = excluded.updated_at
+        """,
+        (int(guild_id), 1 if enabled else 0, int(interval_minutes), now_iso),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_guild_restart_setting(guild_id: int) -> Optional[Dict[str, Any]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT guild_id, enabled, interval_minutes, updated_at
+        FROM guild_restart_settings
+        WHERE guild_id = ?
+        """,
+        (int(guild_id),),
+    )
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "guild_id": int(row[0]),
+        "enabled": bool(row[1]),
+        "interval_minutes": int(row[2]),
+        "updated_at": str(row[3]),
+    }
+
+
+def get_all_enabled_restart_settings() -> List[Dict[str, Any]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT guild_id, enabled, interval_minutes, updated_at
+        FROM guild_restart_settings
+        WHERE enabled = 1
+        """
+    )
+    rows = c.fetchall()
+    conn.close()
+    return [
+        {
+            "guild_id": int(row[0]),
+            "enabled": bool(row[1]),
+            "interval_minutes": int(row[2]),
+            "updated_at": str(row[3]),
+        }
+        for row in rows
+    ]
+
+
+def upsert_guild_restart_runtime(
+    guild_id: int,
+    next_restart_at: Optional[datetime],
+    last_restart_at: Optional[datetime],
+) -> None:
+    now_iso = datetime.utcnow().isoformat()
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO guild_restart_runtime (guild_id, next_restart_at, last_restart_at, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(guild_id) DO UPDATE SET
+            next_restart_at = excluded.next_restart_at,
+            last_restart_at = excluded.last_restart_at,
+            updated_at = excluded.updated_at
+        """,
+        (
+            int(guild_id),
+            next_restart_at.isoformat() if next_restart_at else None,
+            last_restart_at.isoformat() if last_restart_at else None,
+            now_iso,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_guild_restart_runtime(guild_id: int) -> Optional[Dict[str, Any]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT guild_id, next_restart_at, last_restart_at, updated_at
+        FROM guild_restart_runtime
+        WHERE guild_id = ?
+        """,
+        (int(guild_id),),
+    )
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "guild_id": int(row[0]),
+        "next_restart_at": str(row[1]) if row[1] else None,
+        "last_restart_at": str(row[2]) if row[2] else None,
+        "updated_at": str(row[3]),
+    }
+
+
+def set_restart_plan(planned_restart_at: datetime, source_guild_id: Optional[int]) -> None:
+    now_iso = datetime.utcnow().isoformat()
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO restart_plans (id, planned_restart_at, source_guild_id, updated_at)
+        VALUES (1, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            planned_restart_at = excluded.planned_restart_at,
+            source_guild_id = excluded.source_guild_id,
+            updated_at = excluded.updated_at
+        """,
+        (planned_restart_at.isoformat(), source_guild_id, now_iso),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_restart_plan() -> Optional[Dict[str, Any]]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT planned_restart_at, source_guild_id, updated_at
+        FROM restart_plans
+        WHERE id = 1
+        """
+    )
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "planned_restart_at": str(row[0]),
+        "source_guild_id": int(row[1]) if row[1] is not None else None,
+        "updated_at": str(row[2]),
+    }
+
+
+def clear_restart_plan() -> None:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM restart_plans WHERE id = 1")
+    conn.commit()
+    conn.close()
 
 
 def set_secret_notifications_role_ids(role_ids: List[int]) -> None:

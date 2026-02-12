@@ -80,6 +80,10 @@ if not UPDATER_CA_BUNDLE:
     else:
         logger.warning("certifi package not available for UPDATER_CA_BUNDLE fallback.")
 
+AUTO_RESTART_INTERVAL_MINUTES = int(
+    os.getenv("AUTO_RESTART_INTERVAL_MINUTES", "30")
+)
+
 # Přehled času – cílová místnost a výchozí americká oblast
 TIME_STATUS_CHANNEL_ID = 1445973251019898961
 TIME_STATUS_STATE_NAME = os.getenv("TIME_STATUS_STATE_NAME", "New York")
