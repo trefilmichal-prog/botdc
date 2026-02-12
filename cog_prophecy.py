@@ -20,19 +20,20 @@ PERSONALITY_MIN_LENGTH = 20
 PERSONALITY_MAX_LENGTH = 2000
 
 
-class PersonalityEditModal(discord.ui.Modal, title="Upravit osobnost proroctví"):
-    personality_text = discord.ui.TextInput(
-        label="Osobnost (prompt)",
-        style=discord.TextStyle.paragraph,
-        required=True,
-        min_length=PERSONALITY_MIN_LENGTH,
-        max_length=PERSONALITY_MAX_LENGTH,
-        placeholder="Zadej osobnost pro odpovědi bota na tomto serveru…",
-    )
-
-    def __init__(self, guild_id: int, current_personality: str | None = None):
-        super().__init__()
+class PersonalityEditModal(discord.ui.Modal):
+    def __init__(self, guild_id: int, locale: discord.Locale, current_personality: str | None = None):
+        super().__init__(title=t("prophecy_personality_modal_title", locale))
         self.guild_id = guild_id
+        self.locale = locale
+        self.personality_text = discord.ui.TextInput(
+            label=t("prophecy_personality_modal_label", locale),
+            style=discord.TextStyle.paragraph,
+            required=True,
+            min_length=PERSONALITY_MIN_LENGTH,
+            max_length=PERSONALITY_MAX_LENGTH,
+            placeholder=t("prophecy_personality_modal_placeholder", locale),
+        )
+        self.add_item(self.personality_text)
         if current_personality:
             self.personality_text.default = current_personality[:PERSONALITY_MAX_LENGTH]
 
@@ -47,7 +48,11 @@ class PersonalityEditModal(discord.ui.Modal, title="Upravit osobnost proroctví"
                     discord.ui.TextDisplay(content="## ❌ Neplatná délka textu"),
                     discord.ui.TextDisplay(
                         content=(
-                            f"Osobnost musí mít minimálně **{PERSONALITY_MIN_LENGTH}** znaků."
+                            t(
+                                "prophecy_personality_too_short",
+                                self.locale,
+                                min_length=PERSONALITY_MIN_LENGTH,
+                            )
                         )
                     ),
                 )
@@ -62,7 +67,11 @@ class PersonalityEditModal(discord.ui.Modal, title="Upravit osobnost proroctví"
                     discord.ui.TextDisplay(content="## ❌ Neplatná délka textu"),
                     discord.ui.TextDisplay(
                         content=(
-                            f"Osobnost může mít maximálně **{PERSONALITY_MAX_LENGTH}** znaků."
+                            t(
+                                "prophecy_personality_too_long",
+                                self.locale,
+                                max_length=PERSONALITY_MAX_LENGTH,
+                            )
                         )
                     ),
                 )
@@ -76,8 +85,8 @@ class PersonalityEditModal(discord.ui.Modal, title="Upravit osobnost proroctví"
             failure_view = discord.ui.LayoutView(timeout=None)
             failure_view.add_item(
                 discord.ui.Container(
-                    discord.ui.TextDisplay(content="## ❌ Uložení se nezdařilo"),
-                    discord.ui.TextDisplay(content=f"Chyba: `{error}`"),
+                    discord.ui.TextDisplay(content=t("prophecy_personality_save_failed_title", self.locale)),
+                    discord.ui.TextDisplay(content=t("prophecy_personality_save_failed_body", self.locale, error=error)),
                 )
             )
             await interaction.response.send_message(view=failure_view, ephemeral=True)
@@ -86,10 +95,16 @@ class PersonalityEditModal(discord.ui.Modal, title="Upravit osobnost proroctví"
         success_view = discord.ui.LayoutView(timeout=None)
         success_view.add_item(
             discord.ui.Container(
-                discord.ui.TextDisplay(content="## ✅ Osobnost byla uložena"),
-                discord.ui.TextDisplay(content="Nastavení je uloženo per guild a zůstane i po restartu bota."),
+                discord.ui.TextDisplay(content=t("prophecy_personality_saved_title", self.locale)),
+                discord.ui.TextDisplay(content=t("prophecy_personality_saved_body", self.locale)),
                 discord.ui.Separator(visible=True, spacing=discord.SeparatorSpacing.small),
-                discord.ui.TextDisplay(content=f"Délka: **{len(personality)}** znaků."),
+                discord.ui.TextDisplay(
+                    content=t(
+                        "prophecy_personality_saved_length",
+                        self.locale,
+                        length=len(personality),
+                    )
+                ),
             )
         )
         await interaction.response.send_message(view=success_view, ephemeral=True)
@@ -297,11 +312,12 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
     @app_commands.guild_only()
     @app_commands.checks.has_permissions(manage_guild=True)
     async def prophecy_personality_edit(self, interaction: discord.Interaction) -> None:
+        locale = get_interaction_locale(interaction)
         if not interaction.guild_id:
             fallback_view = discord.ui.LayoutView(timeout=None)
             fallback_view.add_item(
                 discord.ui.Container(
-                    discord.ui.TextDisplay(content="## ❌ Tento příkaz lze použít jen na serveru."),
+                    discord.ui.TextDisplay(content=t("prophecy_personality_guild_only", locale)),
                 )
             )
             await interaction.response.send_message(view=fallback_view, ephemeral=True)
@@ -311,6 +327,7 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
         await interaction.response.send_modal(
             PersonalityEditModal(
                 guild_id=interaction.guild_id,
+                locale=locale,
                 current_personality=current_personality,
             )
         )
