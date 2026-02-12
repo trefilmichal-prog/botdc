@@ -12,7 +12,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import OLLAMA_MODEL, OLLAMA_TIMEOUT, OLLAMA_URL
-from db import log_prophecy
+from db import get_guild_personality, log_prophecy
 from i18n import CZECH_LOCALE, get_interaction_locale, get_message_locale, t
 
 
@@ -112,6 +112,35 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
 
         return [OLLAMA_URL]
 
+
+    def _question_suffix(self, locale, question: str) -> str:
+        return (
+            f" Otázka hráče: {question}"
+            if locale.value.startswith("cs")
+            else f" Player question: {question}"
+        )
+
+    def _load_guild_personality(self, guild_id: int | None) -> str | None:
+        if guild_id is None:
+            return None
+        try:
+            return get_guild_personality(guild_id)
+        except Exception as error:
+            self._logger.warning(
+                "Failed to load guild personality for guild_id=%s: %s", guild_id, error
+            )
+            return None
+
+    def _build_prompt(self, locale, question: str, guild_id: int | None, *, is_message: bool) -> str:
+        guild_prompt = self._load_guild_personality(guild_id)
+        if guild_prompt:
+            return f"{guild_prompt}{self._question_suffix(locale, question)}"
+
+        if is_message:
+            return t("prophecy_prompt_message", locale, question=question)
+
+        return f"{t('prophecy_prompt_slash', locale)}{self._question_suffix(locale, question)}"
+
     async def _ask_ollama(self, prompt: str) -> str | None:
         payload = {
             "model": OLLAMA_MODEL,
@@ -155,7 +184,12 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
             return
 
         async with message.channel.typing():
-            prompt = t("prophecy_prompt_message", locale, question=dotaz)
+            prompt = self._build_prompt(
+                locale,
+                dotaz,
+                message.guild.id if message.guild else None,
+                is_message=True,
+            )
 
             response_text = await self._ask_ollama(prompt)
 
@@ -182,11 +216,10 @@ class ProphecyCog(commands.Cog, name="RobloxProphecy"):
         locale = get_interaction_locale(interaction)
         await interaction.response.defer(ephemeral=True)
 
-        prompt = t("prophecy_prompt_slash", locale)
         if dotaz:
-            prompt += f" Otázka hráče: {dotaz}" if locale.value.startswith("cs") else f" Player question: {dotaz}"
+            prompt = self._build_prompt(locale, dotaz, interaction.guild_id, is_message=False)
         else:
-            prompt += t("prophecy_prompt_general", locale)
+            prompt = f"{t('prophecy_prompt_slash', locale)}{t('prophecy_prompt_general', locale)}"
 
         response_text = await self._ask_ollama(prompt)
         if not response_text:
