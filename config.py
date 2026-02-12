@@ -17,7 +17,7 @@ ALLOWED_GUILD_ID = 1440039495058854030
 
 # Ollama konfigurace
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+OLLAMA_MODEL = "gemma3:4b"
 OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))
 
 # DeepL konfigurace
