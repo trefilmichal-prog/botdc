@@ -1260,6 +1260,34 @@ def get_log_channel_id() -> Optional[int]:
         return None
 
 
+def set_error_log_channel_id(channel_id: int) -> None:
+    set_setting("error_log_channel_id", str(channel_id))
+
+
+def get_error_log_channel_id() -> Optional[int]:
+    value = get_setting("error_log_channel_id")
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def set_audit_log_channel_id(channel_id: int) -> None:
+    set_setting("audit_log_channel_id", str(channel_id))
+
+
+def get_audit_log_channel_id() -> Optional[int]:
+    value = get_setting("audit_log_channel_id")
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
 # ---------- GIVEAWAYS ----------
 
 

@@ -6,6 +6,9 @@ import os
 
 logger = logging.getLogger(__name__)
 
+# Logování do konzole (stdout/stderr). Výchozí je vypnuto, logy běží přes LoggingCog.
+LOG_TO_CONSOLE = os.getenv("LOG_TO_CONSOLE", "false").lower() == "true"
+
 # Absolutní cesta ke kořenovému adresáři projektu
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
