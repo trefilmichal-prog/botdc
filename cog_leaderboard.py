@@ -152,15 +152,34 @@ class LeaderboardCog(commands.Cog, name="Leaderboard"):
         members = sorted(role.members, key=lambda m: m.display_name.lower())
         if members:
             member_lines = [member.mention for member in members]
-            description = "\n".join(member_lines)
+            chunks: list[str] = []
+            current_chunk: list[str] = []
+            current_length = 0
+            for line in member_lines:
+                line_length = len(line) + (1 if current_chunk else 0)
+                if current_chunk and current_length + line_length > 4000:
+                    chunks.append("\n".join(current_chunk))
+                    current_chunk = []
+                    current_length = 0
+                current_chunk.append(line)
+                current_length += line_length
+            if current_chunk:
+                chunks.append("\n".join(current_chunk))
         else:
-            description = t("clan_panel_empty", locale)
+            chunks = [t("clan_panel_empty", locale)]
         view = discord.ui.LayoutView(timeout=None)
+        container_items = [
+            discord.ui.TextDisplay(content=f"## {t('clan_panel_title', locale)}")
+        ]
+        container_items.extend(
+            discord.ui.TextDisplay(content=chunk) for chunk in chunks
+        )
+        container_items.append(
+            discord.ui.TextDisplay(content=t("panel_footer", locale))
+        )
         view.add_item(
             discord.ui.Container(
-                discord.ui.TextDisplay(content=f"## {t('clan_panel_title', locale)}"),
-                discord.ui.TextDisplay(content=description),
-                discord.ui.TextDisplay(content=t("panel_footer", locale)),
+                *container_items,
             )
         )
         return view
