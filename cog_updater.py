@@ -4,6 +4,7 @@ import logging
 import os
 import shutil
 import ssl
+import subprocess
 import sys
 import tempfile
 import urllib.error
@@ -36,6 +37,68 @@ class AutoUpdater(commands.Cog):
             Path(DB_PATH).resolve(),
             Path(WINRT_LOG_PATH).resolve(),
         }
+
+    def _check_available_memory(self) -> tuple[bool, str]:
+        min_memory_bytes = 100 * 1024 * 1024
+
+        if sys.platform.startswith("linux"):
+            try:
+                meminfo = Path("/proc/meminfo").read_text(encoding="utf-8")
+                for line in meminfo.splitlines():
+                    if line.startswith("MemAvailable:"):
+                        parts = line.split()
+                        available_bytes = int(parts[1]) * 1024
+                        if available_bytes < min_memory_bytes:
+                            return (
+                                False,
+                                f"Nízká dostupná RAM: {available_bytes // (1024 * 1024)} MiB.",
+                            )
+                        return True, ""
+            except (OSError, ValueError, IndexError):
+                pass
+
+        if hasattr(os, "sysconf") and "SC_AVPHYS_PAGES" in os.sysconf_names:
+            try:
+                page_count = int(os.sysconf("SC_AVPHYS_PAGES"))
+                page_size = int(os.sysconf("SC_PAGE_SIZE"))
+                available_bytes = page_count * page_size
+                if available_bytes < min_memory_bytes:
+                    return (
+                        False,
+                        f"Nízká dostupná RAM: {available_bytes // (1024 * 1024)} MiB.",
+                    )
+                return True, ""
+            except (OSError, ValueError):
+                pass
+
+        return True, ""
+
+    def _validate_restart_prerequisites(self) -> tuple[bool, str | None]:
+        python = sys.executable
+        if not python:
+            return False, "sys.executable je prázdné."
+
+        executable_path = Path(python)
+        if not executable_path.exists():
+            return False, f"Python executable neexistuje: {python}"
+
+        min_disk_bytes = 50 * 1024 * 1024
+        try:
+            free_disk = shutil.disk_usage(self.repo_path).free
+        except OSError as exc:
+            return False, f"Nelze zjistit volné místo na disku: {exc}"
+
+        if free_disk < min_disk_bytes:
+            return (
+                False,
+                f"Nízké volné místo na disku: {free_disk // (1024 * 1024)} MiB.",
+            )
+
+        memory_ok, memory_error = self._check_available_memory()
+        if not memory_ok:
+            return False, memory_error
+
+        return True, None
 
     async def _download_archive(self, url: str, destination: Path) -> None:
         await asyncio.to_thread(self._download_archive_sync, url, destination)
@@ -187,20 +250,45 @@ class AutoUpdater(commands.Cog):
         """Restart the current bot process."""
 
         await asyncio.sleep(1)
+        checks_ok, checks_error = self._validate_restart_prerequisites()
+        if not checks_ok:
+            self.logger.error("Restart přerušen: %s", checks_error)
+            raise BotRestartError(checks_error or "Restart přerušen kvůli neznámé chybě.")
+
         python = sys.executable
         try:
+            self.logger.info("Restart: používám primární strategii os.execl(...).")
             os.execl(python, python, *sys.argv)
         except OSError as exc:
+            self.logger.warning(
+                "Primární restart os.execl selhal (errno=%s, strerror=%s). Zkouším fallback přes subprocess.Popen.",
+                exc.errno,
+                exc.strerror,
+            )
+
+        try:
+            close_fds = os.name != "nt"
+            process = subprocess.Popen(
+                [python, *sys.argv],
+                cwd=str(self.repo_path),
+                close_fds=close_fds,
+            )
+            self.logger.info(
+                "Restart: použit fallback subprocess.Popen (pid=%s, close_fds=%s).",
+                process.pid,
+                close_fds,
+            )
+        except OSError as exc:
             self.logger.exception(
-                "Restart procesu selhal (errno=%s, strerror=%s, argv=%r, executable=%r)",
+                "Fallback restart přes subprocess.Popen selhal (errno=%s, strerror=%s, argv=%r, executable=%r)",
                 exc.errno,
                 exc.strerror,
                 sys.argv,
                 python,
             )
-            raise BotRestartError(
-                "Restart procesu selhal. Viz log pro detailní diagnostiku."
-            ) from exc
+            raise BotRestartError("Restart procesu selhal ve všech strategiích.") from exc
+
+        os._exit(0)
         return True
 
     @app_commands.command(
