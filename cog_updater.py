@@ -18,6 +18,10 @@ from discord import app_commands
 from discord.ext import commands
 
 
+class BotRestartError(RuntimeError):
+    """Domain exception raised when bot process restart fails."""
+
+
 class AutoUpdater(commands.Cog):
     """Discord command for updating the bot from Git or a ZIP archive."""
 
@@ -179,12 +183,25 @@ class AutoUpdater(commands.Cog):
 
         return True, "Aktualizace z archivu dokončena."
 
-    async def _restart_bot(self) -> None:
+    async def _restart_bot(self) -> bool:
         """Restart the current bot process."""
 
         await asyncio.sleep(1)
         python = sys.executable
-        os.execl(python, python, *sys.argv)
+        try:
+            os.execl(python, python, *sys.argv)
+        except OSError as exc:
+            self.logger.exception(
+                "Restart procesu selhal (errno=%s, strerror=%s, argv=%r, executable=%r)",
+                exc.errno,
+                exc.strerror,
+                sys.argv,
+                python,
+            )
+            raise BotRestartError(
+                "Restart procesu selhal. Viz log pro detailní diagnostiku."
+            ) from exc
+        return True
 
     @app_commands.command(
         name="updatebot",

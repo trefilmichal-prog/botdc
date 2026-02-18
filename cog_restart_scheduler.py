@@ -10,6 +10,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from config import AUTO_RESTART_INTERVAL_MINUTES
+from cog_updater import BotRestartError
 from db import (
     clear_restart_plan,
     get_all_enabled_restart_settings,
@@ -77,21 +78,50 @@ class RestartSchedulerCog(commands.Cog):
                 set_restart_plan(planned_at, guild_id)
                 next_due = planned_at + timedelta(minutes=interval_minutes)
                 upsert_guild_restart_runtime(guild_id, next_due, planned_at)
-                await self._graceful_restart()
+                try:
+                    await self._graceful_restart()
+                except BotRestartError as exc:
+                    backoff_due = datetime.utcnow() + timedelta(minutes=5)
+                    upsert_guild_restart_runtime(guild_id, backoff_due, planned_at)
+                    clear_restart_plan()
+                    self.logger.error(
+                        "Restart scheduler: restart selhal pro guild %s. Další pokus v %s. Důvod: %s",
+                        guild_id,
+                        backoff_due.isoformat(),
+                        exc,
+                    )
+                    return
                 return
 
     @scheduler_loop.before_loop
     async def before_scheduler_loop(self) -> None:
         await self.bot.wait_until_ready()
 
-    async def _graceful_restart(self) -> None:
+    async def _graceful_restart(self) -> bool:
         updater = self.bot.get_cog("AutoUpdater")
         if updater and hasattr(updater, "_restart_bot"):
-            await updater._restart_bot()
-            return
+            try:
+                result = await updater._restart_bot()
+            except BotRestartError:
+                raise
+            except Exception as exc:  # pragma: no cover - defensive guard
+                raise BotRestartError("Restart přes AutoUpdater selhal.") from exc
+            return bool(result)
+
         await asyncio.sleep(1)
         python = sys.executable
-        os.execl(python, python, *sys.argv)
+        try:
+            os.execl(python, python, *sys.argv)
+        except OSError as exc:
+            self.logger.exception(
+                "Restart procesu (fallback) selhal (errno=%s, strerror=%s, argv=%r, executable=%r)",
+                exc.errno,
+                exc.strerror,
+                sys.argv,
+                python,
+            )
+            raise BotRestartError("Restart procesu (fallback) selhal.") from exc
+        return True
 
     def _build_text_view(self, lines: list[str]) -> discord.ui.LayoutView:
         view = discord.ui.LayoutView(timeout=None)
