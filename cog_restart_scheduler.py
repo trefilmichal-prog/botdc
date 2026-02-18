@@ -106,7 +106,9 @@ class RestartSchedulerCog(commands.Cog):
                 raise
             except Exception as exc:  # pragma: no cover - defensive guard
                 raise BotRestartError("Restart přes AutoUpdater selhal.") from exc
-            return bool(result)
+            if not result:
+                raise BotRestartError("Restart přes AutoUpdater vrátil neúspěch.")
+            return True
 
         await asyncio.sleep(1)
         python = sys.executable
