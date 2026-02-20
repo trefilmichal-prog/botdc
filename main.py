@@ -167,7 +167,6 @@ class MyBot(commands.Bot):
                 )
                 return
             self._recent_interactions[interaction.id] = now
-        await super().on_interaction(interaction)
 
     async def on_message(self, message: discord.Message):
         if message.author.bot:
