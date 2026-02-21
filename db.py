@@ -884,6 +884,20 @@ def init_db():
         """
     )
 
+
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS private_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            sender_id INTEGER NOT NULL,
+            recipient_id INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+
     # Statistiky uživatelů (XP/coins/level/messages)
     c.execute(
         """
@@ -3677,3 +3691,67 @@ def delete_windows_notifications(notification_ids: List[int]) -> None:
     )
     conn.commit()
     conn.close()
+
+
+def create_sz_message(
+    guild_id: int,
+    sender_id: int,
+    recipient_id: int,
+    content: str,
+    created_at: str,
+) -> int:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO private_messages (guild_id, sender_id, recipient_id, content, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (int(guild_id), int(sender_id), int(recipient_id), str(content), str(created_at)),
+    )
+    message_id = int(c.lastrowid)
+    conn.commit()
+    conn.close()
+    return message_id
+
+
+def get_sz_message(message_id: int) -> Dict[str, Any] | None:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT id, guild_id, sender_id, recipient_id, content, created_at
+        FROM private_messages
+        WHERE id = ?
+        """,
+        (int(message_id),),
+    )
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "id": int(row[0]),
+        "guild_id": int(row[1]),
+        "sender_id": int(row[2]),
+        "recipient_id": int(row[3]),
+        "content": str(row[4]),
+        "created_at": str(row[5]),
+    }
+
+
+def list_unread_sz_message_ids(limit: int = 2000) -> List[int]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT id
+        FROM private_messages
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (int(limit),),
+    )
+    rows = c.fetchall()
+    conn.close()
+    return [int(row[0]) for row in rows]
