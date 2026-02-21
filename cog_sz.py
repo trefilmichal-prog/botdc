@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 import discord
 from discord import app_commands
@@ -11,17 +10,40 @@ from db import create_sz_message, get_sz_message, list_unread_sz_message_ids
 
 
 class SzReadView(discord.ui.LayoutView):
-    def __init__(self, private_message_id: int):
+    def __init__(
+        self,
+        private_message_id: int,
+        sender_id: int | None = None,
+        recipient_id: int | None = None,
+    ):
         super().__init__(timeout=None)
         self.private_message_id = int(private_message_id)
+
+        container_items: list[discord.ui.Item] = [
+            discord.ui.TextDisplay(content="## ✉️ Nová SZ"),
+        ]
+        if sender_id is not None:
+            container_items.append(
+                discord.ui.TextDisplay(content=f"Od: <@{int(sender_id)}>")
+            )
+        if recipient_id is not None:
+            container_items.append(
+                discord.ui.TextDisplay(content=f"Pro: <@{int(recipient_id)}>")
+            )
+        container_items.append(
+            discord.ui.TextDisplay(content="Klikni na **Read** pro zobrazení obsahu.")
+        )
+
+        self.add_item(discord.ui.Container(*container_items))
+        self.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+
         button = discord.ui.Button(
             label="Read",
             style=discord.ButtonStyle.primary,
             custom_id=f"sz_read:{self.private_message_id}",
         )
         button.callback = self._on_read_clicked
-        row = discord.ui.ActionRow(button)
-        self.add_item(row)
+        self.add_item(discord.ui.ActionRow(button))
 
     async def _on_read_clicked(self, interaction: discord.Interaction) -> None:
         data = get_sz_message(self.private_message_id)
@@ -70,7 +92,10 @@ class SecretMessageCog(commands.Cog, name="SecretMessageCog"):
         for private_message_id in list_unread_sz_message_ids(limit=2000):
             self.bot.add_view(SzReadView(private_message_id))
 
-    @sz.command(name="send", description="Pošle soukromou zprávu viditelnou jen po kliknutí na Read.")
+    @sz.command(
+        name="send",
+        description="Pošle soukromou zprávu viditelnou jen po kliknutí na Read.",
+    )
     @app_commands.guild_only()
     @app_commands.describe(user="Komu chceš SZ poslat", zprava="Obsah zprávy")
     async def send_sz(
@@ -105,21 +130,11 @@ class SecretMessageCog(commands.Cog, name="SecretMessageCog"):
             created_at=datetime.utcnow().isoformat(timespec="seconds"),
         )
 
-        posted_view = discord.ui.LayoutView(timeout=None)
-        posted_view.add_item(
-            discord.ui.Container(
-                discord.ui.TextDisplay(content="## ✉️ Nová SZ"),
-                discord.ui.TextDisplay(content=f"Od: {interaction.user.mention}"),
-                discord.ui.TextDisplay(content=f"Pro: {user.mention}"),
-                discord.ui.TextDisplay(content="Klikni na **Read** pro zobrazení obsahu.")
-            )
+        posted_view = SzReadView(
+            private_message_id=private_message_id,
+            sender_id=interaction.user.id,
+            recipient_id=user.id,
         )
-        posted_view.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
-        posted_view.add_item(discord.ui.ActionRow(discord.ui.Button(
-            label="Read",
-            style=discord.ButtonStyle.primary,
-            custom_id=f"sz_read:{private_message_id}",
-        )))
 
         # persistent callback handler po restartu
         self.bot.add_view(SzReadView(private_message_id))
