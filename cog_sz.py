@@ -6,6 +6,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from config import ALLOWED_GUILD_ID
+
 from db import (
     add_sz_reader_role,
     create_sz_message,
@@ -104,7 +106,11 @@ class SzReadView(discord.ui.LayoutView):
 
 
 class SecretMessageCog(commands.Cog, name="SecretMessageCog"):
-    sz = app_commands.Group(name="sz", description="Private messages in the channel.")
+    sz = app_commands.Group(
+        name="sz",
+        description="Private messages in the channel.",
+        guild_ids=[int(ALLOWED_GUILD_ID)] if ALLOWED_GUILD_ID else None,
+    )
     access = app_commands.Group(
         name="access",
         description="Configure roles that can read private messages.",
@@ -133,7 +139,6 @@ class SecretMessageCog(commands.Cog, name="SecretMessageCog"):
         await interaction.response.defer(ephemeral=True)
 
         try:
-            self.bot.tree.clear_commands(guild=interaction.guild)
             synced = await self.bot.tree.sync(guild=interaction.guild)
             await interaction.followup.send(
                 view=_notice_view(
