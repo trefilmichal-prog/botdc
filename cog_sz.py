@@ -6,7 +6,20 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from db import create_sz_message, get_sz_message, list_unread_sz_message_ids
+from db import (
+    add_sz_reader_role,
+    create_sz_message,
+    get_sz_message,
+    list_sz_reader_roles,
+    list_unread_sz_message_ids,
+    remove_sz_reader_role,
+)
+
+
+def _notice_view(message: str) -> discord.ui.LayoutView:
+    view = discord.ui.LayoutView(timeout=None)
+    view.add_item(discord.ui.Container(discord.ui.TextDisplay(content=message)))
+    return view
 
 
 class SzReadView(discord.ui.LayoutView):
@@ -49,19 +62,28 @@ class SzReadView(discord.ui.LayoutView):
         data = get_sz_message(self.private_message_id)
         if data is None:
             await interaction.response.send_message(
-                "This private message no longer exists.", ephemeral=True
+                view=_notice_view("This private message no longer exists."), ephemeral=True
             )
             return
 
         if interaction.guild_id != data["guild_id"]:
             await interaction.response.send_message(
-                "This private message does not belong to this server.", ephemeral=True
+                view=_notice_view("This private message does not belong to this server."),
+                ephemeral=True,
             )
             return
 
-        if interaction.user.id != data["recipient_id"]:
+        allowed = interaction.user.id == data["recipient_id"]
+        if not allowed and isinstance(interaction.user, discord.Member):
+            reader_roles = set(list_sz_reader_roles(data["guild_id"]))
+            allowed = any(role.id in reader_roles for role in interaction.user.roles)
+
+        if not allowed:
             await interaction.response.send_message(
-                "Only the intended recipient can read this private message.", ephemeral=True
+                view=_notice_view(
+                    "Only the intended recipient (or an allowed role) can read this private message."
+                ),
+                ephemeral=True,
             )
             return
 
@@ -83,6 +105,11 @@ class SzReadView(discord.ui.LayoutView):
 
 class SecretMessageCog(commands.Cog, name="SecretMessageCog"):
     sz = app_commands.Group(name="sz", description="Private messages in the channel.")
+    access = app_commands.Group(
+        name="access",
+        description="Configure roles that can read private messages.",
+        parent=sz,
+    )
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -97,7 +124,9 @@ class SecretMessageCog(commands.Cog, name="SecretMessageCog"):
         description="Send a private message that is revealed only after clicking Read.",
     )
     @app_commands.guild_only()
-    @app_commands.describe(user="Who should receive the private message", message="Message content")
+    @app_commands.describe(
+        user="Who should receive the private message", message="Message content"
+    )
     async def send_sz(
         self,
         interaction: discord.Interaction,
@@ -106,19 +135,22 @@ class SecretMessageCog(commands.Cog, name="SecretMessageCog"):
     ) -> None:
         if interaction.guild_id is None:
             await interaction.response.send_message(
-                "This command only works inside a server.", ephemeral=True
+                view=_notice_view("This command only works inside a server."),
+                ephemeral=True,
             )
             return
 
         if user.id == interaction.user.id:
             await interaction.response.send_message(
-                "You cannot send a private message to yourself.", ephemeral=True
+                view=_notice_view("You cannot send a private message to yourself."),
+                ephemeral=True,
             )
             return
 
         if user.bot:
             await interaction.response.send_message(
-                "You cannot send a private message to a bot.", ephemeral=True
+                view=_notice_view("You cannot send a private message to a bot."),
+                ephemeral=True,
             )
             return
 
@@ -140,3 +172,68 @@ class SecretMessageCog(commands.Cog, name="SecretMessageCog"):
         self.bot.add_view(SzReadView(private_message_id))
 
         await interaction.response.send_message(view=posted_view)
+
+    @access.command(name="add", description="Allow a role to read any private message.")
+    @app_commands.guild_only()
+    @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.describe(role="Role that should be allowed to read private messages")
+    async def access_add(self, interaction: discord.Interaction, role: discord.Role) -> None:
+        if interaction.guild_id is None:
+            await interaction.response.send_message(
+                view=_notice_view("This command only works inside a server."),
+                ephemeral=True,
+            )
+            return
+
+        add_sz_reader_role(interaction.guild_id, role.id)
+        await interaction.response.send_message(
+            view=_notice_view(f"✅ Role {role.mention} can now read all private messages."),
+            ephemeral=True,
+        )
+
+    @access.command(name="remove", description="Revoke role access to read private messages.")
+    @app_commands.guild_only()
+    @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.describe(role="Role to remove from private-message readers")
+    async def access_remove(
+        self, interaction: discord.Interaction, role: discord.Role
+    ) -> None:
+        if interaction.guild_id is None:
+            await interaction.response.send_message(
+                view=_notice_view("This command only works inside a server."),
+                ephemeral=True,
+            )
+            return
+
+        remove_sz_reader_role(interaction.guild_id, role.id)
+        await interaction.response.send_message(
+            view=_notice_view(
+                f"🗑️ Role {role.mention} can no longer read other users' private messages."
+            ),
+            ephemeral=True,
+        )
+
+    @access.command(name="list", description="List roles that can read private messages.")
+    @app_commands.guild_only()
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def access_list(self, interaction: discord.Interaction) -> None:
+        if interaction.guild_id is None:
+            await interaction.response.send_message(
+                view=_notice_view("This command only works inside a server."),
+                ephemeral=True,
+            )
+            return
+
+        role_ids = list_sz_reader_roles(interaction.guild_id)
+        if not role_ids:
+            await interaction.response.send_message(
+                view=_notice_view("No extra roles are allowed to read private messages yet."),
+                ephemeral=True,
+            )
+            return
+
+        mentions = "\n".join(f"• <@&{role_id}>" for role_id in role_ids)
+        await interaction.response.send_message(
+            view=_notice_view(f"## Allowed private-message reader roles\n{mentions}"),
+            ephemeral=True,
+        )

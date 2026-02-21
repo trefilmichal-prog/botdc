@@ -898,6 +898,17 @@ def init_db():
         """
     )
 
+
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS guild_sz_reader_roles (
+            guild_id INTEGER NOT NULL,
+            role_id INTEGER NOT NULL,
+            PRIMARY KEY (guild_id, role_id)
+        )
+        """
+    )
+
     # Statistiky uživatelů (XP/coins/level/messages)
     c.execute(
         """
@@ -3751,6 +3762,51 @@ def list_unread_sz_message_ids(limit: int = 2000) -> List[int]:
         LIMIT ?
         """,
         (int(limit),),
+    )
+    rows = c.fetchall()
+    conn.close()
+    return [int(row[0]) for row in rows]
+
+
+def add_sz_reader_role(guild_id: int, role_id: int) -> None:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT OR IGNORE INTO guild_sz_reader_roles (guild_id, role_id)
+        VALUES (?, ?)
+        """,
+        (int(guild_id), int(role_id)),
+    )
+    conn.commit()
+    conn.close()
+
+
+def remove_sz_reader_role(guild_id: int, role_id: int) -> None:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        DELETE FROM guild_sz_reader_roles
+        WHERE guild_id = ? AND role_id = ?
+        """,
+        (int(guild_id), int(role_id)),
+    )
+    conn.commit()
+    conn.close()
+
+
+def list_sz_reader_roles(guild_id: int) -> List[int]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT role_id
+        FROM guild_sz_reader_roles
+        WHERE guild_id = ?
+        ORDER BY role_id ASC
+        """,
+        (int(guild_id),),
     )
     rows = c.fetchall()
     conn.close()
