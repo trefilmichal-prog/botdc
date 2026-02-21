@@ -33,6 +33,7 @@ from cog_welcome import WelcomeCog
 from cog_wood import WoodCog
 from cog_xp import XpCog
 from config import (
+    ALLOWED_GUILD_ID,
     LOG_TO_CONSOLE,
     TOKEN,
     WINDOWS_NOTIFICATION_WINRT_ENABLED,
@@ -143,8 +144,61 @@ class MyBot(commands.Bot):
         else:
             logger.info("WinRT ingest notifikací je vypnutý v konfiguraci.")
 
-        # sync slash commandů globálně
-        await self.tree.sync()
+        await self._sync_app_commands()
+
+    async def _sync_app_commands(self) -> None:
+        target_guild_id = int(ALLOWED_GUILD_ID) if ALLOWED_GUILD_ID else None
+
+        if target_guild_id:
+            try:
+                pinned_guild = discord.Object(id=target_guild_id)
+                # Zkopíruje globální příkazy do cílové guildy pro okamžitou dostupnost.
+                self.tree.copy_global_to(guild=pinned_guild)
+                synced_pinned = await self.tree.sync(guild=pinned_guild)
+                logger.info(
+                    "Prioritní guild sync slash commandů (%s): %s příkazů.",
+                    target_guild_id,
+                    len(synced_pinned),
+                )
+            except Exception:
+                logger.exception(
+                    "Prioritní guild sync slash commandů selhal pro guild %s.",
+                    target_guild_id,
+                )
+
+        try:
+            # Globální sync je pomalejší na propagaci, ale zajišťuje jednotné příkazy.
+            synced = await self.tree.sync()
+            logger.info("Globální sync slash commandů: %s příkazů.", len(synced))
+        except Exception:
+            logger.exception("Globální sync slash commandů selhal.")
+
+        # Guild sync urychlí okamžitou dostupnost příkazů (např. /sz) na serverech.
+        for guild in self.guilds:
+            if target_guild_id and guild.id == target_guild_id:
+                continue
+            try:
+                self.tree.copy_global_to(guild=guild)
+                synced_guild = await self.tree.sync(guild=guild)
+                logger.info(
+                    "Guild sync slash commandů (%s): %s příkazů.",
+                    guild.id,
+                    len(synced_guild),
+                )
+            except Exception:
+                logger.exception("Guild sync slash commandů selhal pro guild %s.", guild.id)
+
+    async def on_guild_join(self, guild: discord.Guild) -> None:
+        try:
+            self.tree.copy_global_to(guild=guild)
+            synced = await self.tree.sync(guild=guild)
+            logger.info(
+                "Po přidání bota proveden guild sync (%s): %s příkazů.",
+                guild.id,
+                len(synced),
+            )
+        except Exception:
+            logger.exception("Guild sync po přidání bota selhal pro guild %s.", guild.id)
 
     async def on_app_command_error(
         self, interaction: discord.Interaction, error: app_commands.AppCommandError
@@ -169,6 +223,8 @@ class MyBot(commands.Bot):
                 )
                 return
             self._recent_interactions[interaction.id] = now
+
+        await super().on_interaction(interaction)
 
     async def on_message(self, message: discord.Message):
         if message.author.bot:
