@@ -23,6 +23,7 @@ from cog_restart_scheduler import RestartSchedulerCog
 from cog_roblox_activity import RobloxActivityCog
 from cog_secret_notifications_forwarder import SecretNotificationsForwarder
 from cog_shop import ShopCog
+from cog_sz import SecretMessageCog
 from cog_sp import RebirthPanel
 from cog_time_status import TimeStatusCog
 from cog_timers import TimersCog
@@ -100,6 +101,7 @@ class MyBot(commands.Bot):
             WoodCog(self),
             TimersCog(self),
             ShopCog(self),
+            SecretMessageCog(self),
             ClanStatsOcrCog(self),
             BasicCommandsCog(self),
             LeaderboardCog(self),
