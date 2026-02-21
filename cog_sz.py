@@ -111,10 +111,16 @@ class SecretMessageCog(commands.Cog, name="SecretMessageCog"):
         description="Private messages in the channel.",
         guild_ids=[int(ALLOWED_GUILD_ID)] if ALLOWED_GUILD_ID else None,
     )
+    szadmin = app_commands.Group(
+        name="szadmin",
+        description="Admin commands for private messages.",
+        guild_ids=[int(ALLOWED_GUILD_ID)] if ALLOWED_GUILD_ID else None,
+        default_permissions=discord.Permissions(manage_guild=True),
+    )
     access = app_commands.Group(
         name="access",
         description="Configure roles that can read private messages.",
-        parent=sz,
+        parent=szadmin,
     )
 
     def __init__(self, bot: commands.Bot):
@@ -125,9 +131,8 @@ class SecretMessageCog(commands.Cog, name="SecretMessageCog"):
         for private_message_id in list_unread_sz_message_ids(limit=2000):
             self.bot.add_view(SzReadView(private_message_id))
 
-    @sz.command(name="sync", description="Manually sync slash commands for this server.")
+    @szadmin.command(name="sync", description="Manually sync slash commands for this server.")
     @app_commands.guild_only()
-    @app_commands.default_permissions(manage_guild=True)
     @app_commands.checks.has_permissions(manage_guild=True)
     async def sync_sz(self, interaction: discord.Interaction) -> None:
         if interaction.guild is None:
@@ -209,7 +214,6 @@ class SecretMessageCog(commands.Cog, name="SecretMessageCog"):
 
     @access.command(name="add", description="Allow a role to read any private message.")
     @app_commands.guild_only()
-    @app_commands.default_permissions(manage_guild=True)
     @app_commands.checks.has_permissions(manage_guild=True)
     @app_commands.describe(role="Role that should be allowed to read private messages")
     async def access_add(self, interaction: discord.Interaction, role: discord.Role) -> None:
@@ -228,7 +232,6 @@ class SecretMessageCog(commands.Cog, name="SecretMessageCog"):
 
     @access.command(name="remove", description="Revoke role access to read private messages.")
     @app_commands.guild_only()
-    @app_commands.default_permissions(manage_guild=True)
     @app_commands.checks.has_permissions(manage_guild=True)
     @app_commands.describe(role="Role to remove from private-message readers")
     async def access_remove(
@@ -251,7 +254,6 @@ class SecretMessageCog(commands.Cog, name="SecretMessageCog"):
 
     @access.command(name="list", description="List roles that can read private messages.")
     @app_commands.guild_only()
-    @app_commands.default_permissions(manage_guild=True)
     @app_commands.checks.has_permissions(manage_guild=True)
     async def access_list(self, interaction: discord.Interaction) -> None:
         if interaction.guild_id is None:
