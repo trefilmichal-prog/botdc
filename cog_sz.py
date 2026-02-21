@@ -6,6 +6,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from config import ALLOWED_GUILD_ID
+
 from db import (
     add_sz_reader_role,
     create_sz_message,
@@ -104,7 +106,11 @@ class SzReadView(discord.ui.LayoutView):
 
 
 class SecretMessageCog(commands.Cog, name="SecretMessageCog"):
-    sz = app_commands.Group(name="sz", description="Private messages in the channel.")
+    sz = app_commands.Group(
+        name="sz",
+        description="Private messages in the channel.",
+        guild_ids=[int(ALLOWED_GUILD_ID)] if ALLOWED_GUILD_ID else None,
+    )
     access = app_commands.Group(
         name="access",
         description="Configure roles that can read private messages.",
@@ -118,6 +124,33 @@ class SecretMessageCog(commands.Cog, name="SecretMessageCog"):
     def _register_persistent_views(self) -> None:
         for private_message_id in list_unread_sz_message_ids(limit=2000):
             self.bot.add_view(SzReadView(private_message_id))
+
+    @sz.command(name="sync", description="Manually sync slash commands for this server.")
+    @app_commands.guild_only()
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def sync_sz(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                view=_notice_view("This command only works inside a server."),
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            synced = await self.bot.tree.sync(guild=interaction.guild)
+            await interaction.followup.send(
+                view=_notice_view(
+                    f"✅ Synced {len(synced)} slash command(s) for this server."
+                ),
+                ephemeral=True,
+            )
+        except Exception:
+            await interaction.followup.send(
+                view=_notice_view("❌ Slash command sync failed. Check bot logs."),
+                ephemeral=True,
+            )
 
     @sz.command(
         name="send",
