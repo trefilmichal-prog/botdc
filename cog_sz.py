@@ -20,18 +20,18 @@ class SzReadView(discord.ui.LayoutView):
         self.private_message_id = int(private_message_id)
 
         container_items: list[discord.ui.Item] = [
-            discord.ui.TextDisplay(content="## ✉️ Nová SZ"),
+            discord.ui.TextDisplay(content="## ✉️ New private message"),
         ]
         if sender_id is not None:
             container_items.append(
-                discord.ui.TextDisplay(content=f"Od: <@{int(sender_id)}>")
+                discord.ui.TextDisplay(content=f"From: <@{int(sender_id)}>")
             )
         if recipient_id is not None:
             container_items.append(
-                discord.ui.TextDisplay(content=f"Pro: <@{int(recipient_id)}>")
+                discord.ui.TextDisplay(content=f"To: <@{int(recipient_id)}>")
             )
         container_items.append(
-            discord.ui.TextDisplay(content="Klikni na **Read** pro zobrazení obsahu.")
+            discord.ui.TextDisplay(content="Click **Read** to view the message content.")
         )
 
         self.add_item(discord.ui.Container(*container_items))
@@ -49,19 +49,19 @@ class SzReadView(discord.ui.LayoutView):
         data = get_sz_message(self.private_message_id)
         if data is None:
             await interaction.response.send_message(
-                "Tahle SZ už neexistuje.", ephemeral=True
+                "This private message no longer exists.", ephemeral=True
             )
             return
 
         if interaction.guild_id != data["guild_id"]:
             await interaction.response.send_message(
-                "Tahle SZ nepatří do tohoto serveru.", ephemeral=True
+                "This private message does not belong to this server.", ephemeral=True
             )
             return
 
         if interaction.user.id != data["recipient_id"]:
             await interaction.response.send_message(
-                "Tuhle SZ může číst jen příjemce.", ephemeral=True
+                "Only the intended recipient can read this private message.", ephemeral=True
             )
             return
 
@@ -69,20 +69,20 @@ class SzReadView(discord.ui.LayoutView):
         text_view = discord.ui.LayoutView(timeout=None)
         text_view.add_item(
             discord.ui.Container(
-                discord.ui.TextDisplay(content="## 📩 Soukromá zpráva"),
-                discord.ui.TextDisplay(content=f"**Od:** <@{data['sender_id']}>"),
-                discord.ui.TextDisplay(content=f"**Pro:** <@{data['recipient_id']}>"),
+                discord.ui.TextDisplay(content="## 📩 Private message"),
+                discord.ui.TextDisplay(content=f"**From:** <@{data['sender_id']}>"),
+                discord.ui.TextDisplay(content=f"**To:** <@{data['recipient_id']}>"),
                 discord.ui.Separator(spacing=discord.SeparatorSpacing.small),
                 discord.ui.TextDisplay(content=data["content"]),
                 discord.ui.Separator(spacing=discord.SeparatorSpacing.small),
-                discord.ui.TextDisplay(content=f"Odesláno: `{sent_at}`"),
+                discord.ui.TextDisplay(content=f"Sent: `{sent_at}`"),
             )
         )
         await interaction.response.send_message(view=text_view, ephemeral=True)
 
 
 class SecretMessageCog(commands.Cog, name="SecretMessageCog"):
-    sz = app_commands.Group(name="sz", description="Soukromé zprávy v roomce.")
+    sz = app_commands.Group(name="sz", description="Private messages in the channel.")
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -94,31 +94,31 @@ class SecretMessageCog(commands.Cog, name="SecretMessageCog"):
 
     @sz.command(
         name="send",
-        description="Pošle soukromou zprávu viditelnou jen po kliknutí na Read.",
+        description="Send a private message that is revealed only after clicking Read.",
     )
     @app_commands.guild_only()
-    @app_commands.describe(user="Komu chceš SZ poslat", zprava="Obsah zprávy")
+    @app_commands.describe(user="Who should receive the private message", message="Message content")
     async def send_sz(
         self,
         interaction: discord.Interaction,
         user: discord.Member,
-        zprava: app_commands.Range[str, 1, 1800],
+        message: app_commands.Range[str, 1, 1800],
     ) -> None:
         if interaction.guild_id is None:
             await interaction.response.send_message(
-                "Tento příkaz funguje jen na serveru.", ephemeral=True
+                "This command only works inside a server.", ephemeral=True
             )
             return
 
         if user.id == interaction.user.id:
             await interaction.response.send_message(
-                "SZ sám sobě poslat nejde.", ephemeral=True
+                "You cannot send a private message to yourself.", ephemeral=True
             )
             return
 
         if user.bot:
             await interaction.response.send_message(
-                "Botům SZ neposílám.", ephemeral=True
+                "You cannot send a private message to a bot.", ephemeral=True
             )
             return
 
@@ -126,7 +126,7 @@ class SecretMessageCog(commands.Cog, name="SecretMessageCog"):
             guild_id=interaction.guild_id,
             sender_id=interaction.user.id,
             recipient_id=user.id,
-            content=zprava.strip(),
+            content=message.strip(),
             created_at=datetime.utcnow().isoformat(timespec="seconds"),
         )
 
@@ -136,7 +136,7 @@ class SecretMessageCog(commands.Cog, name="SecretMessageCog"):
             recipient_id=user.id,
         )
 
-        # persistent callback handler po restartu
+        # persistent callback handler after restart
         self.bot.add_view(SzReadView(private_message_id))
 
         await interaction.response.send_message(view=posted_view)
