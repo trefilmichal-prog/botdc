@@ -152,8 +152,8 @@ class MyBot(commands.Bot):
         if target_guild_id:
             try:
                 pinned_guild = discord.Object(id=target_guild_id)
-                # Zkopíruje globální příkazy do cílové guildy pro okamžitou dostupnost.
-                self.tree.copy_global_to(guild=pinned_guild)
+                # Odstraní guild-overrides, aby se neukazovaly duplicitní globální příkazy.
+                self.tree.clear_commands(guild=pinned_guild)
                 synced_pinned = await self.tree.sync(guild=pinned_guild)
                 logger.info(
                     "Prioritní guild sync slash commandů (%s): %s příkazů.",
@@ -178,7 +178,7 @@ class MyBot(commands.Bot):
             if target_guild_id and guild.id == target_guild_id:
                 continue
             try:
-                self.tree.copy_global_to(guild=guild)
+                self.tree.clear_commands(guild=guild)
                 synced_guild = await self.tree.sync(guild=guild)
                 logger.info(
                     "Guild sync slash commandů (%s): %s příkazů.",
@@ -190,7 +190,7 @@ class MyBot(commands.Bot):
 
     async def on_guild_join(self, guild: discord.Guild) -> None:
         try:
-            self.tree.copy_global_to(guild=guild)
+            self.tree.clear_commands(guild=guild)
             synced = await self.tree.sync(guild=guild)
             logger.info(
                 "Po přidání bota proveden guild sync (%s): %s příkazů.",
