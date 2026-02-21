@@ -771,18 +771,18 @@ async def _rename_ticket_prefix(
     lang: str,
     status_emoji: str = STATUS_OPEN,
 ) -> tuple[bool, str | None]:
-    """Rename ticket to requested format: 🟠přihlášky-{clan}-{player}"""
+    """Rename ticket to requested format: 🟠{clan}-{player}"""
     clan_key = (clan_value or "").strip().lower()
     if not clan_key:
         return False, None
 
     slug = _slugify_channel_part(player_name)
-    name = f"{status_emoji}přihlášky-{clan_key}-{slug}"
+    name = f"{status_emoji}{clan_key}-{slug}"
 
     if len(name) > 100:
         name = name[:100].rstrip("-")
         if not name:
-            name = f"{status_emoji}přihlášky-{clan_key}"
+            name = f"{status_emoji}{clan_key}"
 
     if channel.name == name:
         return True, None
@@ -1000,7 +1000,7 @@ class ClanApplicationModal(discord.ui.Modal):
 
         # Create ticket channel first
         topic = f"clan_applicant={interaction.user.id};clan={self.clan_value}"
-        tmp_name = f"ticket-{_slugify_channel_part(self.clan_value)}-{_slugify_channel_part(interaction.user.name)}"
+        tmp_name = f"{_slugify_channel_part(self.clan_value)}-{_slugify_channel_part(interaction.user.name)}"
 
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
@@ -1124,7 +1124,7 @@ class ClanApplicationModal(discord.ui.Modal):
         except discord.HTTPException:
             pass
 
-        # 2) Rename ticket channel to: 🟠přihlášky-{clan}-{player}
+        # 2) Rename ticket channel to: 🟠{clan}-{player}
         rename_ok = False
         rename_err = None
         try:
