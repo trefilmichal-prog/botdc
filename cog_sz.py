@@ -115,6 +115,7 @@ class SecretMessageCog(commands.Cog, name="SecretMessageCog"):
         name="access",
         description="Configure roles that can read private messages.",
         parent=sz,
+        default_permissions=discord.Permissions(manage_guild=True),
     )
 
     def __init__(self, bot: commands.Bot):
