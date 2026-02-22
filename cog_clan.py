@@ -594,12 +594,8 @@ def _parse_db_datetime(value: str | None) -> datetime | None:
 
 
 def _is_reviewer(member: discord.Member, clan_value: str) -> bool:
-    """Reviewer = Admin role OR clan review role OR administrator perms."""
+    """Reviewer = clan review role OR administrator perms."""
     if member.guild_permissions.administrator:
-        return True
-
-    admin_role = discord.utils.get(member.guild.roles, name=ADMIN_ROLE_NAME)
-    if admin_role and admin_role in member.roles:
         return True
 
     rid = _review_role_id_for_clan(clan_value, member.guild.id if member.guild else None)
