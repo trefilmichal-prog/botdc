@@ -594,12 +594,8 @@ def _parse_db_datetime(value: str | None) -> datetime | None:
 
 
 def _is_reviewer(member: discord.Member, clan_value: str) -> bool:
-    """Reviewer = Admin role OR clan review role OR administrator perms."""
+    """Reviewer = clan review role OR administrator perms."""
     if member.guild_permissions.administrator:
-        return True
-
-    admin_role = discord.utils.get(member.guild.roles, name=ADMIN_ROLE_NAME)
-    if admin_role and admin_role in member.roles:
         return True
 
     rid = _review_role_id_for_clan(clan_value, member.guild.id if member.guild else None)
@@ -1854,13 +1850,17 @@ class ClanPanelCog(commands.Cog):
                 await interaction.response.send_message(_t(lang, "ticket_invalid"), ephemeral=True)
                 return
 
-            if not _is_reviewer(clicker, clan_value):
-                await interaction.response.send_message(_t(lang, "no_perm"), ephemeral=True)
-                return
-
             ticket_channel = guild.get_channel(channel_id)
             if ticket_channel is None or not isinstance(ticket_channel, discord.TextChannel):
                 await interaction.response.send_message(_t(lang, "ticket_missing"), ephemeral=True)
+                return
+
+            _, topic_clan = _parse_ticket_topic(ticket_channel.topic or "")
+            if topic_clan:
+                clan_value = topic_clan
+
+            if not _is_reviewer(clicker, clan_value):
+                await interaction.response.send_message(_t(lang, "no_perm"), ephemeral=True)
                 return
 
             if action == "kick":
