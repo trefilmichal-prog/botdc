@@ -1850,13 +1850,17 @@ class ClanPanelCog(commands.Cog):
                 await interaction.response.send_message(_t(lang, "ticket_invalid"), ephemeral=True)
                 return
 
-            if not _is_reviewer(clicker, clan_value):
-                await interaction.response.send_message(_t(lang, "no_perm"), ephemeral=True)
-                return
-
             ticket_channel = guild.get_channel(channel_id)
             if ticket_channel is None or not isinstance(ticket_channel, discord.TextChannel):
                 await interaction.response.send_message(_t(lang, "ticket_missing"), ephemeral=True)
+                return
+
+            _, topic_clan = _parse_ticket_topic(ticket_channel.topic or "")
+            if topic_clan:
+                clan_value = topic_clan
+
+            if not _is_reviewer(clicker, clan_value):
+                await interaction.response.send_message(_t(lang, "no_perm"), ephemeral=True)
                 return
 
             if action == "kick":
