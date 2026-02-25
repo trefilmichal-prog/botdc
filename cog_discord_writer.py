@@ -56,6 +56,7 @@ _RATELIMIT_UPDATE_ORIGINAL: Callable[..., Any] | None = None
 _RATELIMIT_UPDATE_PATCHED = False
 _HTTPCLIENT_REQUEST_ORIGINAL: Callable[..., Any] | None = None
 _HTTPCLIENT_REQUEST_PATCHED = False
+_HTTPCLIENT_BOT_REF_ATTR = "_discord_write_bot"
 
 
 def _patched_ratelimit_update(self, response, *, use_clock: bool = False) -> None:
@@ -83,8 +84,14 @@ async def _patched_httpclient_request(self, route, *args, **kwargs):
     context = _DISCORD_WRITE_CONTEXT.get()
     if context and context.get("bypass_http_request"):
         return await _HTTPCLIENT_REQUEST_ORIGINAL(self, route, *args, **kwargs)
+    client = _get_client_from_httpclient(self)
+    if client is None:
+        logging.getLogger("botdc.discord_write").warning(
+            "HTTPClient.request nemá referenci na bota; přímý write request."
+        )
+        return await _HTTPCLIENT_REQUEST_ORIGINAL(self, route, *args, **kwargs)
     try:
-        writer = get_writer(_get_client_from_state(self))
+        writer = get_writer(client)
     except Exception as exc:  # noqa: BLE001
         logging.getLogger("botdc.discord_write").warning(
             "HTTPClient.request běží mimo Discord writer; přímý write request.",
@@ -149,6 +156,13 @@ def _get_client_from_state(obj: Any) -> commands.Bot:
     if client is None:
         raise RuntimeError("Nelze získat klienta z Discord state.")
     return client
+
+
+def _get_client_from_httpclient(obj: Any) -> commands.Bot | None:
+    client = getattr(obj, _HTTPCLIENT_BOT_REF_ATTR, None)
+    if isinstance(client, commands.Bot):
+        return client
+    return None
 
 
 def _sanitize_components_v2(components: Any, max_total: int = 4000, max_per: int = 4000):
@@ -920,6 +934,13 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
             self._patch_http_request()
         except Exception:  # noqa: BLE001
             self.logger.exception("Patchování Discord HTTPClient.request selhalo.")
+        else:
+            try:
+                setattr(self.bot.http, _HTTPCLIENT_BOT_REF_ATTR, self.bot)
+            except Exception:  # noqa: BLE001
+                self.logger.exception(
+                    "Uložení reference bota do HTTPClient pro Discord writer selhalo."
+                )
         self._worker_task = asyncio.create_task(self._worker_loop())
 
     async def cog_unload(self):
@@ -935,6 +956,8 @@ class DiscordWriteCoordinatorCog(commands.Cog, name="DiscordWriteCoordinator"):
         self._scheduled_tasks.clear()
         self._restore_methods()
         self._restore_ratelimit_update()
+        with contextlib.suppress(Exception):
+            delattr(self.bot.http, _HTTPCLIENT_BOT_REF_ATTR)
         self._restore_http_request()
 
     def _patch_methods(self):
