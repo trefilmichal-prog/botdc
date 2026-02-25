@@ -219,8 +219,8 @@ class MyBot(commands.Bot):
                 )
                 return
             self._recent_interactions[interaction.id] = now
-
-        await super().on_interaction(interaction)
+        # discord.py zde neposkytuje super().on_interaction; command tree se
+        # zpracovává interně knihovnou.
 
     async def on_message(self, message: discord.Message):
         if message.author.bot:
