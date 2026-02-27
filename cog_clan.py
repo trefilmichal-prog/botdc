@@ -1538,38 +1538,19 @@ class ClanPanelCog(commands.Cog):
         except app_commands.CommandAlreadyRegistered:
             pass
 
-        for group_name in ("settings", "clan_settings"):
-            existing_settings_group = self.bot.tree.get_command(
-                group_name,
-                type=discord.AppCommandType.chat_input,
-            )
-            if existing_settings_group and group_name in self._registered_settings_groups:
-                self.bot.tree.remove_command(group_name, type=discord.AppCommandType.chat_input)
-
-        self._registered_settings_groups.clear()
-
-        try:
-            self.bot.tree.add_command(self.settings_namespace_group)
-            self._registered_settings_groups.add(self._canonical_settings_group_name)
-        except app_commands.CommandAlreadyRegistered:
-            logging.getLogger("botdc").warning(
-                "Nelze zaregistrovat kanonický /%s ticket (název už je obsazen).",
-                self._canonical_settings_group_name,
+        existing_settings = self.bot.tree.get_command(
+            "settings", type=discord.AppCommandType.chat_input
+        )
+        if existing_settings:
+            self.bot.tree.remove_command(
+                "settings", type=discord.AppCommandType.chat_input
             )
 
         try:
             self.bot.tree.add_command(self.settings_group)
-            self._registered_settings_groups.add("settings")
-            logging.getLogger("botdc").warning(
-                "Používá se dočasný alias /settings ticket. Migrujte na /%s ticket.",
-                self._canonical_settings_group_name,
-            )
+            self._settings_group_registered_name = "settings"
         except app_commands.CommandAlreadyRegistered:
-            logging.getLogger("botdc").warning(
-                "Alias /settings ticket není dostupný (název už je obsazen). "
-                "Kanonický příkaz zůstává /%s ticket.",
-                self._canonical_settings_group_name,
-            )
+            self._settings_group_registered_name = None
 
 
         for guild_id, _, message_id in get_all_clan_application_panels():
