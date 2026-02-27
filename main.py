@@ -155,6 +155,23 @@ class MyBot(commands.Bot):
             logger.info("WinRT ingest notifikací je vypnutý v konfiguraci.")
 
         await self._sync_app_commands()
+        self._log_admin_tree_presence()
+
+    def _log_admin_tree_presence(self) -> None:
+        admin_command = self.tree.get_command(
+            "admin", type=discord.AppCommandType.chat_input
+        )
+        if isinstance(admin_command, app_commands.Group):
+            subcommands = sorted(cmd.name for cmd in admin_command.commands)
+            logger.info(
+                "Kontrola tree po syncu: root /admin present=yes, subcommandy=%s",
+                subcommands,
+            )
+            return
+
+        logger.info(
+            "Kontrola tree po syncu: root /admin present=no, subcommandy=[]"
+        )
 
     async def _sync_app_commands(self) -> None:
         target_guild_id = int(ALLOWED_GUILD_ID) if ALLOWED_GUILD_ID else None
