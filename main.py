@@ -216,10 +216,11 @@ class MyBot(commands.Bot):
                 continue
             try:
                 synced_guild = await self.tree.sync(guild=guild)
+                synced_guild_count = len(synced_guild)
                 logger.info(
                     "Guild sync slash commandů (%s): %s příkazů.",
                     guild.id,
-                    len(synced_guild),
+                    synced_guild_count,
                 )
             except Exception:
                 logger.exception("Guild sync slash commandů selhal pro guild %s.", guild.id)
