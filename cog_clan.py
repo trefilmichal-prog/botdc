@@ -1283,7 +1283,6 @@ class ClanPanelCog(commands.Cog):
         self.clan_panel_group = app_commands.Group(
             name="clan_panel",
             description="Správa panelu pro clan přihlášky",
-            default_permissions=discord.Permissions(administrator=True),
         )
         self.clan_panel_group.command(
             name="post", description="Zobrazí panel pro přihlášky do clanu"
