@@ -83,6 +83,7 @@ class MyBot(commands.Bot):
         self.winrt_listener: WindowsNotificationListener | None = None
         self._recent_interactions: "collections.OrderedDict[int, float]" = collections.OrderedDict()
         self._interaction_dedupe_window_seconds = 120.0
+        self._did_post_ready_sync = False
 
     async def setup_hook(self):
         async def add_cog_safe(cog_factory: Callable[[], commands.Cog]):
@@ -239,8 +240,29 @@ class MyBot(commands.Bot):
     ) -> None:
         logger.exception("App command error: %s", error)
 
+    async def _sync_connected_guilds_once(self) -> None:
+        if self._did_post_ready_sync:
+            return
+
+        for guild in self.guilds:
+            try:
+                synced_guild = await self.tree.sync(guild=guild)
+                logger.info(
+                    "Post-ready guild sync slash commandů (%s): %s příkazů.",
+                    guild.id,
+                    len(synced_guild),
+                )
+            except Exception:
+                logger.exception(
+                    "Post-ready guild sync slash commandů selhal pro guild %s.",
+                    guild.id,
+                )
+
+        self._did_post_ready_sync = True
+
     async def on_ready(self):
         logger.info("Přihlášen jako %s (ID: %s)", self.user, self.user.id)
+        await self._sync_connected_guilds_once()
 
     async def on_interaction(self, interaction: discord.Interaction):
         if interaction.type == discord.InteractionType.application_command:
