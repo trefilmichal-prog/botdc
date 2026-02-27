@@ -35,6 +35,21 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    async def cog_load(self):
+        existing_group = self.bot.tree.get_command("admin", type=discord.AppCommandType.chat_input)
+        if existing_group:
+            self.bot.tree.remove_command("admin", type=discord.AppCommandType.chat_input)
+
+        try:
+            self.bot.tree.add_command(self.admin)
+        except app_commands.CommandAlreadyRegistered:
+            pass
+
+    async def cog_unload(self):
+        existing_group = self.bot.tree.get_command("admin", type=discord.AppCommandType.chat_input)
+        if existing_group:
+            self.bot.tree.remove_command("admin", type=discord.AppCommandType.chat_input)
+
     @app_commands.command(name="help", description="Zobrazí užitečné informace o Rebirth Champions.")
     async def help(self, interaction: discord.Interaction):
         locale = get_interaction_locale(interaction)
@@ -251,6 +266,36 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
         await interaction.response.send_message(
             view=self._build_officer_stats_view(guild.id, user), ephemeral=True
         )
+
+    @admin.command(name="sync", description="Okamžitě synchronizuje slash commandy pro tento server.")
+    @app_commands.guild_only()
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def admin_sync(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message(
+                "Příkaz lze použít pouze na serveru.", ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        try:
+            synced = await self.bot.tree.sync(guild=guild)
+            view = discord.ui.LayoutView(timeout=None)
+            view.add_item(
+                discord.ui.Container(
+                    discord.ui.TextDisplay(content=f"✅ Synchronizováno `{len(synced)}` příkazů pro tento server.")
+                )
+            )
+            await interaction.followup.send(view=view, ephemeral=True)
+        except Exception:
+            view = discord.ui.LayoutView(timeout=None)
+            view.add_item(
+                discord.ui.Container(
+                    discord.ui.TextDisplay(content="❌ Synchronizace selhala. Zkontroluj logy bota.")
+                )
+            )
+            await interaction.followup.send(view=view, ephemeral=True)
 
     @app_commands.command(name="stat", description="Zobrazí statistiky officera.")
     @app_commands.describe(user="Officer, kterého statistiky chceš zobrazit.")
