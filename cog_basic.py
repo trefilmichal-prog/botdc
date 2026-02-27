@@ -23,7 +23,11 @@ from i18n import get_interaction_locale, t
 
 
 class BasicCommandsCog(commands.Cog, name="BasicCommands"):
-    admin = app_commands.Group(name="admin", description="Administrátorské příkazy.")
+    admin = app_commands.Group(
+        name="admin",
+        description="Administrátorské příkazy.",
+        default_permissions=discord.Permissions(manage_guild=True),
+    )
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -78,6 +82,7 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
     @admin.command(
         name="kick",
         description="Odebere clan roli a odstraní ticket člena (pokud existuje).",
+        default_permissions=discord.Permissions(kick_members=True),
     )
     @app_commands.describe(
         user="Uživatel, který má být vyhozen.", reason="Důvod odebrání z klanu."
@@ -191,7 +196,11 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
 
         return t("ticket_mark_deleted", locale)
 
-    @admin.command(name="ban", description="Zabanuje člena.")
+    @admin.command(
+        name="ban",
+        description="Zabanuje člena.",
+        default_permissions=discord.Permissions(ban_members=True),
+    )
     @app_commands.describe(user="Uživatel, který má být zabanován.", reason="Důvod banu.")
     @app_commands.checks.has_permissions(ban_members=True)
     async def ban_member(
@@ -223,6 +232,7 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
     @admin.command(
         name="warn",
         description="Upozorní hráče za neaktivitu a přidá příslušnou varovnou roli.",
+        default_permissions=discord.Permissions(manage_roles=True),
     )
     @app_commands.describe(user="Hráč, který má dostat varování za neaktivitu.")
     @app_commands.checks.has_permissions(manage_roles=True)
