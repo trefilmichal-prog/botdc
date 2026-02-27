@@ -34,11 +34,22 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
         self.bot = bot
         self.logger = logging.getLogger("botdc")
 
-    def _resolve_admin_group_in_cog_commands(self) -> app_commands.Group | None:
-        for cmd in getattr(self, "__cog_app_commands__", []):
-            if isinstance(cmd, app_commands.Group) and cmd.name == "admin":
-                return cmd
-        return None
+    async def cog_load(self):
+        existing_group = self.bot.tree.get_command(
+            "admin", type=discord.AppCommandType.chat_input
+        )
+        if existing_group is None:
+            try:
+                self.bot.tree.add_command(self.admin)
+            except app_commands.CommandAlreadyRegistered:
+                pass
+
+    async def cog_unload(self):
+        existing_group = self.bot.tree.get_command(
+            "admin", type=discord.AppCommandType.chat_input
+        )
+        if existing_group is self.admin:
+            self.bot.tree.remove_command("admin", type=discord.AppCommandType.chat_input)
 
     @app_commands.command(name="help", description="Zobrazí užitečné informace o Rebirth Champions.")
     async def help(self, interaction: discord.Interaction):
