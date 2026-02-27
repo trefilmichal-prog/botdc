@@ -16,8 +16,10 @@ from config import (
 )
 from db import (
     get_latest_clan_application_by_user,
+    get_officer_action_stats,
     list_clan_definitions,
     mark_clan_application_deleted,
+    record_officer_action,
 )
 from i18n import get_interaction_locale, t
 
@@ -103,6 +105,14 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
         ticket_info = await self._remove_clan_ticket_for_member(
             interaction.guild, user, reason_text, locale, interaction.user
         )
+
+        if interaction.guild is not None:
+            record_officer_action(
+                interaction.guild.id,
+                interaction.user.id,
+                "kick",
+                target_user_id=user.id,
+            )
 
         response = t("kick_success", locale, user=user.mention, reason=reason_text)
         details = [info for info in (role_info, ticket_info) if info]
@@ -191,6 +201,45 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
 
         return t("ticket_mark_deleted", locale)
 
+    @admin.command(
+        name="stat",
+        description="Zobrazí statistiky officer akcí (kick, zamítnutí, přijetí).",
+    )
+    @app_commands.describe(user="Officer, kterého statistiky chceš zobrazit.")
+    @app_commands.checks.has_permissions(kick_members=True)
+    async def officer_stat(self, interaction: discord.Interaction, user: discord.Member):
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message(
+                "Příkaz lze použít pouze na serveru.", ephemeral=True
+            )
+            return
+
+        stats = get_officer_action_stats(guild.id, user.id)
+        kick_count = stats.get("kick", 0)
+        denied_count = stats.get("rejected", 0)
+        accepted_count = stats.get("accepted", 0)
+        deleted_count = stats.get("ticket_deleted", 0)
+        total = kick_count + denied_count + accepted_count + deleted_count
+
+        view = discord.ui.LayoutView(timeout=None)
+        view.add_item(
+            discord.ui.Container(
+                discord.ui.TextDisplay(content=f"## 📊 Officer statistiky: {user.display_name}"),
+                discord.ui.TextDisplay(content=f"**Officer:** {user.mention}\n**Celkem akcí:** {total}"),
+                discord.ui.Separator(spacing=discord.SeparatorSpacing.small),
+                discord.ui.TextDisplay(
+                    content=(
+                        f"👢 Kick: **{kick_count}**\n"
+                        f"❌ Zamítnutí: **{denied_count}**\n"
+                        f"✅ Přijetí: **{accepted_count}**\n"
+                        f"🗑️ Smazání ticketu: **{deleted_count}**"
+                    )
+                ),
+            )
+        )
+        await interaction.response.send_message(view=view, ephemeral=True)
+
     @admin.command(name="ban", description="Zabanuje člena.")
     @app_commands.describe(user="Uživatel, který má být zabanován.", reason="Důvod banu.")
     @app_commands.checks.has_permissions(ban_members=True)
@@ -210,6 +259,10 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
             return
 
         await interaction.guild.ban(user, reason=reason, delete_message_days=0)
+        if interaction.guild is not None:
+            record_officer_action(
+                interaction.guild.id, interaction.user.id, "ban", target_user_id=user.id
+            )
         await interaction.response.send_message(
             t(
                 "ban_success",
@@ -303,6 +356,11 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
             )
         except discord.Forbidden:
             pass
+
+        if interaction.guild is not None:
+            record_officer_action(
+                interaction.guild.id, interaction.user.id, "warn", target_user_id=user.id
+            )
 
         await interaction.response.send_message(
             f"Uživatel {user.mention} obdržel varování ({status_text}).", ephemeral=True

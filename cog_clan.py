@@ -35,6 +35,7 @@ from db import (
     save_clan_ticket_vacation,
     set_clan_ticket_category_base_name,
     mark_clan_application_deleted,
+    record_officer_action,
     upsert_clan_definition,
     update_clan_application_form,
     update_clan_application_last_message,
@@ -1989,6 +1990,13 @@ class ClanPanelCog(commands.Cog):
                     except Exception:
                         pass
 
+                record_officer_action(
+                    guild.id,
+                    clicker.id,
+                    "kick",
+                    target_user_id=applicant.id,
+                )
+
                 response_lines = [_t(lang, "kick_done"), role_info, ticket_info]
                 await interaction.edit_original_response(
                     view=_simple_text_view("\n".join(response_lines))
@@ -2039,6 +2047,8 @@ class ClanPanelCog(commands.Cog):
                         mark_clan_application_deleted(app_record["id"])
                     except Exception:
                         pass
+
+                record_officer_action(guild.id, clicker.id, "ticket_deleted")
 
                 return
 
@@ -2514,6 +2524,13 @@ class ClanPanelCog(commands.Cog):
                 except Exception:
                     pass
 
+                record_officer_action(
+                    guild.id,
+                    clicker.id,
+                    "accepted",
+                    target_user_id=applicant.id,
+                )
+
                 await ticket_channel.send(
                     f"{_t(lang, 'accepted_msg')} {clicker.mention}. {_t(lang, 'accepted_role_added')} {role.name}.",
                     allowed_mentions=discord.AllowedMentions(roles=False, users=True, everyone=False),
@@ -2544,6 +2561,13 @@ class ClanPanelCog(commands.Cog):
                     set_clan_application_status(app_id, "rejected")
                 except Exception:
                     pass
+
+                record_officer_action(
+                    guild.id,
+                    clicker.id,
+                    "rejected",
+                    target_user_id=applicant.id,
+                )
 
                 await ticket_channel.send(f"{_t(lang, 'denied_msg')} {clicker.mention}.")
                 response_text = _t(lang, "denied_ephemeral")
