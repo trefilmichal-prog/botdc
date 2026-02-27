@@ -6,7 +6,6 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import (
-    ALLOWED_GUILD_ID,
     WARN_ROLE_1_ID,
     WARN_ROLE_2_ID,
     WARN_ROLE_3_ID,
@@ -29,7 +28,6 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
     admin = app_commands.Group(
         name="admin",
         description="Administrátorské příkazy.",
-        guild_ids=[int(ALLOWED_GUILD_ID)] if ALLOWED_GUILD_ID else None,
     )
 
     def __init__(self, bot: commands.Bot):
