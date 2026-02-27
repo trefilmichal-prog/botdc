@@ -1279,10 +1279,19 @@ class ClanPanelConfigModal(discord.ui.Modal):
 class ClanPanelCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self._settings_group_registered_name: str | None = None
 
         self.clan_panel_group = app_commands.Group(
             name="clan_panel",
             description="Správa panelu pro clan přihlášky",
+        )
+        self.settings_group = app_commands.Group(
+            name="settings",
+            description="Nastavení clan ticketu",
+        )
+        self.settings_namespace_group = app_commands.Group(
+            name="clan_settings",
+            description="Namespaced nastavení clan ticketu",
         )
         self.clan_panel_group.command(
             name="post", description="Zobrazí panel pro přihlášky do clanu"
@@ -1301,6 +1310,14 @@ class ClanPanelCog(commands.Cog):
             name="ticket",
             description="Zobrazí admin menu pro aktuální clan ticket",
         )(self.ticket_settings)
+        self.settings_group.command(
+            name="ticket",
+            description="Zobrazí admin menu pro aktuální clan ticket",
+        )(self.settings_ticket)
+        self.settings_namespace_group.command(
+            name="ticket",
+            description="Zobrazí admin menu pro aktuální clan ticket",
+        )(self.settings_ticket)
 
         self.__cog_app_commands__ = []
         self._ticket_category_refresh_task.start()
@@ -1520,6 +1537,23 @@ class ClanPanelCog(commands.Cog):
         except app_commands.CommandAlreadyRegistered:
             pass
 
+        settings_root = self.bot.tree.get_command("settings", type=discord.AppCommandType.chat_input)
+        if settings_root is None:
+            try:
+                self.bot.tree.add_command(self.settings_group)
+                self._settings_group_registered_name = "settings"
+            except app_commands.CommandAlreadyRegistered:
+                self._settings_group_registered_name = None
+        else:
+            namespaced_existing = self.bot.tree.get_command("clan_settings", type=discord.AppCommandType.chat_input)
+            if namespaced_existing:
+                self.bot.tree.remove_command("clan_settings", type=discord.AppCommandType.chat_input)
+            try:
+                self.bot.tree.add_command(self.settings_namespace_group)
+                self._settings_group_registered_name = "clan_settings"
+            except app_commands.CommandAlreadyRegistered:
+                self._settings_group_registered_name = None
+
 
         for guild_id, _, message_id in get_all_clan_application_panels():
             try:
@@ -1536,6 +1570,18 @@ class ClanPanelCog(commands.Cog):
         existing_group = self.bot.tree.get_command("clan_panel", type=discord.AppCommandType.chat_input)
         if existing_group:
             self.bot.tree.remove_command("clan_panel", type=discord.AppCommandType.chat_input)
+
+        if self._settings_group_registered_name:
+            existing_settings_group = self.bot.tree.get_command(
+                self._settings_group_registered_name,
+                type=discord.AppCommandType.chat_input,
+            )
+            if existing_settings_group:
+                self.bot.tree.remove_command(
+                    self._settings_group_registered_name,
+                    type=discord.AppCommandType.chat_input,
+                )
+            self._settings_group_registered_name = None
 
 
     @app_commands.checks.has_permissions(administrator=True)
@@ -1573,6 +1619,13 @@ class ClanPanelCog(commands.Cog):
 
     @app_commands.guild_only()
     async def ticket_settings(self, interaction: discord.Interaction):
+        await self._open_ticket_settings(interaction)
+
+    @app_commands.guild_only()
+    async def settings_ticket(self, interaction: discord.Interaction):
+        await self._open_ticket_settings(interaction)
+
+    async def _open_ticket_settings(self, interaction: discord.Interaction):
         guild = interaction.guild
         channel = interaction.channel
 
