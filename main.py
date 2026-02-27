@@ -178,6 +178,17 @@ class MyBot(commands.Bot):
             # Globální sync je pomalejší na propagaci, ale zajišťuje jednotné příkazy.
             synced = await self.tree.sync()
             logger.info("Globální sync slash commandů: %s příkazů.", len(synced))
+
+            synced_names = {
+                command.qualified_name
+                for command in synced
+                if command.type == discord.AppCommandType.chat_input
+            }
+            logger.info(
+                "Sync kontrola ticket commandů: /clan_settings ticket=%s, /settings ticket=%s",
+                "clan_settings ticket" in synced_names,
+                "settings ticket" in synced_names,
+            )
         except Exception:
             logger.exception("Globální sync slash commandů selhal.")
 

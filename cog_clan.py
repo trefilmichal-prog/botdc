@@ -1279,7 +1279,8 @@ class ClanPanelConfigModal(discord.ui.Modal):
 class ClanPanelCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self._settings_group_registered_name: str | None = None
+        self._registered_settings_groups: set[str] = set()
+        self._canonical_settings_group_name = "clan_settings"
 
         self.clan_panel_group = app_commands.Group(
             name="clan_panel",
@@ -1537,22 +1538,38 @@ class ClanPanelCog(commands.Cog):
         except app_commands.CommandAlreadyRegistered:
             pass
 
-        settings_root = self.bot.tree.get_command("settings", type=discord.AppCommandType.chat_input)
-        if settings_root is None:
-            try:
-                self.bot.tree.add_command(self.settings_group)
-                self._settings_group_registered_name = "settings"
-            except app_commands.CommandAlreadyRegistered:
-                self._settings_group_registered_name = None
-        else:
-            namespaced_existing = self.bot.tree.get_command("clan_settings", type=discord.AppCommandType.chat_input)
-            if namespaced_existing:
-                self.bot.tree.remove_command("clan_settings", type=discord.AppCommandType.chat_input)
-            try:
-                self.bot.tree.add_command(self.settings_namespace_group)
-                self._settings_group_registered_name = "clan_settings"
-            except app_commands.CommandAlreadyRegistered:
-                self._settings_group_registered_name = None
+        for group_name in ("settings", "clan_settings"):
+            existing_settings_group = self.bot.tree.get_command(
+                group_name,
+                type=discord.AppCommandType.chat_input,
+            )
+            if existing_settings_group and group_name in self._registered_settings_groups:
+                self.bot.tree.remove_command(group_name, type=discord.AppCommandType.chat_input)
+
+        self._registered_settings_groups.clear()
+
+        try:
+            self.bot.tree.add_command(self.settings_namespace_group)
+            self._registered_settings_groups.add(self._canonical_settings_group_name)
+        except app_commands.CommandAlreadyRegistered:
+            logging.getLogger("botdc").warning(
+                "Nelze zaregistrovat kanonický /%s ticket (název už je obsazen).",
+                self._canonical_settings_group_name,
+            )
+
+        try:
+            self.bot.tree.add_command(self.settings_group)
+            self._registered_settings_groups.add("settings")
+            logging.getLogger("botdc").warning(
+                "Používá se dočasný alias /settings ticket. Migrujte na /%s ticket.",
+                self._canonical_settings_group_name,
+            )
+        except app_commands.CommandAlreadyRegistered:
+            logging.getLogger("botdc").warning(
+                "Alias /settings ticket není dostupný (název už je obsazen). "
+                "Kanonický příkaz zůstává /%s ticket.",
+                self._canonical_settings_group_name,
+            )
 
 
         for guild_id, _, message_id in get_all_clan_application_panels():
@@ -1571,17 +1588,17 @@ class ClanPanelCog(commands.Cog):
         if existing_group:
             self.bot.tree.remove_command("clan_panel", type=discord.AppCommandType.chat_input)
 
-        if self._settings_group_registered_name:
+        for group_name in tuple(self._registered_settings_groups):
             existing_settings_group = self.bot.tree.get_command(
-                self._settings_group_registered_name,
+                group_name,
                 type=discord.AppCommandType.chat_input,
             )
             if existing_settings_group:
                 self.bot.tree.remove_command(
-                    self._settings_group_registered_name,
+                    group_name,
                     type=discord.AppCommandType.chat_input,
                 )
-            self._settings_group_registered_name = None
+        self._registered_settings_groups.clear()
 
 
     @app_commands.checks.has_permissions(administrator=True)
