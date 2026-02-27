@@ -32,6 +32,7 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.logger = logging.getLogger("botdc")
 
     async def cog_load(self):
         existing_group = self.bot.tree.get_command(

@@ -1279,7 +1279,8 @@ class ClanPanelConfigModal(discord.ui.Modal):
 class ClanPanelCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self._settings_group_registered_name: str | None = None
+        self._registered_settings_groups: set[str] = set()
+        self._canonical_settings_group_name = "clan_settings"
 
         self.clan_panel_group = app_commands.Group(
             name="clan_panel",
@@ -1568,17 +1569,17 @@ class ClanPanelCog(commands.Cog):
         if existing_group:
             self.bot.tree.remove_command("clan_panel", type=discord.AppCommandType.chat_input)
 
-        if self._settings_group_registered_name:
+        for group_name in tuple(self._registered_settings_groups):
             existing_settings_group = self.bot.tree.get_command(
-                self._settings_group_registered_name,
+                group_name,
                 type=discord.AppCommandType.chat_input,
             )
             if existing_settings_group:
                 self.bot.tree.remove_command(
-                    self._settings_group_registered_name,
+                    group_name,
                     type=discord.AppCommandType.chat_input,
                 )
-            self._settings_group_registered_name = None
+        self._registered_settings_groups.clear()
 
 
     @app_commands.checks.has_permissions(administrator=True)
