@@ -6,6 +6,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import (
+    ALLOWED_GUILD_ID,
     WARN_ROLE_1_ID,
     WARN_ROLE_2_ID,
     WARN_ROLE_3_ID,
@@ -25,7 +26,11 @@ from i18n import get_interaction_locale, t
 
 
 class BasicCommandsCog(commands.Cog, name="BasicCommands"):
-    admin = app_commands.Group(name="admin", description="Administrátorské příkazy.")
+    admin = app_commands.Group(
+        name="admin",
+        description="Administrátorské příkazy.",
+        guild_ids=[int(ALLOWED_GUILD_ID)] if ALLOWED_GUILD_ID else None,
+    )
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -201,21 +206,10 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
 
         return t("ticket_mark_deleted", locale)
 
-    @admin.command(
-        name="stat",
-        description="Zobrazí statistiky officer akcí (kick, zamítnutí, přijetí).",
-    )
-    @app_commands.describe(user="Officer, kterého statistiky chceš zobrazit.")
-    @app_commands.checks.has_permissions(kick_members=True)
-    async def officer_stat(self, interaction: discord.Interaction, user: discord.Member):
-        guild = interaction.guild
-        if guild is None:
-            await interaction.response.send_message(
-                "Příkaz lze použít pouze na serveru.", ephemeral=True
-            )
-            return
-
-        stats = get_officer_action_stats(guild.id, user.id)
+    def _build_officer_stats_view(
+        self, guild_id: int, user: discord.Member
+    ) -> discord.ui.LayoutView:
+        stats = get_officer_action_stats(guild_id, user.id)
         kick_count = stats.get("kick", 0)
         denied_count = stats.get("rejected", 0)
         accepted_count = stats.get("accepted", 0)
@@ -238,7 +232,41 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
                 ),
             )
         )
-        await interaction.response.send_message(view=view, ephemeral=True)
+        return view
+
+    @admin.command(
+        name="stat",
+        description="Zobrazí statistiky officer akcí (kick, zamítnutí, přijetí).",
+    )
+    @app_commands.describe(user="Officer, kterého statistiky chceš zobrazit.")
+    @app_commands.checks.has_permissions(kick_members=True)
+    async def officer_stat(self, interaction: discord.Interaction, user: discord.Member):
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message(
+                "Příkaz lze použít pouze na serveru.", ephemeral=True
+            )
+            return
+
+        await interaction.response.send_message(
+            view=self._build_officer_stats_view(guild.id, user), ephemeral=True
+        )
+
+    @app_commands.command(name="stat", description="Zobrazí statistiky officera.")
+    @app_commands.describe(user="Officer, kterého statistiky chceš zobrazit.")
+    @app_commands.checks.has_permissions(kick_members=True)
+    @app_commands.guild_only()
+    async def stat_alias(self, interaction: discord.Interaction, user: discord.Member):
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message(
+                "Příkaz lze použít pouze na serveru.", ephemeral=True
+            )
+            return
+
+        await interaction.response.send_message(
+            view=self._build_officer_stats_view(guild.id, user), ephemeral=True
+        )
 
     @admin.command(name="ban", description="Zabanuje člena.")
     @app_commands.describe(user="Uživatel, který má být zabanován.", reason="Důvod banu.")
