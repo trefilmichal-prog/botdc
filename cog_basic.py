@@ -32,6 +32,13 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.logger = logging.getLogger("botdc")
+
+    def _resolve_admin_group_in_cog_commands(self) -> app_commands.Group | None:
+        for cmd in getattr(self, "__cog_app_commands__", []):
+            if isinstance(cmd, app_commands.Group) and cmd.name == "admin":
+                return cmd
+        return None
 
     @app_commands.command(name="help", description="Zobrazí užitečné informace o Rebirth Champions.")
     async def help(self, interaction: discord.Interaction):
