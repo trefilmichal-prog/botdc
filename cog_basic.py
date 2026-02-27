@@ -33,21 +33,6 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    async def cog_load(self):
-        existing_group = self.bot.tree.get_command("admin", type=discord.AppCommandType.chat_input)
-        if existing_group:
-            self.bot.tree.remove_command("admin", type=discord.AppCommandType.chat_input)
-
-        try:
-            self.bot.tree.add_command(self.admin)
-        except app_commands.CommandAlreadyRegistered:
-            pass
-
-    async def cog_unload(self):
-        existing_group = self.bot.tree.get_command("admin", type=discord.AppCommandType.chat_input)
-        if existing_group:
-            self.bot.tree.remove_command("admin", type=discord.AppCommandType.chat_input)
-
     @app_commands.command(name="help", description="Zobrazí užitečné informace o Rebirth Champions.")
     async def help(self, interaction: discord.Interaction):
         locale = get_interaction_locale(interaction)

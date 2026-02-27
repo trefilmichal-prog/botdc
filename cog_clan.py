@@ -1537,22 +1537,19 @@ class ClanPanelCog(commands.Cog):
         except app_commands.CommandAlreadyRegistered:
             pass
 
-        settings_root = self.bot.tree.get_command("settings", type=discord.AppCommandType.chat_input)
-        if settings_root is None:
-            try:
-                self.bot.tree.add_command(self.settings_group)
-                self._settings_group_registered_name = "settings"
-            except app_commands.CommandAlreadyRegistered:
-                self._settings_group_registered_name = None
-        else:
-            namespaced_existing = self.bot.tree.get_command("clan_settings", type=discord.AppCommandType.chat_input)
-            if namespaced_existing:
-                self.bot.tree.remove_command("clan_settings", type=discord.AppCommandType.chat_input)
-            try:
-                self.bot.tree.add_command(self.settings_namespace_group)
-                self._settings_group_registered_name = "clan_settings"
-            except app_commands.CommandAlreadyRegistered:
-                self._settings_group_registered_name = None
+        existing_settings = self.bot.tree.get_command(
+            "settings", type=discord.AppCommandType.chat_input
+        )
+        if existing_settings:
+            self.bot.tree.remove_command(
+                "settings", type=discord.AppCommandType.chat_input
+            )
+
+        try:
+            self.bot.tree.add_command(self.settings_group)
+            self._settings_group_registered_name = "settings"
+        except app_commands.CommandAlreadyRegistered:
+            self._settings_group_registered_name = None
 
 
         for guild_id, _, message_id in get_all_clan_application_panels():
