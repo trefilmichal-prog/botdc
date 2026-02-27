@@ -2,6 +2,7 @@ import collections
 import importlib.util
 import logging
 import time
+from typing import Callable
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -84,36 +85,45 @@ class MyBot(commands.Bot):
         self._interaction_dedupe_window_seconds = 120.0
 
     async def setup_hook(self):
-        async def add_cog_safe(cog: commands.Cog):
+        async def add_cog_safe(cog_factory: Callable[[], commands.Cog]):
+            factory_name = getattr(cog_factory, "__name__", cog_factory.__class__.__name__)
+            cog_name = "neznámý"
             try:
+                cog = cog_factory()
+                cog_name = getattr(cog, "qualified_name", type(cog).__name__)
                 await self.add_cog(cog)
-                logger.info("Cog %s byl úspěšně přidán.", cog.qualified_name)
+                logger.info(
+                    "Cog %s (factory: %s) byl úspěšně přidán.",
+                    cog.qualified_name,
+                    factory_name,
+                )
             except Exception:
                 logger.exception(
-                    "Přidání cogu %s selhalo, pokračuji dál.",
-                    getattr(cog, "qualified_name", type(cog).__name__),
+                    "Přidání cogu %s z factory %s selhalo, pokračuji dál.",
+                    cog_name,
+                    factory_name,
                 )
 
-        await add_cog_safe(DiscordWriteCoordinatorCog(self))
-        for cog in [
-            LoggingCog(self),
-            AutoUpdater(self),
-            XpCog(self),
-            WoodCog(self),
-            TimersCog(self),
-            ShopCog(self),
-            SecretMessageCog(self),
-            ClanStatsOcrCog(self),
-            BasicCommandsCog(self),
-            LeaderboardCog(self),
-            AdminTasks(self),
-            RebirthPanel(self),
-            AutoTranslateCog(self),
-            TimeStatusCog(self),
-            WelcomeCog(self),
-            RestartSchedulerCog(self),
+        await add_cog_safe(lambda: DiscordWriteCoordinatorCog(self))
+        for cog_factory in [
+            lambda: LoggingCog(self),
+            lambda: AutoUpdater(self),
+            lambda: XpCog(self),
+            lambda: WoodCog(self),
+            lambda: TimersCog(self),
+            lambda: ShopCog(self),
+            lambda: SecretMessageCog(self),
+            lambda: ClanStatsOcrCog(self),
+            lambda: BasicCommandsCog(self),
+            lambda: LeaderboardCog(self),
+            lambda: AdminTasks(self),
+            lambda: RebirthPanel(self),
+            lambda: AutoTranslateCog(self),
+            lambda: TimeStatusCog(self),
+            lambda: WelcomeCog(self),
+            lambda: RestartSchedulerCog(self),
         ]:
-            await add_cog_safe(cog)
+            await add_cog_safe(cog_factory)
 
         existing_clan_panel = self.tree.get_command(
             "clan_panel", type=discord.AppCommandType.chat_input
@@ -123,15 +133,15 @@ class MyBot(commands.Bot):
                 "clan_panel", type=discord.AppCommandType.chat_input
             )
 
-        for cog in [
-            GiveawayCog(self),
-            ClanPanelCog(self),
-            AttendanceCog(self),
-            ProphecyCog(self),
-            RobloxActivityCog(self),
-            SecretNotificationsForwarder(self),
+        for cog_factory in [
+            lambda: GiveawayCog(self),
+            lambda: ClanPanelCog(self),
+            lambda: AttendanceCog(self),
+            lambda: ProphecyCog(self),
+            lambda: RobloxActivityCog(self),
+            lambda: SecretNotificationsForwarder(self),
         ]:
-            await add_cog_safe(cog)
+            await add_cog_safe(cog_factory)
 
         if WINDOWS_NOTIFICATION_WINRT_ENABLED:
             self.winrt_listener = WindowsNotificationListener(
