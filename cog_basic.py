@@ -32,20 +32,61 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.logger = logging.getLogger("botdc")
+
+    def _resolve_admin_group_in_cog_commands(self) -> app_commands.Group | None:
+        for cmd in getattr(self, "__cog_app_commands__", []):
+            if isinstance(cmd, app_commands.Group) and cmd.name == "admin":
+                return cmd
+        return None
 
     async def cog_load(self):
-        existing_group = self.bot.tree.get_command("admin", type=discord.AppCommandType.chat_input)
-        if existing_group:
-            self.bot.tree.remove_command("admin", type=discord.AppCommandType.chat_input)
+        registration_result = "skipped"
 
-        try:
-            self.bot.tree.add_command(self.admin)
-        except app_commands.CommandAlreadyRegistered:
-            pass
+        if self._resolve_admin_group_in_cog_commands() is not None:
+            registration_result = "already_registered"
+            self.logger.info(
+                "Registrace /admin probíhá standardně přes cog app commands (bez ruční manipulace tree)."
+            )
+        else:
+            existing_group = self.bot.tree.get_command(
+                "admin", type=discord.AppCommandType.chat_input
+            )
+            if isinstance(existing_group, app_commands.Group):
+                self.logger.info(
+                    "Ruční registrace /admin přeskočena: root command už existuje jako app_commands.Group."
+                )
+                registration_result = "already_registered"
+            elif existing_group is not None:
+                self.logger.warning(
+                    "Ruční registrace /admin přeskočena: nalezen command jiného typu (%s), bez remove_command.",
+                    type(existing_group).__name__,
+                )
+                registration_result = "skipped"
+            else:
+                try:
+                    self.bot.tree.add_command(self.admin)
+                    registration_result = "added"
+                except app_commands.CommandAlreadyRegistered:
+                    registration_result = "already_registered"
+
+        admin_group = self.bot.tree.get_command("admin", type=discord.AppCommandType.chat_input)
+        subcommand_names = (
+            sorted(cmd.name for cmd in admin_group.commands)
+            if isinstance(admin_group, app_commands.Group)
+            else []
+        )
+        expected_subcommands = ["kick", "stat", "sync", "ban", "warn"]
+        self.logger.info(
+            "Admin group registration result=%s, subcommandy=%s, expected=%s",
+            registration_result,
+            subcommand_names,
+            expected_subcommands,
+        )
 
     async def cog_unload(self):
         existing_group = self.bot.tree.get_command("admin", type=discord.AppCommandType.chat_input)
-        if existing_group:
+        if isinstance(existing_group, app_commands.Group):
             self.bot.tree.remove_command("admin", type=discord.AppCommandType.chat_input)
 
     @app_commands.command(name="help", description="Zobrazí užitečné informace o Rebirth Champions.")
