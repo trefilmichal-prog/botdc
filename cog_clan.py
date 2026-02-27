@@ -1282,7 +1282,6 @@ class ClanPanelCog(commands.Cog):
         self.clan_panel_group = app_commands.Group(
             name="clan_panel",
             description="Správa panelu pro clan přihlášky",
-            default_permissions=discord.Permissions(administrator=True),
         )
         self.clan_panel_group.command(
             name="post", description="Zobrazí panel pro přihlášky do clanu"
@@ -1297,6 +1296,11 @@ class ClanPanelCog(commands.Cog):
             name="ticket_reminders",
             description="Ruční kontrola připomínek u ticketů",
         )(self.clan_panel_ticket_reminders)
+        self.clan_panel_group.command(
+            name="ticket",
+            description="Zobrazí admin menu pro aktuální clan ticket",
+        )(self.ticket_settings)
+
         self.__cog_app_commands__ = []
         self._ticket_category_refresh_task.start()
 
@@ -1509,10 +1513,12 @@ class ClanPanelCog(commands.Cog):
         if existing_group:
             self.bot.tree.remove_command("clan_panel", type=discord.AppCommandType.chat_input)
 
+
         try:
             self.bot.tree.add_command(self.clan_panel_group)
         except app_commands.CommandAlreadyRegistered:
             pass
+
 
         for guild_id, _, message_id in get_all_clan_application_panels():
             try:
@@ -1529,6 +1535,7 @@ class ClanPanelCog(commands.Cog):
         existing_group = self.bot.tree.get_command("clan_panel", type=discord.AppCommandType.chat_input)
         if existing_group:
             self.bot.tree.remove_command("clan_panel", type=discord.AppCommandType.chat_input)
+
 
     @app_commands.checks.has_permissions(administrator=True)
     async def clan_panel(self, interaction: discord.Interaction):
@@ -1562,6 +1569,36 @@ class ClanPanelCog(commands.Cog):
         message_key = "ticket_reminder_manual_done" if sent else "ticket_reminder_manual_none"
         view.add_item(discord.ui.TextDisplay(content=_t(lang, message_key).format(count=sent)))
         await interaction.edit_original_response(view=view)
+
+    @app_commands.guild_only()
+    async def ticket_settings(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        channel = interaction.channel
+
+        lang = _lang_for_member(interaction.user) if isinstance(interaction.user, discord.Member) else "cs"
+
+        if guild is None or not isinstance(channel, discord.TextChannel):
+            await interaction.response.send_message(_t(lang, "must_be_in_guild"), ephemeral=True)
+            return
+
+        clicker = interaction.user
+        if not isinstance(clicker, discord.Member):
+            await interaction.response.send_message(_t(lang, "ticket_invalid"), ephemeral=True)
+            return
+
+        applicant_id, clan_value = _parse_ticket_topic(channel.topic or "")
+        if not applicant_id or not clan_value:
+            await interaction.response.send_message(_t(lang, "ticket_invalid"), ephemeral=True)
+            return
+
+        if not _is_reviewer(clicker, clan_value):
+            await interaction.response.send_message(_t(lang, "no_perm"), ephemeral=True)
+            return
+
+        await interaction.response.send_message(
+            view=AdminDecisionView(channel.id, clan_value, lang, guild.id),
+            ephemeral=True,
+        )
 
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.guild_only()
