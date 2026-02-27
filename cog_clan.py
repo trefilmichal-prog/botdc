@@ -1298,15 +1298,11 @@ class ClanPanelCog(commands.Cog):
             name="ticket_reminders",
             description="Ruční kontrola připomínek u ticketů",
         )(self.clan_panel_ticket_reminders)
-
-        self.settings_group = app_commands.Group(
-            name="settings",
-            description="Nastavení ticketů",
-        )
-        self.settings_group.command(
+        self.clan_panel_group.command(
             name="ticket",
-            description="Zobrazí stejné menu jako ⚙️ v clan ticketu",
+            description="Zobrazí admin menu pro aktuální clan ticket",
         )(self.ticket_settings)
+
         self.__cog_app_commands__ = []
         self._ticket_category_refresh_task.start()
 
@@ -1519,19 +1515,12 @@ class ClanPanelCog(commands.Cog):
         if existing_group:
             self.bot.tree.remove_command("clan_panel", type=discord.AppCommandType.chat_input)
 
-        existing_settings_group = self.bot.tree.get_command("settings", type=discord.AppCommandType.chat_input)
-        if existing_settings_group:
-            self.bot.tree.remove_command("settings", type=discord.AppCommandType.chat_input)
 
         try:
             self.bot.tree.add_command(self.clan_panel_group)
         except app_commands.CommandAlreadyRegistered:
             pass
 
-        try:
-            self.bot.tree.add_command(self.settings_group)
-        except app_commands.CommandAlreadyRegistered:
-            pass
 
         for guild_id, _, message_id in get_all_clan_application_panels():
             try:
@@ -1549,9 +1538,6 @@ class ClanPanelCog(commands.Cog):
         if existing_group:
             self.bot.tree.remove_command("clan_panel", type=discord.AppCommandType.chat_input)
 
-        existing_settings_group = self.bot.tree.get_command("settings", type=discord.AppCommandType.chat_input)
-        if existing_settings_group:
-            self.bot.tree.remove_command("settings", type=discord.AppCommandType.chat_input)
 
     @app_commands.checks.has_permissions(administrator=True)
     async def clan_panel(self, interaction: discord.Interaction):
