@@ -1019,6 +1019,25 @@ def init_db():
         """
     )
 
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS officer_action_stats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            officer_id INTEGER NOT NULL,
+            action_type TEXT NOT NULL,
+            target_user_id INTEGER,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    c.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_officer_action_stats_lookup
+        ON officer_action_stats (guild_id, officer_id, action_type)
+        """
+    )
+
     c.execute("PRAGMA table_info(clan_applications)")
     columns = [row[1] for row in c.fetchall()]
     if "locale" not in columns:
@@ -3183,6 +3202,54 @@ def mark_clan_application_deleted(app_id: int):
     )
     conn.commit()
     conn.close()
+
+
+def record_officer_action(
+    guild_id: int,
+    officer_id: int,
+    action_type: str,
+    target_user_id: int | None = None,
+    happened_at: Optional[datetime] = None,
+) -> None:
+    action = (action_type or "").strip().lower()
+    if not action:
+        return
+
+    timestamp = (happened_at or datetime.utcnow()).strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO officer_action_stats (
+            guild_id,
+            officer_id,
+            action_type,
+            target_user_id,
+            created_at
+        )
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (int(guild_id), int(officer_id), action, target_user_id, timestamp),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_officer_action_stats(guild_id: int, officer_id: int) -> Dict[str, int]:
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT action_type, COUNT(*)
+        FROM officer_action_stats
+        WHERE guild_id = ? AND officer_id = ?
+        GROUP BY action_type
+        """,
+        (int(guild_id), int(officer_id)),
+    )
+    rows = c.fetchall()
+    conn.close()
+    return {str(action): int(count) for action, count in rows}
 
 
 def save_clan_ticket_vacation(
