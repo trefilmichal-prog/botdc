@@ -281,15 +281,22 @@ class BasicCommandsCog(commands.Cog, name="BasicCommands"):
 
         await interaction.response.defer(ephemeral=True)
         try:
+            self.bot.tree.copy_global_to(guild=guild)
             synced = await self.bot.tree.sync(guild=guild)
             view = discord.ui.LayoutView(timeout=None)
             view.add_item(
                 discord.ui.Container(
-                    discord.ui.TextDisplay(content=f"✅ Synchronizováno `{len(synced)}` příkazů pro tento server.")
+                    discord.ui.TextDisplay(
+                        content=(
+                            "✅ Proveden guild force sync global+guild commands. "
+                            f"Synchronizováno `{len(synced)}` příkazů pro tento server."
+                        )
+                    )
                 )
             )
             await interaction.followup.send(view=view, ephemeral=True)
         except Exception:
+            self.logger.exception("Guild force sync global+guild commands selhal.")
             view = discord.ui.LayoutView(timeout=None)
             view.add_item(
                 discord.ui.Container(
